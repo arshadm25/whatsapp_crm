@@ -114,6 +114,19 @@ postgres:
       credentialsSecret: ecogo-whatsapp-backup-s3
       retentionPolicy: 30d
 
+# Every process serves Prometheus metrics at /metrics on its HTTP port. The ingress does not route
+# that path, so only the cluster can scrape it. Switch these on when the Prometheus Operator is installed.
+metrics:
+  podMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}              # labels your Prometheus selects PodMonitors by, for example release: kube-prometheus-stack
+  rules:
+    enabled: false          # alert rules (PrometheusRule)
+    labels: {}
+  # Namespace Prometheus runs in, allowed through the network policy to scrape our pods.
+  namespace: monitoring
+
 networkPolicy:
   enabled: true
   # Namespace of the ingress controller, allowed to reach api, ingest and web.

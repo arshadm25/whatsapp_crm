@@ -1,0 +1,93 @@
+{{- if .Values.metrics.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "ecogo.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchExpressions:
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [api, ingest, worker] }
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+{{- end }}
+{{- if .Values.metrics.rules.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "ecogo.labels" . | nindent 4 }}
+    {{- with .Values.metrics.rules.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: ecogo-whatsapp
+      rules:
+        - alert: EcogoHighErrorRate
+          expr: |
+            sum(rate(ecogo_http_requests_total{status=~"5.."}[5m]))
+              / clamp_min(sum(rate(ecogo_http_requests_total[5m])), 1) > 0.05
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: More than 5% of requests are failing with a server error.
+        - alert: EcogoSlowRequests
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(ecogo_http_request_duration_seconds_bucket[5m]))) > 2
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: The slowest 5% of requests take over 2 seconds.
+        - alert: EcogoJobBacklog
+          expr: max by (queue) (ecogo_jobs_oldest_seconds) > 600
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: 'Jobs in the {{ "{{ $labels.queue }}" }} queue have waited over 10 minutes; messages or webhooks may be delayed.'
+        - alert: EcogoDeadJobs
+          expr: max by (queue) (ecogo_jobs{state="discarded"}) > 0
+          for: 30m
+          labels: { severity: warning }
+          annotations:
+            summary: 'Jobs in the {{ "{{ $labels.queue }}" }} queue were discarded after failing every retry.'
+        - alert: EcogoMetaWebhookBacklog
+          expr: max(ecogo_meta_webhook_backlog) > 20
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: Meta webhook deliveries are not being processed; customer messages and statuses are delayed.
+        - alert: EcogoMetaWebhookErrors
+          expr: max(ecogo_meta_webhook_errors_1h) > 10
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: Many Meta webhook deliveries failed processing in the last hour.
+        - alert: EcogoMetaApiErrors
+          expr: max(ecogo_meta_api_errors_1h) > 50
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: Calls to the Meta Graph API are failing often; see the admin console's Meta API errors.
+        - alert: EcogoDatabasePoolExhausted
+          expr: max by (pod) (ecogo_db_pool_acquired_connections / ecogo_db_pool_max_connections) > 0.9
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: 'A pod is using over 90% of its database connections.'
+        - alert: EcogoPodDown
+          expr: absent(ecogo_db_pool_max_connections)
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: Prometheus cannot scrape any Ecogo pod.
+{{- end }}

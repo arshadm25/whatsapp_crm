@@ -25,7 +25,7 @@ func signedRequest(secret, userID string) string {
 
 func TestDataDeletionCallback(t *testing.T) {
 	h := newHarness(t)
-	ingest := httptest.NewServer(server.NewIngest(h.db, http.NotFoundHandler(), deletion.NewHandler(h.db, "app-secret", h.api.URL, h.log), h.log))
+	ingest := httptest.NewServer(server.NewIngest(h.db, http.NotFoundHandler(), deletion.NewHandler(h.db, "app-secret", h.api.URL, h.log), nil, h.log))
 	t.Cleanup(ingest.Close)
 
 	post := func(signed string) (int, string) {

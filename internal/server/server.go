@@ -24,6 +24,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
+	"github.com/arshadm25/whatsapp_crm/internal/metrics"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
@@ -51,6 +52,7 @@ type APIDeps struct {
 	Billing    *billing.Service
 	Events     http.Handler
 	Deletion   *deletion.Handler
+	Metrics    *metrics.Metrics // optional
 }
 
 // NewAPI returns the api router:
@@ -60,7 +62,7 @@ type APIDeps struct {
 func NewAPI(d APIDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID, middleware.RealIP, httpx.Logger(d.Log), middleware.Recoverer)
-	health(r, d.DB)
+	health(r, d.DB, d.Metrics)
 	// Razorpay signs its deliveries; there is no session or CSRF token.
 	r.Post("/webhooks/razorpay", d.Billing.Webhook)
 
@@ -117,10 +119,10 @@ func NewAPI(d APIDeps) http.Handler {
 
 // NewIngest returns the Meta webhook receiver router: /meta takes Meta's handshake and
 // deliveries, and /meta/data-deletion Meta's data deletion callback. It holds no tokens and no master key; it only checks signatures and enqueues.
-func NewIngest(d *db.DB, meta http.Handler, del *deletion.Handler, log *slog.Logger) http.Handler {
+func NewIngest(d *db.DB, meta http.Handler, del *deletion.Handler, m *metrics.Metrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID, middleware.RealIP, httpx.Logger(log), middleware.Recoverer)
-	health(r, d)
+	health(r, d, m)
 	r.Method(http.MethodGet, "/meta", meta)
 	r.Method(http.MethodPost, "/meta", meta)
 	r.Post("/meta/data-deletion", del.Callback)
@@ -128,14 +130,20 @@ func NewIngest(d *db.DB, meta http.Handler, del *deletion.Handler, log *slog.Log
 }
 
 // NewHealth returns a router with only the health endpoints, for the worker's probe port.
-func NewHealth(d *db.DB, log *slog.Logger) http.Handler {
+func NewHealth(d *db.DB, m *metrics.Metrics, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
-	health(r, d)
+	health(r, d, m)
 	return r
 }
 
-func health(r chi.Router, d *db.DB) {
+// health mounts the probes and, when m is set, /metrics and request metrics on every route
+// mounted after this call.
+func health(r chi.Router, d *db.DB, m *metrics.Metrics) {
+	if m != nil {
+		r.Use(m.Middleware)
+		r.Method(http.MethodGet, "/metrics", m.Handler())
+	}
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
