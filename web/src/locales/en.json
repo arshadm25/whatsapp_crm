@@ -1074,7 +1074,21 @@
     "noAudit": "No audit entries yet.",
     "reasonLine": "Reason: {{reason}}",
     "throughputSub": "Events per hour, last {{count}} hours",
-    "now": "Now"
+    "now": "Now",
+    "waba": "WABA",
+    "messages30": "Messages (30 days)",
+    "trial": "Trial",
+    "activeTenantsSub": "+{{added}} this week · {{suspended}} suspended",
+    "clearCode": "Show all codes (now {{code}})",
+    "errorsByCodeWindow_one": "Grouped over the last hour. Pick one to filter the list.",
+    "errorsByCodeWindow_other": "Grouped over the last {{count}} hours. Pick one to filter the list.",
+    "errorTenants_one": "{{count}} workspace",
+    "errorTenants_other": "{{count}} workspaces",
+    "sameAsPrevious": "same as the window before",
+    "moreThanPrevious_one": "{{count}} more than the window before",
+    "moreThanPrevious_other": "{{count}} more than the window before",
+    "fewerThanPrevious_one": "{{count}} fewer than the window before",
+    "fewerThanPrevious_other": "{{count}} fewer than the window before"
   },
   "billing": {
     "onPlan": "{{plan}} plan",

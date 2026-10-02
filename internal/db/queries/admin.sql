@@ -51,6 +51,8 @@ LIMIT 50;
 -- name: AdminMetaErrors :many
 SELECT * FROM meta_api_errors
 WHERE (sqlc.narg(tenant_id)::uuid IS NULL OR tenant_id = sqlc.narg(tenant_id))
+  AND (sqlc.narg(since)::timestamptz IS NULL OR occurred_at > sqlc.narg(since))
+  AND (sqlc.narg(code)::int IS NULL OR code = sqlc.narg(code))
   AND (sqlc.narg(before_id)::bigint IS NULL OR id < sqlc.narg(before_id))
 ORDER BY id DESC
 LIMIT @lim;
@@ -71,3 +73,32 @@ VALUES ($1, 'platform_admin', $2, $3, $4, $5, $6, $7, '{}');
 -- name: AdminDeliveryStats :many
 -- Client webhook deliveries in the tenant since a time, by status.
 SELECT status, count(*)::int AS n FROM webhook_deliveries WHERE created_at > @since GROUP BY status;
+
+-- name: AdminTenantOverview :many
+SELECT o.tenant_id::uuid AS tenant_id, coalesce(o.waba_id, '')::text AS waba_id, o.waba_count::int AS waba_count,
+       coalesce(o.plan_code, '')::text AS plan_code, coalesce(o.subscription_status, '')::text AS subscription_status,
+       o.numbers::int AS numbers, o.messages_30d::int AS messages_30d, coalesce(o.worst_quality, '')::text AS worst_quality
+FROM admin_tenant_overview(@ids::uuid[]) o;
+
+-- name: AdminTenantKPIs :one
+SELECT (count(*) FILTER (WHERE status = 'active'))::int AS active,
+       (count(*) FILTER (WHERE status = 'active' AND created_at > now() - interval '7 days'))::int AS new_this_week,
+       (count(*) FILTER (WHERE status = 'suspended'))::int AS suspended
+FROM tenants;
+
+-- name: AdminMetaErrorCounts :one
+-- Meta API errors in the window ending now and in the window before it.
+SELECT (count(*) FILTER (WHERE occurred_at > @since::timestamptz))::int AS current,
+       (count(*) FILTER (WHERE occurred_at <= @since::timestamptz))::int AS previous
+FROM meta_api_errors
+WHERE occurred_at > @previous_since::timestamptz;
+
+-- name: AdminMetaErrorGroups :many
+SELECT code, subcode, http_status, coalesce(min(message), '')::text AS message, count(*)::int AS n,
+       count(DISTINCT tenant_id)::int AS tenants, max(occurred_at)::timestamptz AS last_at
+FROM meta_api_errors
+WHERE occurred_at > @since::timestamptz
+  AND (sqlc.narg(tenant_id)::uuid IS NULL OR tenant_id = sqlc.narg(tenant_id))
+GROUP BY code, subcode, http_status
+ORDER BY n DESC
+LIMIT 50;

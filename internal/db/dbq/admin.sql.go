@@ -182,22 +182,111 @@ func (q *Queries) AdminListTenants(ctx context.Context, arg AdminListTenantsPara
 	return items, nil
 }
 
+const adminMetaErrorCounts = `-- name: AdminMetaErrorCounts :one
+SELECT (count(*) FILTER (WHERE occurred_at > $1::timestamptz))::int AS current,
+       (count(*) FILTER (WHERE occurred_at <= $1::timestamptz))::int AS previous
+FROM meta_api_errors
+WHERE occurred_at > $2::timestamptz
+`
+
+type AdminMetaErrorCountsParams struct {
+	Since         time.Time
+	PreviousSince time.Time
+}
+
+type AdminMetaErrorCountsRow struct {
+	Current  int32
+	Previous int32
+}
+
+// Meta API errors in the window ending now and in the window before it.
+func (q *Queries) AdminMetaErrorCounts(ctx context.Context, arg AdminMetaErrorCountsParams) (AdminMetaErrorCountsRow, error) {
+	row := q.db.QueryRow(ctx, adminMetaErrorCounts, arg.Since, arg.PreviousSince)
+	var i AdminMetaErrorCountsRow
+	err := row.Scan(&i.Current, &i.Previous)
+	return i, err
+}
+
+const adminMetaErrorGroups = `-- name: AdminMetaErrorGroups :many
+SELECT code, subcode, http_status, coalesce(min(message), '')::text AS message, count(*)::int AS n,
+       count(DISTINCT tenant_id)::int AS tenants, max(occurred_at)::timestamptz AS last_at
+FROM meta_api_errors
+WHERE occurred_at > $1::timestamptz
+  AND ($2::uuid IS NULL OR tenant_id = $2)
+GROUP BY code, subcode, http_status
+ORDER BY n DESC
+LIMIT 50
+`
+
+type AdminMetaErrorGroupsParams struct {
+	Since    time.Time
+	TenantID *uuid.UUID
+}
+
+type AdminMetaErrorGroupsRow struct {
+	Code       *int32
+	Subcode    *int32
+	HttpStatus int32
+	Message    string
+	N          int32
+	Tenants    int32
+	LastAt     time.Time
+}
+
+func (q *Queries) AdminMetaErrorGroups(ctx context.Context, arg AdminMetaErrorGroupsParams) ([]AdminMetaErrorGroupsRow, error) {
+	rows, err := q.db.Query(ctx, adminMetaErrorGroups, arg.Since, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminMetaErrorGroupsRow
+	for rows.Next() {
+		var i AdminMetaErrorGroupsRow
+		if err := rows.Scan(
+			&i.Code,
+			&i.Subcode,
+			&i.HttpStatus,
+			&i.Message,
+			&i.N,
+			&i.Tenants,
+			&i.LastAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const adminMetaErrors = `-- name: AdminMetaErrors :many
 SELECT id, tenant_id, method, path, http_status, code, subcode, message, fbtrace_id, occurred_at FROM meta_api_errors
 WHERE ($1::uuid IS NULL OR tenant_id = $1)
-  AND ($2::bigint IS NULL OR id < $2)
+  AND ($2::timestamptz IS NULL OR occurred_at > $2)
+  AND ($3::int IS NULL OR code = $3)
+  AND ($4::bigint IS NULL OR id < $4)
 ORDER BY id DESC
-LIMIT $3
+LIMIT $5
 `
 
 type AdminMetaErrorsParams struct {
 	TenantID *uuid.UUID
+	Since    *time.Time
+	Code     *int32
 	BeforeID *int64
 	Lim      int32
 }
 
 func (q *Queries) AdminMetaErrors(ctx context.Context, arg AdminMetaErrorsParams) ([]MetaApiError, error) {
-	rows, err := q.db.Query(ctx, adminMetaErrors, arg.TenantID, arg.BeforeID, arg.Lim)
+	rows, err := q.db.Query(ctx, adminMetaErrors,
+		arg.TenantID,
+		arg.Since,
+		arg.Code,
+		arg.BeforeID,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +379,26 @@ func (q *Queries) AdminTenantCounts(ctx context.Context) (AdminTenantCountsRow, 
 	return i, err
 }
 
+const adminTenantKPIs = `-- name: AdminTenantKPIs :one
+SELECT (count(*) FILTER (WHERE status = 'active'))::int AS active,
+       (count(*) FILTER (WHERE status = 'active' AND created_at > now() - interval '7 days'))::int AS new_this_week,
+       (count(*) FILTER (WHERE status = 'suspended'))::int AS suspended
+FROM tenants
+`
+
+type AdminTenantKPIsRow struct {
+	Active      int32
+	NewThisWeek int32
+	Suspended   int32
+}
+
+func (q *Queries) AdminTenantKPIs(ctx context.Context) (AdminTenantKPIsRow, error) {
+	row := q.db.QueryRow(ctx, adminTenantKPIs)
+	var i AdminTenantKPIsRow
+	err := row.Scan(&i.Active, &i.NewThisWeek, &i.Suspended)
+	return i, err
+}
+
 const adminTenantNumbers = `-- name: AdminTenantNumbers :many
 SELECT p.id, p.display_phone_number, p.verified_name, p.status, p.quality_rating, p.messaging_limit_tier,
        p.is_coexistence, w.waba_id
@@ -326,6 +435,53 @@ func (q *Queries) AdminTenantNumbers(ctx context.Context) ([]AdminTenantNumbersR
 			&i.MessagingLimitTier,
 			&i.IsCoexistence,
 			&i.WabaID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const adminTenantOverview = `-- name: AdminTenantOverview :many
+SELECT o.tenant_id::uuid AS tenant_id, coalesce(o.waba_id, '')::text AS waba_id, o.waba_count::int AS waba_count,
+       coalesce(o.plan_code, '')::text AS plan_code, coalesce(o.subscription_status, '')::text AS subscription_status,
+       o.numbers::int AS numbers, o.messages_30d::int AS messages_30d, coalesce(o.worst_quality, '')::text AS worst_quality
+FROM admin_tenant_overview($1::uuid[]) o
+`
+
+type AdminTenantOverviewRow struct {
+	TenantID           uuid.UUID
+	WabaID             string
+	WabaCount          int32
+	PlanCode           string
+	SubscriptionStatus string
+	Numbers            int32
+	Messages30d        int32
+	WorstQuality       string
+}
+
+func (q *Queries) AdminTenantOverview(ctx context.Context, ids []uuid.UUID) ([]AdminTenantOverviewRow, error) {
+	rows, err := q.db.Query(ctx, adminTenantOverview, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminTenantOverviewRow
+	for rows.Next() {
+		var i AdminTenantOverviewRow
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.WabaID,
+			&i.WabaCount,
+			&i.PlanCode,
+			&i.SubscriptionStatus,
+			&i.Numbers,
+			&i.Messages30d,
+			&i.WorstQuality,
 		); err != nil {
 			return nil, err
 		}
