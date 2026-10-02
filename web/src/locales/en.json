@@ -684,6 +684,16 @@
     "pacedText": "Your number can reach {{limit}} unique users every 24 hours. Larger audiences are spread across days automatically, and contacts without an opt-in are skipped."
   },
   "analytics": {
+    "export": "Export",
+    "conversations": "Conversations",
+    "free": "Free messages",
+    "team": "Team performance",
+    "medianResponse_one": "Median first response {{time}}, across {{count}} answered customer message.",
+    "medianResponse_other": "Median first response {{time}}, across {{count}} answered customer messages.",
+    "agent": "Team member",
+    "chats": "Chats",
+    "firstResponse": "Median first response",
+    "resolved": "Resolved",
     "title": "Analytics",
     "ownersOnly": "Only owners and admins can see analytics.",
     "lastDays_one": "Today",
@@ -720,7 +730,6 @@
     "intro": "Messaging volume, estimated Meta cost and delivery for {{name}}.",
     "range": "Date range",
     "days": "{{count}} days",
-    "export": "Export",
     "kpiSent": "Messages sent",
     "kpiSentFoot": "{{delivered}} delivered · {{read}} read",
     "kpiReceived": "Messages received",
@@ -740,7 +749,9 @@
     "byNumberSub": "Sent from each connected number",
     "messages": "Messages",
     "share": "Share",
-    "estCost": "Est. cost"
+    "estCost": "Est. cost",
+    "conversationCount_one": "{{count}} conversation",
+    "conversationCount_other": "{{count}} conversations"
   },
   "settings": {
     "title": "Settings",

@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { useMe, usePhoneNumbers } from "../api/hooks";
-import type { UsageCounts, UsageReport } from "../api/types";
-import { daysAgo, percent, rupees } from "../lib/analytics";
+import type { TeamReport, UsageCounts, UsageReport } from "../api/types";
+import { daysAgo, duration, percent, reportCSV, rupees } from "../lib/analytics";
 import Icon, { type IconName } from "../components/Icon";
 import { shortDate } from "../lib/time";
 
@@ -27,6 +27,11 @@ export default function Analytics() {
     enabled: canView,
     refetchInterval: 60_000,
   });
+  const team = useQuery({
+    queryKey: ["analytics-team", days],
+    queryFn: () => api<TeamReport>("GET", `/internal/analytics/team?from=${daysAgo(days - 1)}`),
+    enabled: canView,
+  });
 
   if (role && !canView) {
     return (
@@ -43,9 +48,7 @@ export default function Analytics() {
   // Export: one CSV row per day, built in the browser from the loaded report.
   const exportCsv = () => {
     if (!r) return;
-    const head = ["day", "sent", "delivered", "read", "failed", "received", "billable", "est_cost_inr"];
-    const rows = r.days.map((d) => [d.day, d.sent, d.delivered, d.read, d.failed, d.received, d.billable, (d.est_cost_minor / 100).toFixed(2)]);
-    const csv = [head, ...rows].map((row) => row.join(",")).join("\n");
+    const csv = reportCSV(r.days);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = `analytics-${r.from}-${r.to}.csv`;
@@ -82,7 +85,8 @@ export default function Analytics() {
           <div className="grid g4">
             <Stat label={t("analytics.kpiSent")} value={r.totals.sent.toLocaleString()} icon="send"
               foot={t("analytics.kpiSentFoot", { delivered: percent(r.totals.delivered, r.totals.sent), read: percent(r.totals.read, r.totals.delivered) })} />
-            <Stat label={t("analytics.kpiReceived")} value={r.totals.received.toLocaleString()} icon="inbox" tone="bl" foot={t("analytics.kpiReceivedFoot")} />
+            <Stat label={t("analytics.kpiReceived")} value={r.totals.received.toLocaleString()} icon="inbox" tone="bl"
+              foot={`${t("analytics.kpiReceivedFoot")} · ${t("analytics.conversationCount", { count: r.conversations })}`} />
             <Stat label={t("analytics.kpiCost")} value={rupees(r.totals.est_cost_minor)} icon="activity" tone="am"
               foot={r.unpriced_billable > 0 ? t("analytics.unpriced", { count: r.unpriced_billable }) : t("analytics.kpiCostFoot", { count: r.totals.billable })} />
             <Stat label={t("analytics.kpiFailed")} value={r.totals.failed.toLocaleString()} icon="alert" tone={r.totals.failed > 0 ? "rd" : "gy"}
@@ -122,8 +126,10 @@ export default function Analytics() {
             <Breakdown
               title={t("analytics.byNumber")} sub={t("analytics.byNumberSub")}
               first={t("numbers.number")} rows={r.by_number} total={r.totals.sent} label={numberName}
+              conversations={r.conversations_by_number}
             />
           </div>
+          {team.data && <Team report={team.data} />}
           <p className="muted small">{t("analytics.note", { tz: r.time_zone })}</p>
         </div>
       )}
@@ -195,11 +201,61 @@ function LineChart({ days }: { days: (UsageCounts & { day: string })[] }) {
   );
 }
 
-function Breakdown({ title, sub, first, rows, total, label }: {
+function Team({ report }: { report: TeamReport }) {
+  const { t } = useTranslation();
+  return (
+    <div className="card flush">
+      <div className="chd">
+        <div>
+          <h2>{t("analytics.team")}</h2>
+          <p>{t("analytics.medianResponse", { time: duration(report.median_first_response_seconds), count: report.replies })}</p>
+        </div>
+      </div>
+      {report.agents.length === 0 ? (
+        <div className="cb muted">{t("analytics.none")}</div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("analytics.agent")}</th>
+                <th className="r">{t("analytics.chats")}</th>
+                <th className="r">{t("analytics.firstResponse")}</th>
+                <th>{t("analytics.resolved")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.agents.map((a) => (
+                <tr key={a.user_id}>
+                  <td><b style={{ color: "var(--text)" }}>{a.name}</b></td>
+                  <td className="r num-t">{a.chats.toLocaleString()}</td>
+                  <td className="r num-t">{duration(a.median_first_response_seconds)}</td>
+                  <td>
+                    {a.resolved_pct == null ? <span className="muted">—</span> : (
+                      <div className="bar-cell">
+                        <div className="bar"><span style={{ width: `${Math.round(a.resolved_pct)}%` }} /></div>
+                        <span className="num-t">{Math.round(a.resolved_pct)}%</span>
+                        <span className="muted small">{a.resolved}/{a.assigned}</span>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Breakdown({ title, sub, first, rows, total, label, conversations }: {
   title: string; sub: string; first: string;
   rows: (UsageCounts & { key: string })[];
   total: number;
   label: (k: string) => string;
+  // Conversations per key; shown with the free messages used (the by-number table).
+  conversations?: Record<string, number>;
 }) {
   const { t } = useTranslation();
   const sorted = [...rows].sort((a, b) => b.sent - a.sent);
@@ -216,6 +272,8 @@ function Breakdown({ title, sub, first, rows, total, label }: {
                 <th>{first}</th>
                 <th className="r">{t("analytics.messages")}</th>
                 <th className="r">{t("analytics.share")}</th>
+                {conversations && <th className="r">{t("analytics.conversations")}</th>}
+                {conversations && <th className="r">{t("analytics.free")}</th>}
                 <th className="r">{t("analytics.estCost")}</th>
               </tr>
             </thead>
@@ -225,6 +283,8 @@ function Breakdown({ title, sub, first, rows, total, label }: {
                   <td><b style={{ color: "var(--text)" }}>{label(r.key)}</b></td>
                   <td className="r num-t">{r.sent.toLocaleString()}</td>
                   <td className="r num-t">{percent(r.sent, total)}</td>
+                  {conversations && <td className="r num-t">{(conversations[r.key] ?? 0).toLocaleString()}</td>}
+                  {conversations && <td className="r num-t">{r.free.toLocaleString()}</td>}
                   <td className="r num-t">{rupees(r.est_cost_minor)}</td>
                 </tr>
               ))}

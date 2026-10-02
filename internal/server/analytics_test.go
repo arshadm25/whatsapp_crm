@@ -47,7 +47,7 @@ func TestAnalytics(t *testing.T) {
 
 	var rep analytics.Report
 	c.do("GET", "/internal/analytics", nil, http.StatusOK, &rep)
-	want := analytics.Counts{Sent: 2, Delivered: 2, Read: 1, Received: 1, Billable: 1, EstCostMinor: 78}
+	want := analytics.Counts{Sent: 2, Delivered: 2, Read: 1, Received: 1, Billable: 1, Free: 1, EstCostMinor: 78}
 	if rep.Totals != want || len(rep.Days) != 30 || rep.TimeZone != "Asia/Kolkata" || rep.Currency != "INR" {
 		t.Fatalf("report = %+v", rep)
 	}
@@ -69,6 +69,20 @@ func TestAnalytics(t *testing.T) {
 	}
 	if len(rep.ByCountry) != 1 || rep.ByCountry[0].Key != "IN" || len(rep.ByNumber) != 1 || rep.ByNumber[0].Key != phone.ID.String() {
 		t.Fatalf("by country %+v, by number %+v", rep.ByCountry, rep.ByNumber)
+	}
+
+	if rep.Conversations != 1 || rep.ConversationsByNumber[phone.ID.String()] != 1 {
+		t.Fatalf("conversations = %d %v", rep.Conversations, rep.ConversationsByNumber)
+	}
+
+	// The dashboard reply answered the customer's first message.
+	var team analytics.Team
+	c.do("GET", "/internal/analytics/team", nil, http.StatusOK, &team)
+	if team.Replies != 1 || team.MedianFirstResponseSeconds == nil || len(team.Agents) != 1 {
+		t.Fatalf("team = %+v", team)
+	}
+	if a := team.Agents[0]; a.UserID != me.User.ID || a.Chats != 1 || a.Replies != 1 || a.MedianFirstResponseSeconds == nil {
+		t.Fatalf("agent = %+v", a)
 	}
 
 	// The hourly job rolls up every tenant; a range ending yesterday leaves today out.

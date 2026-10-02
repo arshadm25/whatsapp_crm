@@ -38,6 +38,7 @@ func NewService(d *db.DB, log *slog.Logger) *Service { return &Service{db: d, lo
 func (s *Service) InternalRoutes(r chi.Router) {
 	r.Use(auth.RequireRole(dbq.MemberRoleOwner, dbq.MemberRoleAdmin))
 	r.Get("/", httpx.Handler(s.log, s.report))
+	r.Get("/team", httpx.Handler(s.log, s.team))
 }
 
 // Counts are message totals. sent, delivered and read are cumulative.
@@ -48,6 +49,8 @@ type Counts struct {
 	Failed    int32 `json:"failed"`
 	Received  int32 `json:"received"`
 	Billable  int32 `json:"billable"`
+	// Free counts sent messages Meta does not charge for (service replies, free entry points).
+	Free int32 `json:"free"`
 	// EstCostMinor is Meta's estimated charge in paise.
 	EstCostMinor int64 `json:"est_cost_minor"`
 }
@@ -59,6 +62,9 @@ func (c *Counts) add(u dbq.UsageDaily) {
 	c.Failed += u.Failed
 	c.Received += u.Received
 	c.Billable += u.Billable
+	if free := u.Sent - u.Billable; free > 0 {
+		c.Free += free
+	}
 	c.EstCostMinor += u.EstMetaCostMinor
 }
 
@@ -86,6 +92,10 @@ type Report struct {
 	ByOrigin         []Group `json:"by_origin"`
 	ByCountry        []Group `json:"by_country"`
 	ByNumber         []Group `json:"by_number"`
+	// Conversations counts conversations with at least one message in the period, overall and
+	// by number ID.
+	Conversations         int32            `json:"conversations"`
+	ConversationsByNumber map[string]int32 `json:"conversations_by_number"`
 }
 
 func (s *Service) report(w http.ResponseWriter, r *http.Request) error {
@@ -127,7 +137,14 @@ func (s *Service) report(w http.ResponseWriter, r *http.Request) error {
 		}
 		out = build(rows, from, to)
 		out.TimeZone = loc.String()
-		return nil
+		start, end := period(from, to, loc)
+		convs, err := q.ConversationsByNumber(ctx, dbq.ConversationsByNumberParams{Start: start, EndAt: end, PhoneNumberID: phone})
+		out.ConversationsByNumber = map[string]int32{}
+		for _, c := range convs {
+			out.Conversations += c.Conversations
+			out.ConversationsByNumber[c.PhoneNumberID.String()] = c.Conversations
+		}
+		return err
 	})
 	if err != nil {
 		return err

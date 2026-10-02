@@ -22,3 +22,21 @@ export function scale(values: number[]): number[] {
   const max = Math.max(0, ...values);
   return values.map((v) => (max > 0 ? v / max : 0));
 }
+
+// A wait in seconds as "45s", "3m 20s" or "2h 5m"; "—" when there is none.
+export function duration(seconds: number | null | undefined): string {
+  if (seconds == null) return "—";
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+// The daily figures as CSV for the Export button.
+export function reportCSV(days: { day: string; sent: number; delivered: number; read: number; failed: number; received: number; billable: number; est_cost_minor: number }[]): string {
+  const rows = [["date", "sent", "delivered", "read", "failed", "received", "billable", "estimated_cost_inr"]];
+  for (const d of days) {
+    rows.push([d.day, d.sent, d.delivered, d.read, d.failed, d.received, d.billable, (d.est_cost_minor / 100).toFixed(2)].map(String));
+  }
+  return rows.map((r) => r.join(",")).join("\n") + "\n";
+}

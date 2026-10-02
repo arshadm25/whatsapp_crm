@@ -330,7 +330,29 @@ export interface UsageCounts {
   failed: number;
   received: number;
   billable: number;
+  // Sent messages Meta does not charge for.
+  free: number;
   est_cost_minor: number;
+}
+
+export interface AgentPerformance {
+  user_id: string;
+  name: string;
+  chats: number;
+  replies: number;
+  median_first_response_seconds: number | null;
+  assigned: number;
+  resolved: number;
+  resolved_pct: number | null;
+}
+
+export interface TeamReport {
+  from: string;
+  to: string;
+  time_zone: string;
+  replies: number;
+  median_first_response_seconds: number | null;
+  agents: AgentPerformance[];
 }
 
 export interface UsageReport {
@@ -345,6 +367,8 @@ export interface UsageReport {
   by_origin: (UsageCounts & { key: string })[];
   by_country: (UsageCounts & { key: string })[];
   by_number: (UsageCounts & { key: string })[];
+  conversations: number;
+  conversations_by_number: Record<string, number>;
 }
 
 export type Role = TenantInfo["role"];
