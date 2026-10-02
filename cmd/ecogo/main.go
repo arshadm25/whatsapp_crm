@@ -23,6 +23,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/arshadm25/whatsapp_crm/internal/admin"
+	"github.com/arshadm25/whatsapp_crm/internal/ai"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
@@ -129,6 +130,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Bots:       bots.NewService(d, rc, log),
+		AI:         ai.NewService(d, ai.NewAgent(ai.New(cfg.AI, nil), log), rc, log),
 		Flows:      flows.NewService(d, keys, meta, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
@@ -179,7 +181,10 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, media.NewDownloadWorker(d, keys, meta, store, log))
 	river.AddWorker(workers, webhooks.NewWorker(d, keys, nil, log))
 	river.AddWorker(workers, campaigns.NewWorker(d, log))
-	river.AddWorker(workers, bots.NewWorker(d, log))
+	botWorker := bots.NewWorker(d, log)
+	botWorker.AI = ai.NewAgent(ai.New(cfg.AI, nil), log)
+	river.AddWorker(workers, botWorker)
+	river.AddWorker(workers, ai.NewIngestWorker(d, ai.Fetcher{}, log))
 	river.AddWorker(workers, analytics.NewWorker(d, log))
 	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
 	river.AddWorker(workers, retention.NewWorker(d, store, log))

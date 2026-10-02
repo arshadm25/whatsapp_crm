@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/arshadm25/whatsapp_crm/internal/admin"
+	"github.com/arshadm25/whatsapp_crm/internal/ai"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
@@ -51,6 +52,7 @@ type APIDeps struct {
 	Campaigns  *campaigns.Service
 	Bots       *bots.Service
 	Flows      *flows.Service
+	AI         *ai.Service
 	Analytics  *analytics.Service
 	Admin      *admin.Service
 	Billing    *billing.Service
@@ -117,6 +119,8 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/bots", d.Bots.Routes)
 			r.Route("/flows", d.Flows.Routes)
 			r.Route("/flow-submissions", d.Flows.SubmissionRoutes)
+			r.Route("/knowledge", d.AI.KnowledgeRoutes)
+			r.Route("/ai", d.AI.Routes)
 		})
 	})
 

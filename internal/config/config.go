@@ -46,6 +46,8 @@ type Config struct {
 
 	Razorpay Razorpay
 
+	AI AI
+
 	Seller Seller
 }
 
@@ -58,6 +60,15 @@ type Seller struct {
 	SAC string
 	// GSTRateBP is the GST rate in basis points (1800 = 18%). Plan prices include it.
 	GSTRateBP int
+}
+
+// AI is the language model behind chatbot answers (Phase 2). Without an API key the AI step of a
+// chatbot hands the conversation to a person.
+type AI struct {
+	Provider string // anthropic
+	APIKey   string
+	Model    string
+	BaseURL  string // overridden in tests
 }
 
 // Razorpay takes payment for our plans (D9). Billing works without it, but nobody can pay.
@@ -124,6 +135,12 @@ func Load() (*Config, error) {
 			KeySecret:     os.Getenv("ECOGO_RAZORPAY_KEY_SECRET"),
 			WebhookSecret: os.Getenv("ECOGO_RAZORPAY_WEBHOOK_SECRET"),
 			BaseURL:       strings.TrimRight(env("ECOGO_RAZORPAY_BASE_URL", "https://api.razorpay.com"), "/"),
+		},
+		AI: AI{
+			Provider: env("ECOGO_AI_PROVIDER", "anthropic"),
+			APIKey:   os.Getenv("ECOGO_AI_API_KEY"),
+			Model:    env("ECOGO_AI_MODEL", "claude-haiku-4-5-20251001"),
+			BaseURL:  strings.TrimRight(env("ECOGO_AI_BASE_URL", "https://api.anthropic.com"), "/"),
 		},
 		Seller: Seller{
 			Name:    env("ECOGO_SELLER_NAME", "Ecogo Software Solutions Pvt Ltd"),

@@ -24,6 +24,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/arshadm25/whatsapp_crm/internal/admin"
+	"github.com/arshadm25/whatsapp_crm/internal/ai"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
@@ -265,6 +266,8 @@ type harness struct {
 	downloader *media.DownloadWorker
 	campaigns  *campaigns.Worker
 	bots       *bots.Worker
+	ingest     *ai.IngestWorker
+	ai         *fakeAI
 	razorpay   *fakeRazorpay
 	keys       *envelope.Keyring
 	log        *slog.Logger
@@ -304,6 +307,8 @@ func newHarness(t *testing.T) *harness {
 	hubCtx, stopHub := context.WithCancel(context.Background())
 	t.Cleanup(stopHub)
 	go hub.Run(hubCtx)
+	fai := &fakeAI{}
+	agent := ai.NewAgent(fai, log)
 	h := server.NewAPI(server.APIDeps{
 		Config: cfg, DB: d, Log: log,
 		Auth:       auth.NewService(d, keys, cfg, mailer.Log{Logger: log}, log),
@@ -320,6 +325,7 @@ func newHarness(t *testing.T) *harness {
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Bots:       bots.NewService(d, rc, log),
 		Flows:      flows.NewService(d, keys, meta, log),
+		AI:         ai.NewService(d, agent, rc, log).AllowPrivateURLs(),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
 		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),
@@ -337,6 +343,7 @@ func newHarness(t *testing.T) *harness {
 	runner.Jobs = rc
 	botRunner := bots.NewWorker(d, log)
 	botRunner.Jobs = rc
+	botRunner.AI = agent
 	return &harness{
 		t: t, db: d, meta: fm, api: api,
 		worker:     onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
@@ -345,6 +352,8 @@ func newHarness(t *testing.T) *harness {
 		downloader: media.NewDownloadWorker(d, keys, meta, store, log),
 		campaigns:  runner,
 		bots:       botRunner,
+		ingest:     ai.NewIngestWorker(d, ai.Fetcher{AllowPrivate: true}, log),
+		ai:         fai,
 		razorpay:   rp,
 		keys:       keys,
 		log:        log,

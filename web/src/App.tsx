@@ -18,6 +18,7 @@ import Contacts from "./pages/Contacts";
 import Campaigns from "./pages/Campaigns";
 import Bots from "./pages/Bots";
 import Flows from "./pages/Flows";
+import Knowledge from "./pages/Knowledge";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 import AcceptInvite from "./pages/AcceptInvite";
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="campaigns" element={<Campaigns />} />
         <Route path="bots" element={<Bots />} />
         <Route path="flows" element={<Flows />} />
+        <Route path="knowledge" element={<Knowledge />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="settings" element={<Settings />} />
         <Route path="admin" element={<Admin />} />

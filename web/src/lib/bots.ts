@@ -11,9 +11,10 @@ export type NodeType =
   | "template"
   | "handoff"
   | "flow"
+  | "ai"
   | "end";
 
-export const NODE_TYPES: NodeType[] = ["message", "buttons", "question", "condition", "set", "tag", "template", "flow", "handoff", "end"];
+export const NODE_TYPES: NodeType[] = ["message", "buttons", "question", "condition", "set", "tag", "template", "flow", "ai", "handoff", "end"];
 
 export interface BotButton {
   id: string;
@@ -39,6 +40,9 @@ export interface BotNode {
   flow_id?: string;
   cta?: string;
   screen?: string;
+  instructions?: string;
+  threshold?: number;
+  max_turns?: number;
 }
 
 export type TriggerType = "keyword" | "first_message" | "button_reply" | "any_message";
@@ -106,6 +110,8 @@ export function newNode(type: NodeType): BotNode {
       return { type, template: { name: "", language: "en", params: [] } };
     case "flow":
       return { type, text: "", flow_id: "", cta: "Open" };
+    case "ai":
+      return { type, text: "", threshold: 0.6, max_turns: 5 };
     case "handoff":
       return { type, text: "", reason: "wants_agent" };
     case "end":
@@ -142,6 +148,9 @@ export function edges(node: BotNode): Edge[] {
   };
   if (node.type === "condition") {
     add("then", node.then);
+    add("else", node.else);
+  } else if (node.type === "ai") {
+    add("next", node.next);
     add("else", node.else);
   } else if (node.type === "buttons") {
     for (const b of node.buttons ?? []) add(b.title, b.next);
@@ -295,6 +304,13 @@ export function problems(flow: BotFlow): Problem[] {
         if (n.var && !VAR_RE.test(n.var)) out.push({ node: id, message: "Name the answers with letters, digits and underscores." });
         link(id, "next", n.next);
         break;
+      case "ai":
+        if (n.text && [...n.text].length > MAX_TEXT) out.push({ node: id, message: `The greeting can have at most ${MAX_TEXT} characters.` });
+        if (n.threshold !== undefined && (n.threshold < 0 || n.threshold > 1)) out.push({ node: id, message: "The confidence threshold is between 0 and 1." });
+        if (n.max_turns !== undefined && (n.max_turns < 1 || n.max_turns > 20)) out.push({ node: id, message: "Answer 1 to 20 questions." });
+        link(id, "next", n.next);
+        link(id, "else", n.else);
+        break;
       case "template":
         if (!n.template?.name || !n.template.language) out.push({ node: id, message: "Choose a template." });
         link(id, "next", n.next);
@@ -309,7 +325,7 @@ export function problems(flow: BotFlow): Problem[] {
   return out;
 }
 
-const waits = (n: BotNode) => n.type === "buttons" || n.type === "question" || n.type === "flow";
+const waits = (n: BotNode) => n.type === "buttons" || n.type === "question" || n.type === "flow" || n.type === "ai";
 
 // loops reports a cycle made only of nodes that do not wait for the customer.
 function loops(flow: BotFlow): boolean {
@@ -343,6 +359,7 @@ export function summary(n: BotNode): string {
     case "set":
       return `${n.var} = ${n.value ?? ""}`;
     case "flow":
+    case "ai":
       return n.text ?? "";
     case "tag":
       return n.tag ?? "";

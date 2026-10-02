@@ -68,6 +68,18 @@ describe("bot flows", () => {
     expect(problems(f)).toEqual([]);
   });
 
+  it("checks an AI step, links its else path and lets it wait for the customer", () => {
+    const f: BotFlow = {
+      start: "ask",
+      triggers: [],
+      nodes: { ask: { ...newNode("ai"), next: "ask", else: "person" }, person: { type: "handoff", text: "", reason: "ai_unsure" } },
+    };
+    expect(problems(f)).toEqual([]);
+    f.nodes.ask.threshold = 2;
+    f.nodes.ask.else = "missing";
+    expect(problems(f).length).toBe(2);
+  });
+
   it("refuses a loop that never waits and allows one that does", () => {
     const loop: BotFlow = {
       start: "a",

@@ -440,6 +440,7 @@ export interface Plan {
   included_numbers: number;
   included_seats: number;
   extra_seat_minor: number;
+  ai_replies_per_month: number;
   razorpay_plan_id?: string | null;
   extra_seat_razorpay_plan_id?: string | null;
   extra_seats_available: boolean;
@@ -537,4 +538,33 @@ export interface FlowSubmission {
   conversation_id: string;
   response: Record<string, unknown>;
   created_at: string;
+}
+
+// Phase 2 AI agent.
+export interface KnowledgeSource {
+  id: string;
+  kind: "faq" | "text" | "website" | "document";
+  title: string;
+  url: string | null;
+  status: "pending" | "ready" | "failed";
+  error: string | null;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIUsage {
+  configured: boolean;
+  limit: number;
+  used: number;
+  period_start: string;
+  period_end: string;
+}
+
+export interface AITestResult {
+  answered: boolean;
+  text?: string;
+  confidence: number;
+  reason?: "limit" | "no_knowledge" | "low_confidence" | "error" | "not_configured";
+  sources?: { id: string; source_id: string; title: string; content: string }[];
 }
