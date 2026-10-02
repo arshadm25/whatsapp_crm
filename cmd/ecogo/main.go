@@ -189,9 +189,11 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, ai.NewIngestWorker(d, ai.Fetcher{}, log))
 	river.AddWorker(workers, analytics.NewWorker(d, log))
 	river.AddWorker(workers, metafees.NewWorker(d, cfg.Seller, cfg.MetaMarkupBP, log))
+	river.AddWorker(workers, metafees.NewReconciler(d, keys, meta, log))
+	river.AddWorker(workers, metafees.NewCreditLineWorker(d, meta, cfg.Meta.CreditLine, log))
 	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
 	river.AddWorker(workers, retention.NewWorker(d, store, log))
-	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), metafees.Periodic(), retention.Periodic()}, log)
+	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), metafees.Periodic(), metafees.ReconcilePeriodic(), metafees.CreditLinePeriodic(), retention.Periodic()}, log)
 	if err != nil {
 		return err
 	}

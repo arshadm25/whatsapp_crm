@@ -77,6 +77,9 @@ type fakeMeta struct {
 	flowAssets  [][]byte          // Flow JSON files uploaded
 	flowErrs    string            // JSON array of validation errors returned for Flow uploads
 	flowStatus  map[string]string // Flow ID -> status Meta reports
+	pricing     string            // JSON data_points returned for pricing_analytics
+	creditLines []string          // WABAs a credit line was attached to
+	creditErr   string            // JSON error body for credit line attaches, if set
 }
 
 func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +115,16 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fmt.Fprintf(w, `{"url":"http://%s/download/%s","mime_type":"image/jpeg","file_size":%d}`, r.Host, parts[0], len(b))
+	case len(parts) == 1 && r.Method == http.MethodGet && strings.HasPrefix(r.URL.Query().Get("fields"), "pricing_analytics"):
+		fmt.Fprintf(w, `{"pricing_analytics":{"data":[{"data_points":%s}]},"id":%q}`, f.pricing, parts[0])
+	case len(parts) == 2 && parts[1] == "whatsapp_credit_sharing_and_attach" && r.Method == http.MethodPost:
+		if f.creditErr != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, f.creditErr)
+			return
+		}
+		f.creditLines = append(f.creditLines, r.URL.Query().Get("waba_id")+" "+r.URL.Query().Get("waba_currency")+" "+r.Header.Get("Authorization"))
+		fmt.Fprintf(w, `{"allocation_config_id":"alloc-%d","waba_id":%q}`, len(f.creditLines), r.URL.Query().Get("waba_id"))
 	case path == "/oauth/access_token":
 		fmt.Fprintf(w, `{"access_token":"EAAG-%s"}`, r.URL.Query().Get("code"))
 	case len(parts) == 2 && parts[1] == "subscribed_apps":
@@ -269,6 +282,8 @@ type harness struct {
 	bots       *bots.Worker
 	ingest     *ai.IngestWorker
 	metaFees   *metafees.Worker
+	reconciler *metafees.Reconciler
+	creditLine *metafees.CreditLineWorker
 	ai         *fakeAI
 	razorpay   *fakeRazorpay
 	keys       *envelope.Keyring
@@ -357,6 +372,8 @@ func newHarness(t *testing.T) *harness {
 		bots:       botRunner,
 		ingest:     ai.NewIngestWorker(d, ai.Fetcher{AllowPrivate: true}, log),
 		metaFees:   metafees.NewWorker(d, sellerCfg, 500, log),
+		reconciler: metafees.NewReconciler(d, keys, meta, log),
+		creditLine: metafees.NewCreditLineWorker(d, meta, config.CreditLine{Enabled: true, ID: "cl_1", Token: "partner-token"}, log),
 		ai:         fai,
 		razorpay:   rp,
 		keys:       keys,

@@ -57,6 +57,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/meta-rates", httpx.Handler(s.log, s.listMetaRates))
 	r.Put("/meta-rates", httpx.Handler(s.log, s.saveMetaRate))
 	r.Delete("/meta-rates/{id}", httpx.Handler(s.log, s.deleteMetaRate))
+	r.Get("/meta-reconciliation", httpx.Handler(s.log, s.metaReconciliation))
 	r.Post("/tenants/{id}/meta-payment-mode", httpx.Handler(s.log, s.setMetaPaymentMode))
 	r.Get("/meta-fee-statements", httpx.Handler(s.log, s.listMetaFeeStatements))
 	r.Get("/meta-fee-statements/{id}/view", httpx.Handler(s.log, s.viewMetaFeeStatement))

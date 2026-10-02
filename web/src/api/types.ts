@@ -612,3 +612,25 @@ export interface MetaRate {
   rate_hundredths: number;
   effective_from: string;
 }
+
+export interface MetaReconciliationRow {
+  tenant_id: string;
+  tenant_name: string;
+  waba_id: string;
+  day: string;
+  category: string;
+  country: string;
+  our_messages: number;
+  meta_messages: number;
+  our_cost_minor: number;
+  meta_cost_minor: number;
+  currency: string;
+  status: "match" | "mismatch";
+  checked_at: string;
+}
+
+export interface MetaReconciliation {
+  data: MetaReconciliationRow[];
+  mismatches: number;
+  credit_line_problems: { tenant_id: string; tenant_name: string; waba_id: string; error: string }[];
+}

@@ -99,6 +99,15 @@ type Meta struct {
 	GraphAPIVersion string
 	GraphBaseURL    string // https://graph.facebook.com; overridden in tests
 	VerifyToken     string // webhook GET handshake token
+
+	// CreditLine shares Ecogo's credit line with client WABAs. Off until Meta approves Ecogo as a Solution Partner.
+	CreditLine CreditLine
+}
+
+type CreditLine struct {
+	Enabled bool
+	ID      string // the credit line's ID in Ecogo's Meta business
+	Token   string // a system user token of Ecogo's business, not a client's
 }
 
 type Mail struct {
@@ -162,6 +171,14 @@ func Load() (*Config, error) {
 	var err error
 	if c.Seller.GSTRateBP, err = strconv.Atoi(env("ECOGO_GST_RATE_BP", "1800")); err != nil || c.Seller.GSTRateBP < 0 || c.Seller.GSTRateBP > 10000 {
 		return nil, fmt.Errorf("ECOGO_GST_RATE_BP must be a number of basis points such as 1800")
+	}
+	if c.Meta.CreditLine.Enabled, err = strconv.ParseBool(env("ECOGO_META_CREDIT_LINE_ENABLED", "false")); err != nil {
+		return nil, fmt.Errorf("ECOGO_META_CREDIT_LINE_ENABLED: %w", err)
+	}
+	c.Meta.CreditLine.ID = strings.TrimSpace(os.Getenv("ECOGO_META_CREDIT_LINE_ID"))
+	c.Meta.CreditLine.Token = strings.TrimSpace(os.Getenv("ECOGO_META_PARTNER_TOKEN"))
+	if cl := c.Meta.CreditLine; cl.Enabled && (cl.ID == "" || cl.Token == "") {
+		return nil, fmt.Errorf("ECOGO_META_CREDIT_LINE_ID and ECOGO_META_PARTNER_TOKEN are required when ECOGO_META_CREDIT_LINE_ENABLED is true")
 	}
 	if c.MetaMarkupBP, err = strconv.Atoi(env("ECOGO_META_MARKUP_BP", "0")); err != nil || c.MetaMarkupBP < 0 || c.MetaMarkupBP > 10000 {
 		return nil, fmt.Errorf("ECOGO_META_MARKUP_BP must be a number of basis points such as 500")

@@ -113,7 +113,7 @@ func (q *Queries) GetTemplateByName(ctx context.Context, arg GetTemplateByNamePa
 }
 
 const getWhatsAppAccount = `-- name: GetWhatsAppAccount :one
-SELECT id, tenant_id, waba_id, business_id, name, currency, timezone_id, onboarding_flow, status, webhooks_subscribed_at, connected_at, disconnected_at, created_at, updated_at FROM whatsapp_accounts WHERE id = $1
+SELECT id, tenant_id, waba_id, business_id, name, currency, timezone_id, onboarding_flow, status, webhooks_subscribed_at, connected_at, disconnected_at, created_at, updated_at, credit_line_allocation_id, credit_line_attached_at, credit_line_error FROM whatsapp_accounts WHERE id = $1
 `
 
 func (q *Queries) GetWhatsAppAccount(ctx context.Context, id uuid.UUID) (WhatsappAccount, error) {
@@ -134,6 +134,9 @@ func (q *Queries) GetWhatsAppAccount(ctx context.Context, id uuid.UUID) (Whatsap
 		&i.DisconnectedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreditLineAllocationID,
+		&i.CreditLineAttachedAt,
+		&i.CreditLineError,
 	)
 	return i, err
 }
@@ -205,7 +208,7 @@ func (q *Queries) ListTemplates(ctx context.Context, arg ListTemplatesParams) ([
 }
 
 const listWhatsAppAccounts = `-- name: ListWhatsAppAccounts :many
-SELECT id, tenant_id, waba_id, business_id, name, currency, timezone_id, onboarding_flow, status, webhooks_subscribed_at, connected_at, disconnected_at, created_at, updated_at FROM whatsapp_accounts ORDER BY created_at
+SELECT id, tenant_id, waba_id, business_id, name, currency, timezone_id, onboarding_flow, status, webhooks_subscribed_at, connected_at, disconnected_at, created_at, updated_at, credit_line_allocation_id, credit_line_attached_at, credit_line_error FROM whatsapp_accounts ORDER BY created_at
 `
 
 func (q *Queries) ListWhatsAppAccounts(ctx context.Context) ([]WhatsappAccount, error) {
@@ -232,6 +235,9 @@ func (q *Queries) ListWhatsAppAccounts(ctx context.Context) ([]WhatsappAccount, 
 			&i.DisconnectedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreditLineAllocationID,
+			&i.CreditLineAttachedAt,
+			&i.CreditLineError,
 		); err != nil {
 			return nil, err
 		}

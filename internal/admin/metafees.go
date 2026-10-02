@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -276,5 +277,85 @@ func (s *Service) setMetaFeeStatementStatus(w http.ResponseWriter, r *http.Reque
 		return err
 	}
 	httpx.JSON(w, http.StatusOK, metafees.StatementView(out, nil))
+	return nil
+}
+
+// ReconciliationRow is a day of a WABA's usage against Meta's billing data.
+type ReconciliationRow struct {
+	TenantID     uuid.UUID `json:"tenant_id"`
+	TenantName   string    `json:"tenant_name"`
+	WabaID       string    `json:"waba_id"`
+	Day          string    `json:"day"`
+	Category     string    `json:"category"`
+	Country      string    `json:"country"`
+	OurMessages  int64     `json:"our_messages"`
+	MetaMessages int64     `json:"meta_messages"`
+	OurCost      int64     `json:"our_cost_minor"`
+	MetaCost     int64     `json:"meta_cost_minor"`
+	Currency     string    `json:"currency"`
+	Status       string    `json:"status"`
+	CheckedAt    time.Time `json:"checked_at"`
+}
+
+// CreditLineProblem is a WABA whose credit line could not be shared.
+type CreditLineProblem struct {
+	TenantID   uuid.UUID `json:"tenant_id"`
+	TenantName string    `json:"tenant_name"`
+	WabaID     string    `json:"waba_id"`
+	Error      string    `json:"error"`
+}
+
+// metaReconciliation lists the daily comparison with Meta's billing data (the last 14 days by
+// default) and the WABAs whose credit line failed.
+func (s *Service) metaReconciliation(w http.ResponseWriter, r *http.Request) error {
+	days := 14
+	if v := r.URL.Query().Get("days"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 90 {
+			return httpx.BadRequest("days", "Use 1 to 90 days.")
+		}
+		days = n
+	}
+	arg := dbq.AdminListReconciliationParams{Since: pgtype.Date{Time: s.now().In(ist).AddDate(0, 0, -days), Valid: true}, Lim: 1000}
+	if v := r.URL.Query().Get("status"); v != "" {
+		if v != "match" && v != "mismatch" {
+			return httpx.BadRequest("status", "Use match or mismatch.")
+		}
+		arg.Status = &v
+	}
+	var (
+		rows     []dbq.AdminListReconciliationRow
+		problems []dbq.AdminCreditLineProblemsRow
+	)
+	err := s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
+		var err error
+		if rows, err = q.AdminListReconciliation(r.Context(), arg); err != nil {
+			return err
+		}
+		problems, err = q.AdminCreditLineProblems(r.Context())
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	out := make([]ReconciliationRow, len(rows))
+	mismatches := 0
+	for i, v := range rows {
+		out[i] = ReconciliationRow{TenantID: v.TenantID, TenantName: v.TenantName, WabaID: v.WabaID, Day: v.Day.Time.Format("2006-01-02"),
+			Category: v.Category, Country: v.Country, OurMessages: v.OurMessages, MetaMessages: v.MetaMessages, OurCost: v.OurCostMinor,
+			MetaCost: v.MetaCostMinor, Currency: v.Currency, Status: v.Status, CheckedAt: v.CheckedAt}
+		if v.Status == "mismatch" {
+			mismatches++
+		}
+	}
+	cl := []CreditLineProblem{}
+	for _, p := range problems {
+		msg := ""
+		if p.CreditLineError != nil {
+			msg = *p.CreditLineError
+		}
+		cl = append(cl, CreditLineProblem{TenantID: p.TenantID, TenantName: p.TenantName, WabaID: p.WabaID, Error: msg})
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"data": out, "mismatches": mismatches, "credit_line_problems": cl})
 	return nil
 }
