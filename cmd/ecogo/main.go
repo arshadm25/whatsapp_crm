@@ -1,0 +1,207 @@
+// Command ecogo is the single binary behind every backend deployment:
+//
+//	ecogo api      public /v1 API and dashboard endpoints
+//	ecogo ingest   Meta webhook receiver
+//	ecogo worker   River job workers
+//	ecogo migrate  apply database migrations (Helm pre-upgrade Job)
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+
+	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/config"
+	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
+	"github.com/arshadm25/whatsapp_crm/internal/db"
+	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/jobs"
+	"github.com/arshadm25/whatsapp_crm/internal/mailer"
+	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
+	"github.com/arshadm25/whatsapp_crm/internal/numbers"
+	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
+	"github.com/arshadm25/whatsapp_crm/internal/server"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: ecogo api|ingest|worker|migrate")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	log := newLogger(cfg.LogLevel).With("service", os.Args[1])
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	switch os.Args[1] {
+	case "api":
+		err = runAPI(ctx, cfg, log)
+	case "ingest":
+		err = runIngest(ctx, cfg, log)
+	case "worker":
+		err = runWorker(ctx, cfg, log)
+	case "migrate":
+		if err = cfg.Require("ECOGO_MIGRATION_DATABASE_URL"); err == nil {
+			err = db.Migrate(ctx, cfg.MigrationDatabaseURL, log)
+		}
+	default:
+		err = fmt.Errorf("unknown command %q", os.Args[1])
+	}
+	if err != nil {
+		log.Error("exiting", "err", err)
+		os.Exit(1)
+	}
+}
+
+func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	if err := cfg.Require("ECOGO_DATABASE_URL", "ECOGO_MASTER_KEYS", "ECOGO_APP_SECRET",
+		"ECOGO_META_APP_ID", "ECOGO_META_APP_SECRET", "ECOGO_META_CONFIG_ID"); err != nil {
+		return err
+	}
+	d, keys, meta, err := common(ctx, cfg, log)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	rc, err := jobs.NewInsertOnly(d.Pool, log)
+	if err != nil {
+		return err
+	}
+	h := server.NewAPI(server.APIDeps{
+		Config:     cfg,
+		DB:         d,
+		Log:        log,
+		Auth:       auth.NewService(d, cfg, mailer.NewSMTP(cfg.Mail), log),
+		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
+		Numbers:    numbers.NewService(d, log),
+	})
+	return serve(ctx, cfg.HTTPAddr, h, log)
+}
+
+func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	if err := cfg.Require("ECOGO_DATABASE_URL"); err != nil {
+		return err
+	}
+	d, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return serve(ctx, cfg.HTTPAddr, server.NewIngest(d, log), log)
+}
+
+func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	if err := cfg.Require("ECOGO_DATABASE_URL", "ECOGO_MASTER_KEYS", "ECOGO_META_APP_ID", "ECOGO_META_APP_SECRET"); err != nil {
+		return err
+	}
+	d, keys, meta, err := common(ctx, cfg, log)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	workers := river.NewWorkers()
+	river.AddWorker(workers, onboarding.NewWorker(d, keys, meta, log))
+	rc, err := jobs.NewWorkerClient(d.Pool, workers, log)
+	if err != nil {
+		return err
+	}
+	if err := rc.Start(ctx); err != nil {
+		return err
+	}
+	log.Info("worker started")
+
+	// The worker has no traffic port, but Kubernetes probes and metrics need one.
+	go func() {
+		if err := serve(ctx, cfg.HTTPAddr, server.NewIngest(d, log), log); err != nil {
+			log.Error("worker health server", "err", err)
+		}
+	}()
+	<-ctx.Done()
+	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return rc.Stop(stopCtx)
+}
+
+// common opens the database and builds the keyring and Meta client.
+func common(ctx context.Context, cfg *config.Config, log *slog.Logger) (*db.DB, *envelope.Keyring, *metaclient.Client, error) {
+	keys, err := envelope.NewKeyring(cfg.MasterKeys, cfg.MasterKeyVersion)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	d, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	meta := metaclient.New(cfg.Meta.GraphBaseURL, cfg.Meta.GraphAPIVersion, cfg.Meta.AppID, cfg.Meta.AppSecret)
+	meta.OnError = recordMetaError(d, log)
+	return d, keys, meta, nil
+}
+
+// recordMetaError writes failed Graph calls to meta_api_errors for the platform console.
+func recordMetaError(d *db.DB, log *slog.Logger) metaclient.ErrorRecorder {
+	return func(ctx context.Context, method, path string, e *metaclient.Error) {
+		log.Warn("meta api error", "method", method, "path", path, "status", e.HTTPStatus,
+			"code", e.Code, "subcode", e.Subcode, "fbtrace_id", e.FBTraceID)
+		ctx = context.WithoutCancel(ctx)
+		err := d.Global(ctx, func(q *dbq.Queries, _ pgx.Tx) error {
+			p := dbq.InsertMetaAPIErrorParams{
+				Method: method, Path: path, HttpStatus: int32(e.HTTPStatus),
+				Message: &e.Message, FbtraceID: &e.FBTraceID,
+			}
+			if t, err := parseUUID(metaclient.TenantFrom(ctx)); err == nil {
+				p.TenantID = &t
+			}
+			code, sub := int32(e.Code), int32(e.Subcode)
+			p.Code, p.Subcode = &code, &sub
+			return q.InsertMetaAPIError(ctx, p)
+		})
+		if err != nil {
+			log.Error("record meta api error", "err", err)
+		}
+	}
+}
+
+func serve(ctx context.Context, addr string, h http.Handler, log *slog.Logger) error {
+	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.ListenAndServe() }()
+	log.Info("listening", "addr", addr)
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+func newLogger(level string) *slog.Logger {
+	var l slog.Level
+	if err := l.UnmarshalText([]byte(level)); err != nil {
+		l = slog.LevelInfo
+	}
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l}))
+}
+
+func parseUUID(s string) (uuid.UUID, error) { return uuid.Parse(s) }

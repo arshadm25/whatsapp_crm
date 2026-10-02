@@ -1,0 +1,11 @@
+/bin/
+/dist/
+*.test
+*.out
+.env
+.env.local
+node_modules/
+web/dist/
+.DS_Store
+.idea/
+.vscode/
