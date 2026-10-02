@@ -57,12 +57,14 @@ export function parseSignupMessage(origin: string, raw: unknown): SignupEvent | 
 }
 
 let sdkPromise: Promise<void> | null = null;
+let initOptions: Record<string, unknown> | null = null;
 
 export function loadFacebookSdk(appId: string, version: string): Promise<void> {
   if (sdkPromise) return sdkPromise;
   sdkPromise = new Promise((resolve, reject) => {
     window.fbAsyncInit = () => {
-      window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version });
+      initOptions = { appId: appId.trim(), autoLogAppEvents: true, xfbml: false, version: version.trim() };
+      window.FB.init(initOptions);
       resolve();
     };
     const s = document.createElement("script");
@@ -121,6 +123,9 @@ export function launchEmbeddedSignup(configId: string, flow: OnboardingFlow): Pr
       extras.featureType = "whatsapp_business_app_onboarding";
       extras.sessionInfoVersion = "3";
     }
+    // Starting the SDK again is harmless, and it makes sure login never runs on a half-started SDK
+    // ("FB.login() called before FB.init()").
+    if (initOptions) window.FB.init(initOptions);
     window.FB.login(
       (response: any) => {
         code = response?.authResponse?.code ?? null;
