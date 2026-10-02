@@ -106,13 +106,14 @@ func Load() (*Config, error) {
 // Require returns an error naming every listed setting that is empty.
 func (c *Config) Require(names ...string) error {
 	values := map[string]bool{
-		"ECOGO_DATABASE_URL":           c.DatabaseURL != "",
-		"ECOGO_MIGRATION_DATABASE_URL": c.MigrationDatabaseURL != "",
-		"ECOGO_META_APP_ID":            c.Meta.AppID != "",
-		"ECOGO_META_APP_SECRET":        c.Meta.AppSecret != "",
-		"ECOGO_META_CONFIG_ID":         c.Meta.ConfigID != "",
-		"ECOGO_MASTER_KEYS":            len(c.MasterKeys) > 0,
-		"ECOGO_APP_SECRET":             len(c.AppSecret) >= 32,
+		"ECOGO_DATABASE_URL":              c.DatabaseURL != "",
+		"ECOGO_MIGRATION_DATABASE_URL":    c.MigrationDatabaseURL != "",
+		"ECOGO_META_APP_ID":               c.Meta.AppID != "",
+		"ECOGO_META_APP_SECRET":           c.Meta.AppSecret != "",
+		"ECOGO_META_CONFIG_ID":            c.Meta.ConfigID != "",
+		"ECOGO_MASTER_KEYS":               len(c.MasterKeys) > 0,
+		"ECOGO_APP_SECRET":                len(c.AppSecret) >= 32,
+		"ECOGO_META_WEBHOOK_VERIFY_TOKEN": c.Meta.VerifyToken != "",
 	}
 	var missing []string
 	for _, n := range names {

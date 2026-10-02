@@ -43,7 +43,7 @@ config:
 #   master-keys             "1:<base64 32 bytes>[,2:...]"; mounted only into api and worker
 #   app-secret              random string, at least 32 characters
 #   meta-app-secret         Meta App Secret
-#   meta-webhook-verify-token
+#   meta-webhook-verify-token  any random string; also entered as the Verify token in the Meta app
 #   smtp-password
 existingSecret: ecogo-whatsapp
 

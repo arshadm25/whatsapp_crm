@@ -55,12 +55,21 @@ func NewAPI(d APIDeps) http.Handler {
 	return r
 }
 
-// NewIngest returns the Meta webhook receiver router. The receiver itself (signature check,
-// enqueue, 200) is the next release 1 slice; this deployment already exists so ingress,
-// TLS and the Meta app's callback URL can be set up ahead of it.
-func NewIngest(d *db.DB, log *slog.Logger) http.Handler {
+// NewIngest returns the Meta webhook receiver router: /meta takes Meta's handshake and
+// deliveries. It holds no tokens and no master key; it only checks signatures and enqueues.
+func NewIngest(d *db.DB, meta http.Handler, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID, middleware.RealIP, httpx.Logger(log), middleware.Recoverer)
+	health(r, d)
+	r.Method(http.MethodGet, "/meta", meta)
+	r.Method(http.MethodPost, "/meta", meta)
+	return r
+}
+
+// NewHealth returns a router with only the health endpoints, for the worker's probe port.
+func NewHealth(d *db.DB, log *slog.Logger) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
 	health(r, d)
 	return r
 }

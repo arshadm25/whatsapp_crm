@@ -45,7 +45,7 @@ app.kubernetes.io/component: {{ .component }}
 - name: ECOGO_META_APP_SECRET
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: meta-app-secret } }
 - name: ECOGO_META_WEBHOOK_VERIFY_TOKEN
-  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: meta-webhook-verify-token, optional: true } }
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: meta-webhook-verify-token } }
 {{- if .withKeys }}
 - name: ECOGO_MASTER_KEYS
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: master-keys } }

@@ -6,15 +6,15 @@ businesses and a public REST API, built to qualify Ecogo as a Meta WhatsApp Tech
 Design documents live in [`docs/design`](docs/design) (BRD v0.1, schema v0.1) and the public API
 contract in [`api/openapi.yaml`](api/openapi.yaml).
 
-## What is built so far (release 1, slice 1)
+## What is built so far (release 1)
 
 | Area | Status |
 | --- | --- |
 | D1 Sign-up, login, sessions, email verification | Done (invites, roles screen and 2FA later) |
 | D2 Connect WhatsApp with Embedded Signup v4, standard and coexistence | Done |
 | D5 Phone numbers list (`GET /v1/phone-numbers`) | Done (profile and health sync later) |
-| Meta webhook receiver (`ingest`) | Next |
-| Sending messages and templates | After the receiver |
+| Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import, media download, client webhooks later) |
+| Sending messages and templates | Next |
 
 ## Layout
 
@@ -25,6 +25,7 @@ internal/
   onboarding/         D2: Embedded Signup code exchange (api) and onboarding steps (River worker)
   numbers/            D5: /v1/phone-numbers
   metaclient/         the only package that calls Meta's Graph API
+  metaevents/         Meta webhooks: signature check and enqueue (ingest), processing (worker)
   crypto/envelope/    AES-256-GCM envelope encryption for Meta tokens and PINs
   db/                 pgx pool, tenant-scoped transactions, migrations
   db/migrations/      SQL migrations (000001 is the design schema)
