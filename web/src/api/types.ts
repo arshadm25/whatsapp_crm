@@ -269,3 +269,27 @@ export interface Recipient {
   error_code: number | null;
   updated_at: string;
 }
+
+export interface UsageCounts {
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  received: number;
+  billable: number;
+  est_cost_minor: number;
+}
+
+export interface UsageReport {
+  from: string;
+  to: string;
+  time_zone: string;
+  currency: string;
+  totals: UsageCounts;
+  unpriced_billable: number;
+  days: (UsageCounts & { day: string })[];
+  by_category: (UsageCounts & { key: string })[];
+  by_origin: (UsageCounts & { key: string })[];
+  by_country: (UsageCounts & { key: string })[];
+  by_number: (UsageCounts & { key: string })[];
+}

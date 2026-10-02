@@ -1664,6 +1664,7 @@ type UsageDaily struct {
 	Failed           int32
 	Billable         int32
 	EstMetaCostMinor int64
+	Received         int32
 }
 
 type User struct {

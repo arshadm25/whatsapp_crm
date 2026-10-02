@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
@@ -116,6 +117,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Webhooks:   webhooks.NewService(d, keys, rc, log),
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
+		Analytics:  analytics.NewService(d, log),
 		Events:     hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
@@ -159,7 +161,8 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, media.NewDownloadWorker(d, keys, meta, store, log))
 	river.AddWorker(workers, webhooks.NewWorker(d, keys, nil, log))
 	river.AddWorker(workers, campaigns.NewWorker(d, log))
-	rc, err := jobs.NewWorkerClient(d.Pool, workers, log)
+	river.AddWorker(workers, analytics.NewWorker(d, log))
+	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic()}, log)
 	if err != nil {
 		return err
 	}
