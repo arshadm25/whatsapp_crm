@@ -69,6 +69,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/contacts", d.Contacts.InternalRoutes)
 			r.Route("/campaigns", d.Campaigns.InternalRoutes)
 			r.Route("/analytics", d.Analytics.InternalRoutes)
+			r.Route("/team", d.Auth.TeamRoutes)
 			r.Method(http.MethodGet, "/events", d.Events)
 		})
 	})

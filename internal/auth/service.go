@@ -1,6 +1,6 @@
-// Package auth handles D1 account basics: sign-up (user + tenant + owner membership),
-// log in and out, email verification, and the session and CSRF middleware the dashboard uses.
-// Invites, team roles management and 2FA come in a later slice.
+// Package auth handles D1: sign-up (user + tenant + owner membership), log in and out, email
+// verification, the session and CSRF middleware the dashboard uses, the team (members, roles,
+// invites), workspace settings, and the user's own name and password.
 package auth
 
 import (
@@ -47,12 +47,16 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/signup", httpx.Handler(s.log, s.signup))
 	r.Post("/login", httpx.Handler(s.log, s.login))
 	r.Post("/verify-email", httpx.Handler(s.log, s.verifyEmail))
+	r.Get("/invites/{token}", httpx.Handler(s.log, s.inviteInfo))
+	r.Post("/invites/accept", httpx.Handler(s.log, s.acceptInvite))
 	r.Group(func(r chi.Router) {
 		r.Use(s.RequireSession)
 		r.Post("/logout", httpx.Handler(s.log, s.logout))
 		r.Get("/me", httpx.Handler(s.log, s.me))
 		r.Post("/resend-verification", httpx.Handler(s.log, s.resendVerification))
 		r.Post("/switch-tenant", httpx.Handler(s.log, s.switchTenant))
+		r.Patch("/profile", httpx.Handler(s.log, s.updateProfile))
+		r.Post("/password", httpx.Handler(s.log, s.changePassword))
 	})
 }
 

@@ -9,7 +9,6 @@ import VerifyEmail from "./pages/VerifyEmail";
 import GetStarted from "./pages/GetStarted";
 import Numbers from "./pages/Numbers";
 import ConnectWhatsApp from "./pages/ConnectWhatsApp";
-import ComingSoon from "./pages/ComingSoon";
 import Templates from "./pages/Templates";
 import NewTemplate from "./pages/NewTemplate";
 import SendMessage from "./pages/SendMessage";
@@ -18,6 +17,8 @@ import Developers from "./pages/Developers";
 import Contacts from "./pages/Contacts";
 import Campaigns from "./pages/Campaigns";
 import Analytics from "./pages/Analytics";
+import Settings from "./pages/Settings";
+import AcceptInvite from "./pages/AcceptInvite";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -34,6 +35,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/invite" element={<AcceptInvite />} />
       <Route
         element={
           <RequireAuth>
@@ -53,7 +55,7 @@ export default function App() {
         <Route path="contacts" element={<Contacts />} />
         <Route path="campaigns" element={<Campaigns />} />
         <Route path="analytics" element={<Analytics />} />
-        <Route path="settings" element={<ComingSoon section="settings" />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

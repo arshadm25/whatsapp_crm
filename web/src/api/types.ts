@@ -293,3 +293,39 @@ export interface UsageReport {
   by_country: (UsageCounts & { key: string })[];
   by_number: (UsageCounts & { key: string })[];
 }
+
+export type Role = TenantInfo["role"];
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  last_login_at: string | null;
+  joined_at: string;
+}
+
+export interface Invite {
+  id: string;
+  email: string;
+  role: Role;
+  invited_by_name: string;
+  expires_at: string;
+  created_at: string;
+  link?: string;
+}
+
+export interface InviteInfo {
+  tenant_name: string;
+  email: string;
+  role: Role;
+  invited_by_name: string;
+  account_exists: boolean;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  legal_name: string | null;
+  time_zone: string;
+}

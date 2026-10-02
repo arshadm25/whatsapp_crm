@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import { useLiveEvents, useMe } from "../api/hooks";
+import type { Me } from "../api/types";
 
 const NAV: { to: string; key: string; ready: boolean }[] = [
   { to: "/", key: "getStarted", ready: true },
@@ -15,7 +16,7 @@ const NAV: { to: string; key: string; ready: boolean }[] = [
   { to: "/analytics", key: "analytics", ready: true },
   { to: "/numbers", key: "numbers", ready: true },
   { to: "/developers", key: "developers", ready: true },
-  { to: "/settings", key: "settings", ready: false },
+  { to: "/settings", key: "settings", ready: true },
 ];
 
 export default function Layout() {
@@ -25,6 +26,14 @@ export default function Layout() {
   const navigate = useNavigate();
   const [resent, setResent] = useState(false);
   useLiveEvents();
+
+  // Switching workspace changes every tenant-scoped query, so the cache starts over.
+  const switchTo = async (tenantId: string) => {
+    const next = await api<Me>("POST", "/internal/auth/switch-tenant", { tenant_id: tenantId });
+    qc.clear();
+    qc.setQueryData(["me"], next);
+    navigate("/");
+  };
 
   const logout = async () => {
     await api("POST", "/internal/auth/logout");
@@ -36,7 +45,14 @@ export default function Layout() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">{t("app.name")}</div>
-        <div className="tenant">{me.tenant?.name}</div>
+        {me.memberships.length > 1 ? (
+          <select className="tenant-switch" aria-label={t("nav.switchWorkspace")} value={me.tenant?.id ?? ""} onChange={(e) => switchTo(e.target.value)}>
+            {!me.tenant && <option value="" />}
+            {me.memberships.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        ) : (
+          <div className="tenant">{me.tenant?.name}</div>
+        )}
         <nav>
           {NAV.map((n) => (
             <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
