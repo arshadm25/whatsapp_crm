@@ -6,15 +6,26 @@ import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers, useTags, useTemplates } from "../api/hooks";
 import type { AudienceCounts, Campaign, CampaignStatus, Page, Recipient, RecipientStatus } from "../api/types";
 import { CONTACT_FIELDS, campaignSupported, fieldToken, previewBody, templateSlots } from "../lib/campaigns";
+import Icon, { type IconName } from "../components/Icon";
+import { highestTier, tierLabel } from "../lib/numbers";
 
 const STATUS_PILL: Record<CampaignStatus, string> = {
   draft: "",
-  scheduled: "t-pending",
-  running: "t-pending",
-  paused: "t-pending",
-  completed: "t-approved",
+  scheduled: "inf",
+  running: "wa",
+  paused: "wa",
+  completed: "ok",
   cancelled: "",
-  failed: "t-rejected",
+  failed: "er",
+};
+const STATUS_ICON: Record<CampaignStatus, { icon: IconName; tone: string }> = {
+  draft: { icon: "file", tone: "gy" },
+  scheduled: { icon: "calendar", tone: "am" },
+  running: { icon: "send", tone: "" },
+  paused: { icon: "clock", tone: "am" },
+  completed: { icon: "check", tone: "" },
+  cancelled: { icon: "x", tone: "gy" },
+  failed: { icon: "alert", tone: "rd" },
 };
 
 const RECIPIENT_STATUSES: RecipientStatus[] = ["pending", "skipped", "queued", "sent", "delivered", "read", "failed"];
@@ -46,6 +57,9 @@ export default function Campaigns() {
   const [creating, setCreating] = useState(() => pickedIds !== null);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
+  const [search, setSearch] = useState("");
+  const numbers = usePhoneNumbers();
+  const connected = (numbers.data ?? []).filter((n) => n.status === "connected");
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
   }, [location, navigate]);
@@ -76,6 +90,10 @@ export default function Campaigns() {
     );
   }
 
+  const needle = search.trim().toLowerCase();
+  const shown = needle ? campaigns.filter((c) => c.name.toLowerCase().includes(needle) || c.template.name.includes(needle)) : campaigns;
+  const tier = highestTier(connected.map((n) => n.messaging_limit_tier));
+
   return (
     <section>
       <div className="page-head">
@@ -84,7 +102,7 @@ export default function Campaigns() {
           <p className="sub">{t("campaigns.intro")}</p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={() => { setPickedIds(null); setCreating(!creating); }}>{t("campaigns.new")}</button>
+          <button className="primary" onClick={() => { setPickedIds(null); setCreating(!creating); }}><Icon name="plus" size="s" />{t("campaigns.new")}</button>
         </div>
       </div>
       {creating && (
@@ -95,85 +113,126 @@ export default function Campaigns() {
         />
       )}
 
-      {all.length > 0 && (
-        <div className="kpis">
-          <div className="card">
-            <span className="sl">{t("campaigns.kpiSent")}</span>
-            <span className="kpi-value">{sent.toLocaleString()}</span>
-            <span className="muted small">{t("campaigns.kpiAcross", { count: all.length })}</span>
+      <div className="stack">
+        {all.length > 0 && (
+          <div className="grid g4">
+            <div className="card stat">
+              <div className="sh"><span className="sl">{t("campaigns.kpiSent")}</span><span className="ic"><Icon name="send" size="s" /></span></div>
+              <span className="sv">{sent.toLocaleString()}</span>
+              <span className="sf">{t("campaigns.kpiAcross", { count: all.length })}</span>
+            </div>
+            <div className="card stat">
+              <div className="sh"><span className="sl">{t("campaigns.kpiDelivery")}</span><span className="ic"><Icon name="check" size="s" /></span></div>
+              <span className="sv">{pct(delivered, sent)}</span>
+              <span className="sf">{t("campaigns.kpiDeliveryHint")}</span>
+            </div>
+            <div className="card stat">
+              <div className="sh"><span className="sl">{t("campaigns.kpiRead")}</span><span className="ic bl"><Icon name="eye" size="s" /></span></div>
+              <span className="sv">{pct(read, sent)}</span>
+              <span className="sf">{t("campaigns.kpiReadHint")}</span>
+            </div>
+            <div className="card stat">
+              <div className="sh"><span className="sl">{t("campaigns.kpiScheduled")}</span><span className="ic am"><Icon name="calendar" size="s" /></span></div>
+              <span className="sv">{scheduled.length}</span>
+              <span className="sf">
+                {scheduled[0] ? t("campaigns.kpiNext", { name: scheduled[0].name, when: new Date(scheduled[0].scheduled_at!).toLocaleString() }) : t("campaigns.kpiNone")}
+              </span>
+            </div>
           </div>
-          <div className="card">
-            <span className="sl">{t("campaigns.kpiDelivery")}</span>
-            <span className="kpi-value">{pct(delivered, sent)}</span>
-            <span className="muted small">{t("campaigns.kpiDeliveryHint")}</span>
-          </div>
-          <div className="card">
-            <span className="sl">{t("campaigns.kpiRead")}</span>
-            <span className="kpi-value">{pct(read, sent)}</span>
-            <span className="muted small">{t("campaigns.kpiReadHint")}</span>
-          </div>
-          <div className="card">
-            <span className="sl">{t("campaigns.kpiScheduled")}</span>
-            <span className="kpi-value">{scheduled.length}</span>
-            <span className="muted small">
-              {scheduled[0] ? t("campaigns.kpiNext", { name: scheduled[0].name, when: new Date(scheduled[0].scheduled_at!).toLocaleString() }) : t("campaigns.kpiNone")}
-            </span>
-          </div>
-        </div>
-      )}
+        )}
 
-      <div className="tabs" role="tablist" style={{ marginBottom: 16 }}>
-        {(Object.keys(IN_TAB) as Tab[]).map((k) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
-            {t(`campaigns.tab_${k}`)} <span className="cnt">{all.filter((c) => IN_TAB[k](c.status)).length}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className={`contacts-layout ${selected ? "has-detail" : ""}`}>
-        <div className="card table-wrap">
-          {list.isLoading && <div className="muted">{t("common.loading")}</div>}
-          {!list.isLoading && campaigns.length === 0 && <div className="muted">{t("campaigns.empty")}</div>}
-          {campaigns.length > 0 && (
-            <table className="clickable">
-              <thead>
-                <tr>
-                  <th>{t("campaigns.name")}</th>
-                  <th>{t("campaigns.status")}</th>
-                  <th>{t("campaigns.audienceCol")}</th>
-                  <th>{t("campaigns.progress")}</th>
-                  <th>{t("campaigns.delivered")}</th>
-                  <th>{t("campaigns.read")}</th>
-                  <th>{t("campaigns.when")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {campaigns.map((c) => (
-                  <tr key={c.id} className={selected === c.id ? "selected" : ""} onClick={() => setSelected(c.id)}>
-                    <td>
-                      <div className="who"><span><b>{c.name}</b><small>{c.template.name} · {c.template.language}</small></span></div>
-                    </td>
-                    <td><span className={`pill ${STATUS_PILL[c.status]}`}>{t(`campaigns.status_${c.status}`)}</span></td>
-                    <td>
-                      <div className="who"><span>
-                        <b>{c.audience.tags?.length ? c.audience.tags.map((tg) => `#${tg}`).join(" ") : t("campaigns.pickedContacts")}</b>
-                        <small>{t("campaigns.contactsCount", { count: c.stats.total })}</small>
-                      </span></div>
-                    </td>
-                    <td className="nowrap">{c.stats.total ? t("campaigns.progressCell", { ...c.stats }) : "—"}</td>
-                    <td>{pct(c.stats.delivered + c.stats.read, attempted(c))}</td>
-                    <td>{pct(c.stats.read, attempted(c))}</td>
-                    <td className="small">{new Date(c.scheduled_at ?? c.created_at).toLocaleString()}</td>
-                  </tr>
+        <div className={`contacts-layout ${selected ? "has-detail" : ""}`}>
+          <div className="card flush">
+            <div className="chd">
+              <div className="tabs" role="tablist" aria-label={t("campaigns.status")}>
+                {(Object.keys(IN_TAB) as Tab[]).map((k) => (
+                  <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
+                    {t(`campaigns.tab_${k}`)} <span className="cnt">{all.filter((c) => IN_TAB[k](c.status)).length}</span>
+                  </button>
                 ))}
-              </tbody>
-            </table>
-          )}
-          {list.hasNextPage && (
-            <button className="link" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>{t("contacts.more")}</button>
-          )}
+              </div>
+              <label className="iw">
+                <Icon name="search" size="s" />
+                <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("campaigns.search")} aria-label={t("campaigns.search")} />
+              </label>
+            </div>
+            {list.isLoading && <div className="cb muted">{t("common.loading")}</div>}
+            {!list.isLoading && shown.length === 0 && <div className="cb muted">{t("campaigns.empty")}</div>}
+            {shown.length > 0 && (
+              <div className="table-wrap">
+                <table className="clickable">
+                  <thead>
+                    <tr>
+                      <th>{t("campaigns.campaign")}</th>
+                      <th>{t("campaigns.audienceCol")}</th>
+                      <th>{t("campaigns.status")}</th>
+                      <th>{t("campaigns.delivered")}</th>
+                      <th>{t("campaigns.read")}</th>
+                      <th>{t("campaigns.date")}</th>
+                      <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((c) => {
+                      const done = attempted(c);
+                      const deliveredPct = done > 0 ? Math.round(((c.stats.delivered + c.stats.read) * 100) / done) : null;
+                      return (
+                        <tr key={c.id} className={selected === c.id ? "selected" : ""} onClick={() => setSelected(c.id)}>
+                          <td>
+                            <div className="who">
+                              <span className={`ic ${STATUS_ICON[c.status].tone}`}><Icon name={STATUS_ICON[c.status].icon} size="s" /></span>
+                              <span><b>{c.name}</b><small className="k">{c.template.name} · {c.template.language}</small></span>
+                            </div>
+                          </td>
+                          <td>
+                            {c.audience.tags?.length ? t("campaigns.tagAudience", { tags: c.audience.tags.join(", ") }) : t("campaigns.pickedContacts")}
+                            <small className="muted" style={{ display: "block" }}>{t("campaigns.contactsCount", { count: c.stats.total })}</small>
+                          </td>
+                          <td>
+                            <span className={`pill ${STATUS_PILL[c.status]}`}>{t(`campaigns.status_${c.status}`)}</span>
+                            {active(c.status) && c.stats.total > 0 && (
+                              <small className="muted" style={{ display: "block", marginTop: 4 }}>{t("campaigns.progressCell", { ...c.stats })}</small>
+                            )}
+                          </td>
+                          <td>
+                            {deliveredPct === null ? <span className="muted">—</span> : (
+                              <div className="bar-cell"><div className="bar"><span style={{ width: `${deliveredPct}%` }} /></div><span className="num-t">{deliveredPct}%</span></div>
+                            )}
+                          </td>
+                          <td className="num-t">{pct(c.stats.read, done)}</td>
+                          <td>
+                            {c.status === "scheduled" && c.scheduled_at
+                              ? new Date(c.scheduled_at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+                              : new Date(c.finished_at ?? c.started_at ?? c.created_at).toLocaleDateString([], { day: "numeric", month: "short" })}
+                          </td>
+                          <td className="r"><button className="lnk">{t("campaigns.report")}</button></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {all.length > 0 && (
+              <div className="cf">
+                <span>{t("campaigns.showing", { count: shown.length, total: all.length })}</span>
+                {list.hasNextPage && (
+                  <button className="lnk" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>{t("contacts.more")}</button>
+                )}
+              </div>
+            )}
+          </div>
+          {selected && <CampaignDetail id={selected} onClose={() => setSelected(null)} />}
         </div>
-        {selected && <CampaignDetail id={selected} onClose={() => setSelected(null)} />}
+        {tier && (
+          <div className="banner" style={{ margin: 0 }}>
+            <Icon name="alert" size="s" />
+            <div>
+              <b>{t("campaigns.pacedTitle")}</b>
+              <span>{t("campaigns.pacedText", { limit: tierLabel(tier, t("numbers.unlimited")) })}</span>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

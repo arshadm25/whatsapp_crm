@@ -9,6 +9,7 @@ import MediaPreview from "../components/MediaPreview";
 import TemplateComposer from "../components/TemplateComposer";
 import { ACCEPT, MEDIA_TYPES, formatSize, mediaKind, takesCaption } from "../lib/media";
 import { captionOf, messageText, statusTick } from "../lib/messages";
+import Icon from "../components/Icon";
 
 type Filter = "all" | "mine" | "unassigned" | "closed";
 
@@ -178,7 +179,7 @@ function Thread({ id }: { id: string }) {
             {number && ` · ${t("inbox.via", { number: number.display_phone_number })}`}
           </div>
         </div>
-        <span className={`pill ${c.window.open ? "w-open" : "w-closed"}`}>
+        <span className={`pill ${c.window.open ? "ok" : ""}`}>
           {c.window.open
             ? t("inbox.windowOpen", { left: timeLeft(c.window.expires_at) })
             : t("inbox.windowClosed")}
@@ -189,7 +190,8 @@ function Thread({ id }: { id: string }) {
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
-        <button onClick={() => patch({ status: c.status === "closed" ? "open" : "closed" })}>
+        <button className={c.status === "closed" ? "" : "ghost"} onClick={() => patch({ status: c.status === "closed" ? "open" : "closed" })}>
+          <Icon name={c.status === "closed" ? "refresh" : "check"} size="xs" />
           {c.status === "closed" ? t("inbox.reopen") : t("inbox.close")}
         </button>
         <button className={showNotes ? "active" : ""} onClick={() => setShowNotes(!showNotes)}>{t("inbox.details")}</button>

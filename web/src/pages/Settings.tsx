@@ -9,11 +9,15 @@ import type { BillingOverview, BillingProfile, Invite, Invoice, Me, Role, TeamMe
 import { daysLeft, formatPaise, graceEnd } from "../lib/billing";
 import { gstStates } from "../lib/gst";
 import { assignable } from "../lib/team";
+import Icon, { type IconName } from "../components/Icon";
+import { ago } from "../lib/time";
 
 function initials(name: string) {
   const parts = name.split(/[\s@.]+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
+
+type Tab = "workspace" | "team" | "billing" | "security" | "account";
 
 function message(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
@@ -23,9 +27,15 @@ export default function Settings() {
   const { t } = useTranslation();
   const role = useMe().data?.tenant?.role;
   const manager = role === "owner" || role === "admin";
-  const [tab, setTab] = useState<"team" | "workspace" | "billing" | "security" | "account">(
+  const [tab, setTab] = useState<Tab>(
     new URLSearchParams(window.location.search).get("tab") === "billing" && role === "owner" ? "billing" : manager ? "team" : "account",
   );
+  const tabs: Tab[] = [
+    ...(manager ? (["workspace", "team"] as Tab[]) : []),
+    ...(role === "owner" ? (["billing"] as Tab[]) : []),
+    "security",
+    "account",
+  ];
 
   return (
     <section>
@@ -35,23 +45,34 @@ export default function Settings() {
           <p className="sub">{t("settings.intro")}</p>
         </div>
       </div>
-      <div className="tabs" role="tablist" style={{ marginBottom: 20 }}>
-        {manager && <button role="tab" aria-selected={tab === "workspace"} className={tab === "workspace" ? "active" : ""} onClick={() => setTab("workspace")}>{t("settings.workspace")}</button>}
-        {manager && <button role="tab" aria-selected={tab === "team"} className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}>{t("settings.teamAndRoles")}</button>}
-        {role === "owner" && <button role="tab" aria-selected={tab === "billing"} className={tab === "billing" ? "active" : ""} onClick={() => setTab("billing")}>{t("settings.billing")}</button>}
-        <button role="tab" aria-selected={tab === "security"} className={tab === "security" ? "active" : ""} onClick={() => setTab("security")}>{t("settings.security")}</button>
-        <button role="tab" aria-selected={tab === "account"} className={tab === "account" ? "active" : ""} onClick={() => setTab("account")}>{t("settings.account")}</button>
+      <div className="settings">
+        <nav className="sn" aria-label={t("settings.title")}>
+          {tabs.map((k) => (
+            <button key={k} className={tab === k ? "on" : ""} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+              {t(`settings.tab_${k}`)}
+            </button>
+          ))}
+        </nav>
+        <div className="stack">
+          {tab === "team" && manager && <Team onBilling={() => setTab("billing")} />}
+          {tab === "workspace" && manager && <WorkspaceForm canEdit={role === "owner"} />}
+          {tab === "billing" && role === "owner" && <Billing />}
+          {tab === "security" && <Account part="security" />}
+          {tab === "account" && <Account part="profile" />}
+        </div>
       </div>
-      {tab === "team" && manager && <Team />}
-      {tab === "workspace" && manager && <WorkspaceForm canEdit={role === "owner"} />}
-      {tab === "billing" && role === "owner" && <Billing />}
-      {tab === "security" && <Account part="security" />}
-      {tab === "account" && <Account part="profile" />}
     </section>
   );
 }
 
-function Team() {
+const ROLE_ICONS: Record<Role, { icon: IconName; tone: string }> = {
+  owner: { icon: "shield", tone: "" },
+  admin: { icon: "settings", tone: "bl" },
+  agent: { icon: "inbox", tone: "am" },
+  developer: { icon: "code", tone: "gy" },
+};
+
+function Team({ onBilling }: { onBilling: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const me = useMe().data!;
@@ -64,6 +85,7 @@ function Team() {
     queryKey: ["invites"],
     queryFn: async () => (await api<{ data: Invite[] }>("GET", "/internal/team/invites")).data,
   });
+  const [inviting, setInviting] = useState(false);
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("agent");
   const [created, setCreated] = useState<Invite | null>(null);
@@ -85,123 +107,169 @@ function Team() {
     void run(async () => {
       setCreated(await api<Invite>("POST", "/internal/team/invites", { email, role: inviteRole }));
       setEmail("");
+      setInviting(false);
     });
   };
 
   return (
     <>
-      <form className="card inline-form" onSubmit={invite}>
-        <label className="field">
-          {t("settings.inviteEmail")}
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@business.in" />
-        </label>
-        <label className="field">
-          {t("settings.role")}
-          <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)}>
-            {roles.filter((r) => r !== "owner").map((r) => <option key={r} value={r}>{t(`settings.role_${r}`)}</option>)}
-          </select>
-        </label>
-        <button className="primary">{t("settings.invite")}</button>
-      </form>
-      {created?.link && (
-        <div className="card notice">
-          {t("settings.inviteSent", { email: created.email })}
-          <div className="copy-row">
-            <input readOnly value={created.link} onFocus={(e) => e.target.select()} />
-            <button onClick={() => navigator.clipboard?.writeText(created.link!)}>{t("settings.copy")}</button>
+      <div className="card flush">
+        <div className="chd">
+          <div>
+            <h2>{t("settings.teamMembers")}</h2>
+            <p>{t("settings.memberCount", { count: members.data?.length ?? 0 })} · {t("settings.inviteCount", { count: invites.data?.length ?? 0 })}</p>
           </div>
+          <button className="primary sm" onClick={() => setInviting(!inviting)}><Icon name="userPlus" size="s" />{t("settings.inviteMember")}</button>
         </div>
-      )}
-      {error && <div className="error">{error}</div>}
-
-      <div className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>{t("settings.member")}</th>
-              <th>{t("settings.role")}</th>
-              <th>{t("settings.status")}</th>
-              <th>{t("settings.lastLogin")}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {members.data?.map((m) => {
-              const self = m.id === me.user.id;
-              const editable = !self && roles.includes(m.role);
-              return (
-                <tr key={m.id}>
+        {inviting && (
+          <form className="inline-form in-card" onSubmit={invite}>
+            <label className="field">
+              {t("settings.inviteEmail")}
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@business.in" autoFocus />
+            </label>
+            <label className="field">
+              {t("settings.role")}
+              <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)}>
+                {roles.filter((r) => r !== "owner").map((r) => <option key={r} value={r}>{t(`settings.role_${r}`)}</option>)}
+              </select>
+            </label>
+            <div className="actions">
+              <button type="button" onClick={() => setInviting(false)}>{t("common.cancel")}</button>
+              <button className="primary">{t("settings.invite")}</button>
+            </div>
+          </form>
+        )}
+        {created?.link && (
+          <div className="notice card">
+            {t("settings.inviteSent", { email: created.email })}
+            <div className="copy-row">
+              <input readOnly value={created.link} onFocus={(e) => e.target.select()} />
+              <button onClick={() => navigator.clipboard?.writeText(created.link!)}>{t("settings.copy")}</button>
+            </div>
+          </div>
+        )}
+        {error && <div className="error">{error}</div>}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("settings.member")}</th>
+                <th>{t("settings.role")}</th>
+                <th>{t("settings.status")}</th>
+                <th>{t("settings.lastActive")}</th>
+                <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.data?.map((m) => {
+                const self = m.id === me.user.id;
+                const editable = !self && roles.includes(m.role);
+                return (
+                  <tr key={m.id}>
+                    <td>
+                      <div className="who">
+                        <span className="av">{initials(m.name)}</span>
+                        <span><b>{m.name} {self && <span className="chip gy">{t("settings.you")}</span>}</b><small>{m.email}</small></span>
+                      </div>
+                    </td>
+                    <td>
+                      {editable ? (
+                        <select
+                          className="role"
+                          value={m.role}
+                          aria-label={t("settings.role")}
+                          onChange={(e) => run(() => api("PATCH", `/internal/team/members/${m.id}`, { role: e.target.value }))}
+                        >
+                          {roles.map((r) => <option key={r} value={r}>{t(`settings.role_${r}`)}</option>)}
+                        </select>
+                      ) : (
+                        <span className="role">{t(`settings.role_${m.role}`)}</span>
+                      )}
+                    </td>
+                    <td><span className="pill ok">{t("settings.active")}</span></td>
+                    <td>{self ? t("settings.now") : m.last_login_at ? ago(m.last_login_at, t) : "—"}</td>
+                    <td className="r">
+                      {editable && (
+                        <button
+                          className="sm bdg"
+                          onClick={() => window.confirm(t("settings.confirmRemove", { name: m.name })) &&
+                            run(() => api("DELETE", `/internal/team/members/${m.id}`))}
+                        >
+                          {t("settings.remove")}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {invites.data?.map((i) => (
+                <tr key={i.id}>
                   <td>
                     <div className="who">
-                      <span className="av">{initials(m.name)}</span>
-                      <span><b>{m.name} {self && <span className="muted small">({t("settings.you")})</span>}</b><small>{m.email}</small></span>
+                      <span className="av">{initials(i.email)}</span>
+                      <span><b>{i.email}</b><small>{t("settings.invitedBy", { name: i.invited_by_name, date: new Date(i.expires_at).toLocaleDateString() })}</small></span>
                     </div>
                   </td>
-                  <td>
-                    {editable ? (
-                      <select
-                        value={m.role}
-                        aria-label={t("settings.role")}
-                        onChange={(e) => run(() => api("PATCH", `/internal/team/members/${m.id}`, { role: e.target.value }))}
-                      >
-                        {roles.map((r) => <option key={r} value={r}>{t(`settings.role_${r}`)}</option>)}
-                      </select>
-                    ) : (
-                      t(`settings.role_${m.role}`)
-                    )}
-                  </td>
-                  <td><span className="pill q-green">{t("settings.active")}</span></td>
-                  <td className="small">{m.last_login_at ? new Date(m.last_login_at).toLocaleString() : "—"}</td>
-                  <td>
-                    {editable && (
-                      <button
-                        className="link danger"
-                        onClick={() => window.confirm(t("settings.confirmRemove", { name: m.name })) &&
-                          run(() => api("DELETE", `/internal/team/members/${m.id}`))}
-                      >
-                        {t("settings.remove")}
+                  <td><span className="role">{t(`settings.role_${i.role}`)}</span></td>
+                  <td><span className="pill wa">{t("settings.invited")}</span></td>
+                  <td className="muted">{t("settings.sentAgo", { ago: ago(i.created_at, t) })}</td>
+                  <td className="r">
+                    {roles.includes(i.role) && (
+                      <button className="sm" onClick={() => run(() => api("DELETE", `/internal/team/invites/${i.id}`))}>
+                        {t("settings.revoke")}
                       </button>
                     )}
                   </td>
                 </tr>
-              );
-            })}
-            {invites.data?.map((i) => (
-              <tr key={i.id}>
-                <td>
-                  <div className="who">
-                    <span className="av">{initials(i.email)}</span>
-                    <span><b>{i.email}</b><small>{t("settings.invitedBy", { name: i.invited_by_name, date: new Date(i.expires_at).toLocaleDateString() })}</small></span>
-                  </div>
-                </td>
-                <td>{t(`settings.role_${i.role}`)}</td>
-                <td><span className="pill q-yellow">{t("settings.invited")}</span></td>
-                <td className="small muted">—</td>
-                <td>
-                  {roles.includes(i.role) && (
-                    <button className="link danger" onClick={() => run(() => api("DELETE", `/internal/team/invites/${i.id}`))}>
-                      {t("settings.revoke")}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="card flush" style={{ marginTop: 16 }}>
-        <div className="chd"><div><h2>{t("settings.rolesTitle")}</h2><p>{t("settings.rolesSub")}</p></div></div>
-        <dl className="kv roles">
-          {(["owner", "admin", "agent", "developer"] as const).map((r) => (
-            <div key={r} style={{ display: "contents" }}>
-              <dt><span className="chip">{t(`settings.role_${r}`)}</span></dt>
-              <dd>{t(`settings.roleDesc_${r}`)}</dd>
-            </div>
-          ))}
-        </dl>
+      <div className="grid g2">
+        <div className="card flush">
+          <div className="chd"><div><h2>{t("settings.rolesTitle")}</h2><p>{t("settings.rolesSub")}</p></div></div>
+          <div className="cb roles">
+            {(["owner", "admin", "agent", "developer"] as const).map((r) => (
+              <div key={r} className="rl">
+                <span className={`ic ${ROLE_ICONS[r].tone}`}><Icon name={ROLE_ICONS[r].icon} size="s" /></span>
+                <span><b>{t(`settings.role_${r}`)}</b><span className="d">{t(`settings.roleDesc_${r}`)}</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {actor === "owner" && <BillingSummary onManage={onBilling} />}
       </div>
     </>
+  );
+}
+
+// BillingSummary is the owner's plan at a glance, next to the roles on the Team tab.
+function BillingSummary({ onManage }: { onManage: () => void }) {
+  const { t } = useTranslation();
+  const billing = useQuery({ queryKey: ["billing"], queryFn: () => api<BillingOverview>("GET", "/internal/billing") });
+  const b = billing.data;
+  return (
+    <div className="card flush">
+      <div className="chd">
+        <div><h2>{t("settings.billing")}</h2><p>{t("settings.billingSub")}</p></div>
+        <button className="link" onClick={onManage}>{t("settings.manage")}</button>
+      </div>
+      <div className="cb">
+        {b ? (
+          <dl className="kv">
+            <dt>{t("billing.planLabel")}</dt><dd>{b.plan?.name ?? t("billing.noPlanShort")}</dd>
+            <dt>{t("billing.seatsLabel")}</dt><dd>{b.plan ? t("billing.seatsOf", { used: b.seats, total: b.plan.included_seats + b.subscription.extra_seats }) : b.seats}</dd>
+            <dt>{b.subscription.status === "trialing" ? t("billing.trialEnds") : t("billing.nextInvoice")}</dt>
+            <dd>{new Date(b.subscription.current_period_end).toLocaleDateString()}</dd>
+          </dl>
+        ) : (
+          <div className="muted">{t("common.loading")}</div>
+        )}
+      </div>
+      <div className="cf">{t("settings.metaFeesNote")}</div>
+    </div>
   );
 }
 
@@ -311,7 +379,7 @@ function Account({ part }: { part: "profile" | "security" }) {
   };
 
   return (
-    <div className="grid-2" style={{ marginTop: 0 }}>
+    <div className="grid g2">
       {part === "profile" && <form className="card form" onSubmit={saveName}>
         <h2>{t("settings.profile")}</h2>
         <label className="field">

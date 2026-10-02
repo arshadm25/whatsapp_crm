@@ -5,11 +5,13 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { api, ApiError } from "../api/client";
 import { useMe, useTags } from "../api/hooks";
 import type { ConsentEvent, Contact, ImportResult, Page } from "../api/types";
+import Icon from "../components/Icon";
+import { initials } from "../lib/time";
 
 const CONSENT_PILL: Record<Contact["opt_in_status"], string> = {
-  unknown: "",
-  opted_in: "t-approved",
-  opted_out: "t-rejected",
+  unknown: "wa",
+  opted_in: "ok",
+  opted_out: "er",
 };
 
 function displayName(c: Contact) {
@@ -74,93 +76,118 @@ export default function Contacts() {
     }
   };
 
+  const optedIn = contacts.filter((c) => c.opt_in_status === "opted_in").length;
+  const more = list.hasNextPage ? "+" : "";
+
   return (
     <section>
       <div className="page-head">
         <div>
           <h1>{t("contacts.title")}</h1>
-          <p className="sub">{t("contacts.intro")}</p>
+          <p className="sub">{t("contacts.summary", { count: `${contacts.length}${more}`, optedIn: `${optedIn}${more}` })}</p>
         </div>
         <div className="actions">
-          {canImport && <button onClick={() => setPanel(panel === "import" ? null : "import")}>{t("contacts.import")}</button>}
-          <button className="primary" onClick={() => setPanel(panel === "add" ? null : "add")}>{t("contacts.add")}</button>
+          {canImport && <button onClick={() => setPanel(panel === "import" ? null : "import")}><Icon name="upload" size="s" />{t("contacts.import")}</button>}
+          <button className="primary" onClick={() => setPanel(panel === "add" ? null : "add")}><Icon name="userPlus" size="s" />{t("contacts.add")}</button>
         </div>
       </div>
       {panel === "add" && <AddContact onDone={(id) => { setPanel(null); setSelected(id); }} />}
       {panel === "import" && <ImportContacts />}
 
-      <div className="filters">
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("contacts.search")} />
-        <select value={tag} onChange={(e) => setTag(e.target.value)}>
-          <option value="">{t("contacts.allTags")}</option>
-          {tags.data?.map((tg) => (
-            <option key={tg.id} value={tg.name}>{tg.name} ({tg.contacts})</option>
-          ))}
-        </select>
-      </div>
-      <div className="tabs" role="tablist" style={{ marginBottom: 16 }}>
-        {(["", "opted_in", "unknown", "opted_out"] as const).map((s) => (
-          <button key={s} role="tab" aria-selected={consent === s} className={consent === s ? "active" : ""} onClick={() => setConsent(s)}>
-            {s ? t(`contacts.consent_${s}`) : t("contacts.allContacts")}
-          </button>
-        ))}
-      </div>
-      {picked.size > 0 && (
-        <form className="card bulk-bar" onSubmit={tagPicked}>
-          <b>{t("contacts.pickedCount", { count: picked.size })}</b>
-          <input value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} placeholder={t("contacts.tagPlaceholder")} aria-label={t("contacts.addTag")} />
-          <button disabled={bulkBusy || !bulkTag.trim()}>{t("contacts.addTag")}</button>
-          {canImport && (
-            <button type="button" className="primary" onClick={() => navigate("/campaigns", { state: { contactIds: [...picked] } })}>
-              {t("contacts.startCampaign")}
-            </button>
-          )}
-          <button type="button" className="link" onClick={() => setPicked(new Set())}>{t("contacts.clearPicked")}</button>
-          {bulkError && <span className="field-error">{bulkError}</span>}
-        </form>
-      )}
-
       <div className={`contacts-layout ${selected ? "has-detail" : ""}`}>
-        <div className="card table-wrap">
-          {list.isLoading && <div className="muted">{t("common.loading")}</div>}
-          {!list.isLoading && contacts.length === 0 && <div className="muted">{t("contacts.empty")}</div>}
+        <div className="card flush">
+          <div className="tabs" role="tablist" aria-label={t("contacts.consent")}>
+            {(["", "opted_in", "unknown", "opted_out"] as const).map((st) => (
+              <button key={st} role="tab" aria-selected={consent === st} className={consent === st ? "active" : ""} onClick={() => { setConsent(st); setPicked(new Set()); }}>
+                {st ? t(`contacts.consent_${st}`) : t("contacts.allContacts")}
+                {consent === st && <span className="cnt">{contacts.length}{more}</span>}
+              </button>
+            ))}
+          </div>
+          <div className="card-bar">
+            <label className="iw">
+              <Icon name="search" size="s" />
+              <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("contacts.search")} aria-label={t("contacts.search")} />
+            </label>
+            <select value={tag} onChange={(e) => setTag(e.target.value)} aria-label={t("contacts.allTags")}>
+              <option value="">{t("contacts.allTags")}</option>
+              {tags.data?.map((tg) => (
+                <option key={tg.id} value={tg.name}>{tg.name} ({tg.contacts})</option>
+              ))}
+            </select>
+            <span className="sp" />
+            {picked.size > 0 && (
+              <>
+                <b>{t("contacts.pickedCount", { count: picked.size })}</b>
+                <form className="inline-add" onSubmit={tagPicked}>
+                  <input value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} placeholder={t("contacts.tagPlaceholder")} aria-label={t("contacts.addTag")} />
+                  <button className="sm" disabled={bulkBusy || !bulkTag.trim()}>{t("contacts.addTag")}</button>
+                </form>
+                {canImport && (
+                  <button type="button" className="sm ghost" onClick={() => navigate("/campaigns", { state: { contactIds: [...picked] } })}>
+                    <Icon name="megaphone" size="xs" />{t("contacts.startCampaign")}
+                  </button>
+                )}
+                <button type="button" className="link" onClick={() => setPicked(new Set())}>{t("contacts.clearPicked")}</button>
+              </>
+            )}
+          </div>
+          {bulkError && <div className="error">{bulkError}</div>}
+          {list.isLoading && <div className="cb muted">{t("common.loading")}</div>}
+          {!list.isLoading && contacts.length === 0 && <div className="cb muted">{t("contacts.empty")}</div>}
           {contacts.length > 0 && (
-            <table className="clickable">
-              <thead>
-                <tr>
-                  <th>
-                    <input type="checkbox" aria-label={t("contacts.pickAll")} checked={allPicked}
-                      onChange={() => setPicked(allPicked ? new Set() : new Set(contacts.map((c) => c.id)))} />
-                  </th>
-                  <th>{t("contacts.name")}</th>
-                  <th>{t("contacts.tags")}</th>
-                  <th>{t("contacts.consent")}</th>
-                  <th>{t("contacts.optedInAt")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contacts.map((c) => (
-                  <tr key={c.id} className={selected === c.id ? "selected" : ""} onClick={() => setSelected(c.id)}>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" aria-label={displayName(c)} checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
-                    </td>
-                    <td><div className="who"><span><b>{displayName(c)}</b><small>+{c.wa_id}</small></span></div></td>
-                    <td>{c.tags.map((tg) => <span key={tg} className="chip">{tg}</span>)}</td>
-                    <td>
-                      <span className={`pill ${CONSENT_PILL[c.opt_in_status]}`}>{t(`contacts.consent_${c.opt_in_status}`)}</span>
-                      {c.blocked && <span className="pill t-rejected">{t("contacts.blocked")}</span>}
-                    </td>
-                    <td className="muted">{c.opted_in_at ? new Date(c.opted_in_at).toLocaleDateString() : "—"}</td>
+            <div className="table-wrap">
+              <table className="clickable">
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }}>
+                      <input type="checkbox" aria-label={t("contacts.pickAll")} checked={allPicked}
+                        onChange={() => setPicked(allPicked ? new Set() : new Set(contacts.map((c) => c.id)))} />
+                    </th>
+                    <th>{t("contacts.contact")}</th>
+                    <th>{t("contacts.tags")}</th>
+                    <th>{t("contacts.optIn")}</th>
+                    <th>{t("contacts.optedInAt")}</th>
+                    <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {contacts.map((c) => (
+                    <tr key={c.id} className={selected === c.id ? "selected" : ""} onClick={() => setSelected(c.id)}>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" aria-label={displayName(c)} checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
+                      </td>
+                      <td><div className="who"><span className="av">{initials(displayName(c))}</span><span><b>{displayName(c)}</b><small>+{c.wa_id}</small></span></div></td>
+                      <td>{c.tags.length ? c.tags.map((tg) => <span key={tg} className="chip">{tg}</span>) : <span className="muted">—</span>}</td>
+                      <td>
+                        {c.blocked ? (
+                          <span className="pill">{t("contacts.blocked")}</span>
+                        ) : (
+                          <span className={`pill ${CONSENT_PILL[c.opt_in_status]}`}>{t(`contacts.consent_${c.opt_in_status}`)}</span>
+                        )}
+                      </td>
+                      <td className="muted">{c.opted_in_at ? new Date(c.opted_in_at).toLocaleDateString() : "—"}</td>
+                      <td className="r"><button className="ib gh sm" aria-label={t("contacts.open")}><Icon name="chevronRight" size="s" /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
-          {list.hasNextPage && (
-            <button className="link" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>{t("contacts.more")}</button>
+          {contacts.length > 0 && (
+            <div className="cf">
+              <span>{t("contacts.showing", { count: contacts.length })}{list.hasNextPage ? ` · ${t("contacts.moreAvailable")}` : ""}</span>
+              {list.hasNextPage && (
+                <button className="sm" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>{t("contacts.more")}</button>
+              )}
+            </div>
           )}
         </div>
         {selected && <ContactDetail id={selected} onClose={() => setSelected(null)} />}
+      </div>
+      <div className="banner ok" style={{ marginTop: 16 }}>
+        <Icon name="shield" size="s" />
+        <div><b>{t("contacts.optOutTitle")}</b><span>{t("contacts.optOutText")}</span></div>
       </div>
     </section>
   );

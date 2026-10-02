@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import type { Me } from "../api/types";
 import { AuthCard, Field } from "./AuthForm";
+import Icon from "../components/Icon";
 
 export default function Login() {
   const { t } = useTranslation();
@@ -41,7 +42,11 @@ export default function Login() {
       <Field label={t("auth.email")} type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
       <Field label={t("auth.password")} type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
       {error && <div className="error">{error}</div>}
-      <button className="primary" disabled={busy}>{t("auth.login")}</button>
+      <button className="primary" disabled={busy}>{t("auth.login")}<Icon name="arrowRight" size="s" /></button>
+      <div className="auth-note">
+        <span className="ic"><Icon name="lock" size="s" /></span>
+        <span><b>{t("auth.twoFactorTitle")}</b>{t("auth.twoFactorText")}</span>
+      </div>
     </AuthCard>
   );
 }
