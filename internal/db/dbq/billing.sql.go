@@ -79,6 +79,32 @@ func (q *Queries) BillingUsage(ctx context.Context) (BillingUsageRow, error) {
 	return i, err
 }
 
+const currentPlan = `-- name: CurrentPlan :one
+SELECT p.code, p.name, p.price_minor, p.currency, p.included_numbers, p.included_seats, p.extra_seat_minor, p.features, p.is_active, p.razorpay_plan_id, p.sort_order, p.created_at, p.updated_at FROM plans p JOIN subscriptions s ON s.plan_code = p.code
+`
+
+// Run inside the tenant. No row while the workspace is on a trial with no plan chosen.
+func (q *Queries) CurrentPlan(ctx context.Context) (Plan, error) {
+	row := q.db.QueryRow(ctx, currentPlan)
+	var i Plan
+	err := row.Scan(
+		&i.Code,
+		&i.Name,
+		&i.PriceMinor,
+		&i.Currency,
+		&i.IncludedNumbers,
+		&i.IncludedSeats,
+		&i.ExtraSeatMinor,
+		&i.Features,
+		&i.IsActive,
+		&i.RazorpayPlanID,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const dropTrialPlan = `-- name: DropTrialPlan :exec
 UPDATE subscriptions SET plan_code = NULL, provider_subscription_id = NULL, updated_at = now()
 WHERE tenant_id = $1 AND status = 'trialing'
@@ -261,6 +287,19 @@ func (q *Queries) ListPlans(ctx context.Context, activeOnly bool) ([]Plan, error
 		return nil, err
 	}
 	return items, nil
+}
+
+const numbersInUse = `-- name: NumbersInUse :one
+SELECT count(*)::int FROM phone_numbers
+WHERE status IN ('pending', 'connected') AND phone_number_id <> $1::text
+`
+
+// Numbers that count against the plan: connected or being connected, other than the one named.
+func (q *Queries) NumbersInUse(ctx context.Context, otherID string) (int32, error) {
+	row := q.db.QueryRow(ctx, numbersInUse, otherID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const recordRazorpayEvent = `-- name: RecordRazorpayEvent :execrows

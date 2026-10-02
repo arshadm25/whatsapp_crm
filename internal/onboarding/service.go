@@ -24,6 +24,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/credentials"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
@@ -82,6 +83,10 @@ func (s *Service) start(w http.ResponseWriter, r *http.Request) error {
 	}
 	var sess dbq.OnboardingSession
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		// Fail before the owner goes through Meta's popup when the plan has no room.
+		if err := billing.NumberRoom(r.Context(), q, ""); err != nil {
+			return err
+		}
 		var err error
 		sess, err = q.CreateOnboardingSession(r.Context(), dbq.CreateOnboardingSessionParams{
 			ID: db.NewID(), TenantID: p.TenantID, UserID: p.UserID, Flow: flow,

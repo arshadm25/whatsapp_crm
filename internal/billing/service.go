@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -79,6 +80,41 @@ func Check(ctx context.Context, q *dbq.Queries, now time.Time) error {
 	}
 	if !Usable(sub, now) {
 		return ErrPaymentRequired
+	}
+	return nil
+}
+
+// ErrNumberLimit is returned when a workspace has used all the WhatsApp numbers its plan includes.
+func ErrNumberLimit(limit int32) error {
+	return httpx.NewError(http.StatusConflict, "plan_limit",
+		fmt.Sprintf("Your plan includes %d WhatsApp number%s and all are in use. Disconnect a number or choose a larger plan under Settings, Billing.",
+			limit, plural(limit)))
+}
+
+func plural(n int32) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// NumberRoom refuses a new WhatsApp number when the plan's numbers are all in use. exceptID
+// is the Meta ID of a number being (re)connected, which does not count twice. A trial with no
+// plan chosen has no limit. Run it inside the tenant.
+func NumberRoom(ctx context.Context, q *dbq.Queries, exceptID string) error {
+	plan, err := q.CurrentPlan(ctx)
+	if db.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	used, err := q.NumbersInUse(ctx, exceptID)
+	if err != nil {
+		return err
+	}
+	if used >= plan.IncludedNumbers {
+		return ErrNumberLimit(plan.IncludedNumbers)
 	}
 	return nil
 }
@@ -200,6 +236,14 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 		}
 		if sub, err = q.GetSubscription(ctx); err != nil {
 			return err
+		}
+		// A plan that includes fewer numbers than are connected would leave the workspace over its limit.
+		if used, err := q.NumbersInUse(ctx, ""); err != nil {
+			return err
+		} else if used > plan.IncludedNumbers {
+			return httpx.NewError(http.StatusConflict, "plan_limit", fmt.Sprintf(
+				"You have %d WhatsApp numbers connected and %s includes %d. Disconnect numbers or choose a larger plan.",
+				used, plan.Name, plan.IncludedNumbers))
 		}
 		if tenant, err = q.GetTenant(ctx, p.TenantID); err != nil {
 			return err
