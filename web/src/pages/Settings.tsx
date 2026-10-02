@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { canPopUp, openCheckout, type CheckoutReply } from "../lib/razorpayCheckout";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
@@ -421,16 +422,28 @@ function Billing() {
   const sub = b.subscription;
   const end = new Date(sub.current_period_end).toLocaleDateString();
 
+  // pay opens Razorpay's pop-up (or the hosted page for older replies); false means no payment was needed.
+  const pay = async (res: CheckoutReply): Promise<boolean> => {
+    if (canPopUp(res)) {
+      await openCheckout(res, "Ecogo WhatsApp", () => {
+        setNote(t("billing.paymentReceived"));
+        void qc.invalidateQueries({ queryKey: ["billing"] });
+      });
+      return true;
+    }
+    if (res.payment_url) {
+      window.location.href = res.payment_url;
+      return true;
+    }
+    return false;
+  };
   const choose = async (code: string) => {
     setBusy(code);
     setError("");
     setNote("");
     try {
-      const res = await api<{ payment_url?: string; scheduled?: boolean }>("POST", "/internal/billing/subscribe", { plan: code });
-      if (res.payment_url) {
-        window.location.href = res.payment_url;
-        return;
-      }
+      const res = await api<CheckoutReply & { scheduled?: boolean }>("POST", "/internal/billing/subscribe", { plan: code });
+      if (await pay(res)) return;
       setNote(t("billing.changeScheduled"));
       await qc.invalidateQueries({ queryKey: ["billing"] });
     } catch (err) {
@@ -457,11 +470,8 @@ function Billing() {
     setError("");
     setNote("");
     try {
-      const res = await api<{ payment_url?: string; scheduled?: boolean }>("POST", "/internal/billing/seats", { extra: Number(extra) });
-      if (res.payment_url) {
-        window.location.href = res.payment_url;
-        return;
-      }
+      const res = await api<CheckoutReply & { scheduled?: boolean }>("POST", "/internal/billing/seats", { extra: Number(extra) });
+      if (await pay(res)) return;
       setNote(res.scheduled ? t("billing.extraSeatsScheduled") : t("billing.extraSeatsDone"));
       setExtra(null);
       await qc.invalidateQueries({ queryKey: ["billing"] });

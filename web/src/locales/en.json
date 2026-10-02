@@ -741,6 +741,7 @@
     "choose": "Choose",
     "switch": "Switch from next month",
     "opening": "Opening Razorpay…",
+    "paymentReceived": "Payment received. Your plan will show as active in a moment.",
     "changeScheduled": "Done. The new plan starts with your next billing cycle.",
     "metaFees": "WhatsApp message fees are charged by Meta to the payment method in your Meta Business account, not by Ecogo.",
     "metaFeesTitle": "WhatsApp message fees",

@@ -104,7 +104,7 @@ func (s *Service) seats(w http.ResponseWriter, r *http.Request) error {
 		if err := s.audit(r, "subscription.seats_checkout", fmt.Sprint(req.Extra)); err != nil {
 			return err
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"payment_url": rs.ShortURL})
+		httpx.JSON(w, http.StatusOK, s.checkout(rs))
 	case req.Extra == 0:
 		if err := s.cancelSeatSubscription(r, *sub.SeatProviderSubscriptionID, true); err != nil {
 			return err
