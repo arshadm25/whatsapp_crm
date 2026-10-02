@@ -24,10 +24,11 @@ const (
 	TemplateStatus  = "template.status"
 	NumberQuality   = "number.quality"
 	BotHandoff      = "bot.handoff"
+	FlowSubmission  = "flow.submission"
 )
 
 // EventTypes lists every event type a client can subscribe to.
-var EventTypes = []string{MessageReceived, MessageStatus, TemplateStatus, NumberQuality, BotHandoff}
+var EventTypes = []string{MessageReceived, MessageStatus, TemplateStatus, NumberQuality, BotHandoff, FlowSubmission}
 
 // Envelope matches the EventEnvelope schema in api/openapi.yaml.
 type Envelope struct {

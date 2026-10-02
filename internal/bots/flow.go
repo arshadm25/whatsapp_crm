@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
 )
 
@@ -25,6 +27,7 @@ const (
 	NodeTemplate  = "template"
 	NodeHandoff   = "handoff"
 	NodeEnd       = "end"
+	NodeFlow      = "flow" // sends a WhatsApp Flow and waits for the customer to submit it
 )
 
 // Trigger types.
@@ -81,6 +84,10 @@ type Node struct {
 
 	Reason   string `json:"reason,omitempty"`    // handoff: shown to agents and sent in bot.handoff
 	AssignTo string `json:"assign_to,omitempty"` // handoff: user id of the agent to assign
+
+	FlowID string `json:"flow_id,omitempty"` // flow: id of one of the workspace's Flows
+	CTA    string `json:"cta,omitempty"`     // flow: button label, 20 characters at most
+	Screen string `json:"screen,omitempty"`  // flow: screen to open instead of the first
 }
 
 type Button struct {
@@ -110,7 +117,7 @@ func bad(format string, a ...any) error {
 	return httpx.BadRequest("flow", fmt.Sprintf(format, a...))
 }
 
-func waits(n Node) bool { return n.Type == NodeButtons || n.Type == NodeQuestion }
+func waits(n Node) bool { return n.Type == NodeButtons || n.Type == NodeQuestion || n.Type == NodeFlow }
 
 // Validate checks the flow is complete and within WhatsApp's limits.
 func (f Flow) Validate() error {
@@ -270,6 +277,20 @@ func (f Flow) validateNode(id string, n Node) error {
 			return text(maxTextLength)
 		}
 		return nil
+	case NodeFlow:
+		if err := text(maxBodyLength); err != nil {
+			return err
+		}
+		if _, err := uuid.Parse(n.FlowID); err != nil {
+			return bad("Node %q needs the id of one of your Flows.", id)
+		}
+		if utf8.RuneCountInString(n.CTA) > maxButtonText {
+			return bad("Node %q: cta must have at most %d characters.", id, maxButtonText)
+		}
+		if n.Var != "" && !validVar(n.Var) {
+			return bad("Node %q: var must be letters, digits and underscores.", id)
+		}
+		return f.ref(id, "next", n.Next, false)
 	}
 	return bad("Node %q has an unknown type.", id)
 }

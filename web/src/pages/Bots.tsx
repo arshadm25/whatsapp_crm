@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers } from "../api/hooks";
+import type { WhatsAppFlow } from "../api/types";
 import {
   MAX_BODY,
   MAX_BUTTONS,
@@ -151,6 +152,10 @@ function BotEditor({ bot, onClose, onSaved }: { bot: Bot | null; onClose: () => 
   const [saved, setSaved] = useState(false);
 
   const issues = useMemo(() => problems(flow), [flow]);
+  const flowList = useQuery({
+    queryKey: ["flows"],
+    queryFn: async () => (await api<{ data: WhatsAppFlow[] }>("GET", "/v1/flows")).data,
+  });
   const change = (f: BotFlow) => {
     setFlow(f);
     setSaved(false);
@@ -239,6 +244,7 @@ function BotEditor({ bot, onClose, onSaved }: { bot: Bot | null; onClose: () => 
           isStart={flow.start === id}
           open={selected === id}
           problems={issues.filter((p) => p.node === id).map((p) => p.message)}
+          flows={flowList.data ?? []}
           onToggle={() => setSelected(selected === id ? null : id)}
           onChange={(n) => setNode(id, n)}
           onStart={() => change({ ...flow, start: id })}
@@ -398,6 +404,7 @@ function NodeCard(props: {
   isStart: boolean;
   open: boolean;
   problems: string[];
+  flows: WhatsAppFlow[];
   onToggle: () => void;
   onChange: (n: BotNode) => void;
   onStart: () => void;
@@ -442,10 +449,10 @@ function NodeCard(props: {
             </div>
           </div>
 
-          {(n.type === "message" || n.type === "buttons" || n.type === "question" || n.type === "handoff" || n.type === "end") && (
+          {(n.type === "message" || n.type === "buttons" || n.type === "question" || n.type === "flow" || n.type === "handoff" || n.type === "end") && (
             <label className="field">
               {t("bots.text")}
-              <textarea rows={3} maxLength={n.type === "buttons" ? MAX_BODY : 4096} value={n.text ?? ""} onChange={(e) => set({ text: e.target.value })} />
+              <textarea rows={3} maxLength={n.type === "buttons" || n.type === "flow" ? MAX_BODY : 4096} value={n.text ?? ""} onChange={(e) => set({ text: e.target.value })} />
             </label>
           )}
 
@@ -583,6 +590,36 @@ function NodeCard(props: {
                   onChange={(e) => set({ template: { ...n.template!, params: e.target.value ? e.target.value.split(",").map((x) => x.trim()) : [] } })}
                 />
               </label>
+              {next}
+            </>
+          )}
+
+          {n.type === "flow" && (
+            <>
+              <div className="row">
+                <label className="field">
+                  {t("bots.flow")}
+                  <select value={n.flow_id ?? ""} onChange={(e) => set({ flow_id: e.target.value })}>
+                    <option value="">{t("bots.choose")}</option>
+                    {props.flows.map((f) => <option key={f.id} value={f.id}>{f.name} ({t(`flows.status_${f.status}`)})</option>)}
+                  </select>
+                </label>
+                <label className="field">
+                  {t("bots.flowButton")}
+                  <input value={n.cta ?? ""} maxLength={MAX_BUTTON_TITLE} onChange={(e) => set({ cta: e.target.value })} />
+                </label>
+              </div>
+              <div className="row">
+                <label className="field">
+                  {t("bots.flowAnswersPrefix")}
+                  <input value={n.var ?? ""} onChange={(e) => set({ var: e.target.value.replace(/[^A-Za-z0-9_]/g, "") || undefined })} />
+                  <span className="muted small">{t("bots.flowAnswersHelp")}</span>
+                </label>
+                <label className="field">
+                  {t("bots.flowScreen")}
+                  <input value={n.screen ?? ""} onChange={(e) => set({ screen: e.target.value || undefined })} />
+                </label>
+              </div>
               {next}
             </>
           )}

@@ -50,6 +50,7 @@ tags:
   - name: Contacts
   - name: Campaigns
   - name: Bots
+  - name: Flows
   - name: Webhook endpoints
 
 paths:
@@ -872,6 +873,156 @@ paths:
                     items: { $ref: '#/components/schemas/BotSession' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /flows:
+    get:
+      tags: [Flows]
+      operationId: listFlows
+      summary: List WhatsApp Flows
+      responses:
+        '200':
+          description: Flows, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Flow' }
+    post:
+      tags: [Flows]
+      operationId: createFlow
+      summary: Create a Flow (owners and admins)
+      description: |
+        Creates a draft Flow on the WhatsApp Business Account, uploads `flow_json` (a one-screen starter when
+        omitted) and returns Meta's validation errors and a preview link. Fix validation errors with `PUT` before publishing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlowRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Flow' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /flows/{flow_id}:
+    parameters:
+      - $ref: '#/components/parameters/FlowId'
+    get:
+      tags: [Flows]
+      operationId: getFlow
+      summary: Get a Flow
+      responses:
+        '200':
+          description: The Flow with its JSON
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Flow' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Flows]
+      operationId: updateFlow
+      summary: Save a draft Flow
+      description: Only drafts can be edited. The JSON is validated by Meta; problems are returned in `validation_errors` and the draft is still saved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlowRequest' }
+      responses:
+        '200':
+          description: The saved Flow
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Flow' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Flows]
+      operationId: deleteFlow
+      summary: Delete a draft Flow
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /flows/{flow_id}/refresh:
+    post:
+      tags: [Flows]
+      operationId: refreshFlow
+      summary: Read the Flow's status, errors and a fresh preview link from Meta
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+      responses:
+        '200':
+          description: The Flow
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Flow' }
+
+  /flows/{flow_id}/publish:
+    post:
+      tags: [Flows]
+      operationId: publishFlow
+      summary: Publish a draft Flow
+      description: A published Flow can no longer be edited. Fails with `flow_invalid` while validation errors remain.
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+      responses:
+        '200':
+          description: The published Flow
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Flow' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /flows/{flow_id}/deprecate:
+    post:
+      tags: [Flows]
+      operationId: deprecateFlow
+      summary: Retire a published Flow
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+      responses:
+        '200':
+          description: The deprecated Flow
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Flow' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /flow-submissions:
+    get:
+      tags: [Flows]
+      operationId: listFlowSubmissions
+      summary: Answers customers submitted in Flows
+      description: |
+        Send a Flow with `POST /messages` using `type: interactive` and `interactive.type: flow` (or with a chatbot's Flow step).
+        When the customer submits it, the answers are stored against their contact and sent as a `flow.submission` webhook.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: flow_id, in: query, schema: { type: string, format: uuid } }
+        - { name: contact_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: A page of submissions, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlowSubmission' }
+
   /webhook-endpoints:
     get:
       tags: [Webhook endpoints]
@@ -1045,6 +1196,24 @@ webhooks:
                         variables: { type: object, additionalProperties: { type: string } }
       responses:
         '2XX': { description: Acknowledged }
+  flow.submission:
+    post:
+      summary: A customer submitted a WhatsApp Flow
+      parameters:
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EventEnvelope'
+                - type: object
+                  properties:
+                    type: { const: flow.submission }
+                    data: { $ref: '#/components/schemas/FlowSubmission' }
+      responses:
+        '2XX': { description: Acknowledged }
   template.status:
     post:
       summary: Meta approved, rejected, paused or disabled a template
@@ -1135,6 +1304,11 @@ components:
       schema: { type: string, format: uuid }
     BotId:
       name: bot_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    FlowId:
+      name: flow_id
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -1258,7 +1432,7 @@ components:
       enum: [queued, sent, delivered, read, failed, received, deleted]
     EventType:
       type: string
-      enum: [message.received, message.status, template.status, number.quality, bot.handoff]
+      enum: [message.received, message.status, template.status, number.quality, bot.handoff, flow.submission]
 
     SendMessageRequest:
       type: object
@@ -1658,6 +1832,61 @@ components:
         variables: { type: object, additionalProperties: { type: string }, description: Answers collected so far. }
         started_at: { type: string, format: date-time }
         ended_at: { type: [string, 'null'], format: date-time }
+
+    FlowRequest:
+      type: object
+      required: [name]
+      properties:
+        whatsapp_account_id: { type: string, format: uuid, description: Required when creating. }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        categories:
+          type: array
+          items: { type: string, enum: [SIGN_UP, SIGN_IN, APPOINTMENT_BOOKING, LEAD_GENERATION, CONTACT_US, CUSTOMER_SUPPORT, SURVEY, OTHER] }
+          default: [OTHER]
+        flow_json: { type: object, description: "Meta's Flow JSON: a `version` and `screens`." }
+
+    Flow:
+      type: object
+      required: [id, whatsapp_account_id, meta_flow_id, name, status]
+      properties:
+        id: { type: string, format: uuid }
+        whatsapp_account_id: { type: string, format: uuid }
+        meta_flow_id: { type: string, description: Use as `flow_id` in a Flow message. }
+        name: { type: string }
+        categories: { type: array, items: { type: string } }
+        status: { type: string, enum: [draft, published, deprecated, blocked, throttled] }
+        flow_json: { type: object }
+        validation_errors:
+          type: array
+          items:
+            type: object
+            properties:
+              error: { type: string }
+              error_type: { type: string }
+              message: { type: string }
+              line_start: { type: integer }
+              column_start: { type: integer }
+        preview_url: { type: [string, 'null'], description: Opens the Flow in a browser; the link expires. }
+        preview_expires_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        published_at: { type: [string, 'null'], format: date-time }
+
+    FlowSubmission:
+      type: object
+      required: [id, contact_id, conversation_id, message_id, response, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        flow_id: { type: [string, 'null'], format: uuid }
+        flow_name: { type: [string, 'null'] }
+        meta_flow_id: { type: [string, 'null'] }
+        contact_id: { type: string, format: uuid }
+        contact_wa_id: { type: string }
+        contact_name: { type: [string, 'null'] }
+        conversation_id: { type: string, format: uuid }
+        message_id: { type: string, format: uuid }
+        response: { type: object, description: The answers, keyed by field name. }
+        created_at: { type: string, format: date-time }
 
     Campaign:
       type: object

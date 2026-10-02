@@ -188,7 +188,7 @@ export interface CreatedAPIKey extends APIKey {
   key: string;
 }
 
-export type WebhookEventType = "message.received" | "message.status" | "template.status" | "number.quality" | "bot.handoff";
+export type WebhookEventType = "message.received" | "message.status" | "template.status" | "number.quality" | "bot.handoff" | "flow.submission";
 
 export interface WebhookEndpoint {
   id: string;
@@ -499,4 +499,42 @@ export interface BillingOverview {
   connected_numbers: number;
   seats: number;
   payments_enabled: boolean;
+}
+
+export type FlowStatus = "draft" | "published" | "deprecated" | "blocked" | "throttled";
+
+export interface FlowError {
+  error?: string;
+  error_type?: string;
+  message: string;
+  line_start?: number;
+  column_start?: number;
+}
+
+export interface WhatsAppFlow {
+  id: string;
+  whatsapp_account_id: string;
+  meta_flow_id: string;
+  name: string;
+  categories: string[];
+  status: FlowStatus;
+  flow_json: unknown;
+  validation_errors: FlowError[];
+  preview_url: string | null;
+  preview_expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+}
+
+export interface FlowSubmission {
+  id: string;
+  flow_id: string | null;
+  flow_name: string | null;
+  contact_id: string;
+  contact_wa_id: string;
+  contact_name: string | null;
+  conversation_id: string;
+  response: Record<string, unknown>;
+  created_at: string;
 }

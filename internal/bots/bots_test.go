@@ -119,3 +119,31 @@ func TestButtonsMatchByIDOrTitle(t *testing.T) {
 		t.Fatalf("no next = %+v", out)
 	}
 }
+
+func TestFlowNode(t *testing.T) {
+	const id = "7d2c1f0e-3a55-4a39-9f0b-0f6f7f2f6a10"
+	if _, err := ParseFlow([]byte(`{"start":"f","nodes":{"f":{"type":"flow","text":"Fill in","flow_id":"nope"}}}`)); err == nil {
+		t.Error("flow node with a bad flow_id accepted")
+	}
+	f := mustFlow(t, `{"start":"f","nodes":{
+		"f":{"type":"flow","text":"Hi {{contact.name}}","flow_id":"`+id+`","var":"lead","next":"done"},
+		"done":{"type":"end","text":"Thanks {{lead_name}}"}}}`)
+	out := Start(f, Contact{Name: "Ravi"})
+	if out.Status != StatusActive || out.State.NodeID != "f" || len(out.Actions) != 1 || out.Actions[0].Kind != ActionFlow || out.Actions[0].FlowNode.Text != "Hi Ravi" {
+		t.Fatalf("start = %+v", out)
+	}
+	// Text does not satisfy a form; the submission does, and its answers are prefixed.
+	again := Resume(f, out.State, Input{Text: "hello"}, Contact{})
+	if again.Status != StatusActive || len(again.Actions) != 1 || again.Actions[0].Kind != ActionFlow {
+		t.Fatalf("text = %+v", again)
+	}
+	done := Resume(f, again.State, Input{Flow: map[string]string{"name": "Ravi"}}, Contact{})
+	if done.Status != StatusCompleted || done.State.Vars["lead_name"] != "Ravi" {
+		t.Fatalf("submission = %+v", done)
+	}
+	// A form reply never starts a bot by itself.
+	any := mustFlow(t, `{"start":"a","nodes":{"a":{"type":"end"}},"triggers":[{"type":"any_message"}]}`)
+	if any.Matches(Input{Flow: map[string]string{"x": "y"}}, true) || !any.Matches(Input{Text: "hi"}, false) {
+		t.Error("any_message trigger and form replies")
+	}
+}

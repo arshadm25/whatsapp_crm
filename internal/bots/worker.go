@@ -14,6 +14,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/flows"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/webhooks"
@@ -99,6 +100,10 @@ type inbound struct {
 	Interactive *struct {
 		ButtonReply *struct{ ID, Title string } `json:"button_reply"`
 		ListReply   *struct{ ID, Title string } `json:"list_reply"`
+		NfmReply    *struct {
+			Name         string `json:"name"`
+			ResponseJSON string `json:"response_json"`
+		} `json:"nfm_reply"`
 	} `json:"interactive"`
 }
 
@@ -108,6 +113,11 @@ func parseInput(raw []byte) Input {
 		return Input{}
 	}
 	switch {
+	case m.Interactive != nil && m.Interactive.NfmReply != nil:
+		if _, answers, err := flows.ParseResponse(m.Interactive.NfmReply.ResponseJSON); err == nil {
+			return Input{Flow: flows.Flatten(answers)}
+		}
+		return Input{}
 	case m.Interactive != nil && m.Interactive.ButtonReply != nil:
 		return Input{Text: m.Interactive.ButtonReply.Title, ButtonID: m.Interactive.ButtonReply.ID}
 	case m.Interactive != nil && m.Interactive.ListReply != nil:
@@ -283,8 +293,8 @@ func (w *Worker) apply(ctx context.Context, q *dbq.Queries, tx pgx.Tx, num dbq.G
 actions:
 	for _, act := range out.Actions {
 		switch act.Kind {
-		case ActionSend, ActionTemplate:
-			msgType, content, templateID, ok, why, err := w.prepare(ctx, q, num, conv, act, now)
+		case ActionSend, ActionTemplate, ActionFlow:
+			msgType, content, templateID, ok, why, err := w.prepare(ctx, q, num, conv, act, sess.ID, now)
 			if err != nil {
 				return err
 			}
@@ -336,11 +346,13 @@ actions:
 }
 
 // prepare applies the send guardrails and builds the stored message.
-func (w *Worker) prepare(ctx context.Context, q *dbq.Queries, num dbq.GetSendingNumberRow, conv dbq.Conversation, act Action,
-	now time.Time) (msgType dbq.MessageType, content map[string]any, templateID *uuid.UUID, ok bool, why string, err error) {
-	if act.Kind == ActionSend {
+func (w *Worker) prepare(ctx context.Context, q *dbq.Queries, num dbq.GetSendingNumberRow, conv dbq.Conversation, act Action, sessionID uuid.UUID, now time.Time) (msgType dbq.MessageType, content map[string]any, templateID *uuid.UUID, ok bool, why string, err error) {
+	if act.Kind == ActionSend || act.Kind == ActionFlow {
 		if conv.LastInboundAt == nil || now.Sub(*conv.LastInboundAt) >= messaging.Window {
 			return "", nil, nil, false, "window_closed", nil
+		}
+		if act.Kind == ActionFlow {
+			return w.flowMessage(ctx, q, act.FlowNode, sessionID)
 		}
 		return dbq.MessageType(act.Type), act.Content, nil, true, "", nil
 	}
@@ -440,4 +452,37 @@ func displayName(c dbq.Contact) string {
 		return *c.ProfileName
 	}
 	return ""
+}
+
+// flowMessage builds the interactive message that opens one of the workspace's Flows. The
+// session id travels as the flow token, so the submission finds its way back to the bot.
+func (w *Worker) flowMessage(ctx context.Context, q *dbq.Queries, n *Node, sessionID uuid.UUID) (dbq.MessageType, map[string]any, *uuid.UUID, bool, string, error) {
+	id, err := uuid.Parse(n.FlowID)
+	if err != nil {
+		return "", nil, nil, false, "flow_unavailable", nil
+	}
+	f, err := q.GetFlow(ctx, id)
+	if db.IsNotFound(err) || (err == nil && f.Status != "published" && f.Status != "draft") {
+		return "", nil, nil, false, "flow_unavailable", nil
+	}
+	if err != nil {
+		return "", nil, nil, false, "", err
+	}
+	cta := n.CTA
+	if cta == "" {
+		cta = "Open"
+	}
+	params := map[string]any{
+		"flow_message_version": "3", "flow_token": sessionID.String(), "flow_id": f.MetaFlowID, "flow_cta": cta,
+	}
+	if f.Status == "draft" {
+		params["mode"] = "draft"
+	}
+	if n.Screen != "" {
+		params["flow_action"] = "navigate"
+		params["flow_action_payload"] = map[string]any{"screen": n.Screen}
+	}
+	return dbq.MessageTypeInteractive, map[string]any{"type": "interactive", "interactive": map[string]any{
+		"type": "flow", "body": map[string]any{"text": n.Text}, "action": map[string]any{"name": "flow", "parameters": params},
+	}}, nil, true, "", nil
 }
