@@ -2,14 +2,32 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { useMe, useTags } from "../api/hooks";
-import type { ConsentEvent, Contact, ImportResult, Page } from "../api/types";
+import { useContactSummary, useMe, useTags } from "../api/hooks";
+import type { ConsentEvent, Contact, ContactSummary, ImportResult, Page } from "../api/types";
 
 const CONSENT_PILL: Record<Contact["opt_in_status"], string> = {
   unknown: "",
   opted_in: "t-approved",
   opted_out: "t-rejected",
 };
+
+// The filter tabs: consent states, and blocked contacts on their own.
+type Tab = "" | "opted_in" | "unknown" | "opted_out" | "blocked";
+const TABS: { tab: Tab; count: keyof ContactSummary }[] = [
+  { tab: "", count: "total" },
+  { tab: "opted_in", count: "opted_in" },
+  { tab: "unknown", count: "unknown" },
+  { tab: "opted_out", count: "opted_out" },
+  { tab: "blocked", count: "blocked" },
+];
+
+function shortDate(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString();
+}
 
 function displayName(c: Contact) {
   return c.name ?? c.profile_name ?? `+${c.wa_id}`;
@@ -22,27 +40,40 @@ export default function Contacts() {
   const tags = useTags();
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
-  const [consent, setConsent] = useState("");
+  const [consent, setConsent] = useState<Tab>("");
+  const summary = useContactSummary().data;
   const [panel, setPanel] = useState<"add" | "import" | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   const params = new URLSearchParams({ limit: "50" });
   if (q.trim()) params.set("q", q.trim());
   if (tag) params.set("tag", tag);
-  if (consent) params.set("opt_in_status", consent);
+  if (consent === "blocked") params.set("blocked", "true");
+  else if (consent) {
+    params.set("opt_in_status", consent);
+    params.set("blocked", "false");
+  }
   const list = useInfiniteQuery({
     queryKey: ["contacts", params.toString()],
     queryFn: ({ pageParam }) =>
-      api<Page<Contact>>("GET", `/v1/contacts?${params}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`),
+      api<Page<Contact> & { total: number }>("GET", `/v1/contacts?${params}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`),
     initialPageParam: "",
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
   const contacts = list.data?.pages.flatMap((p) => p.data) ?? [];
+  const total = list.data?.pages[0]?.total ?? 0;
 
   return (
     <section>
       <div className="page-head">
-        <h1>{t("contacts.title")}</h1>
+        <div>
+          <h1>{t("contacts.title")}</h1>
+          {summary && (
+            <div className="muted small">
+              {t("contacts.summary", { total: summary.total.toLocaleString(), optedIn: summary.opted_in.toLocaleString() })}
+            </div>
+          )}
+        </div>
         <div className="actions">
           {canImport && <button onClick={() => setPanel(panel === "import" ? null : "import")}>{t("contacts.import")}</button>}
           <button className="primary" onClick={() => setPanel(panel === "add" ? null : "add")}>{t("contacts.add")}</button>
@@ -59,12 +90,14 @@ export default function Contacts() {
             <option key={tg.id} value={tg.name}>{tg.name} ({tg.contacts})</option>
           ))}
         </select>
-        <select value={consent} onChange={(e) => setConsent(e.target.value)}>
-          <option value="">{t("contacts.anyConsent")}</option>
-          {(["opted_in", "unknown", "opted_out"] as const).map((s) => (
-            <option key={s} value={s}>{t(`contacts.consent_${s}`)}</option>
-          ))}
-        </select>
+      </div>
+      <div className="tabs" role="tablist">
+        {TABS.map(({ tab, count }) => (
+          <button key={tab || "all"} role="tab" aria-selected={consent === tab} className={consent === tab ? "active" : ""} onClick={() => setConsent(tab)}>
+            {tab === "" ? t("contacts.tab_all") : tab === "blocked" ? t("contacts.blocked") : t(`contacts.consent_${tab}`)}
+            {summary && <span className="tab-count">{summary[count].toLocaleString()}</span>}
+          </button>
+        ))}
       </div>
 
       <div className={`contacts-layout ${selected ? "has-detail" : ""}`}>
@@ -79,6 +112,8 @@ export default function Contacts() {
                   <th>{t("contacts.number")}</th>
                   <th>{t("contacts.tags")}</th>
                   <th>{t("contacts.consent")}</th>
+                  <th>{t("contacts.source")}</th>
+                  <th>{t("contacts.lastMessage")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -91,10 +126,15 @@ export default function Contacts() {
                       <span className={`pill ${CONSENT_PILL[c.opt_in_status]}`}>{t(`contacts.consent_${c.opt_in_status}`)}</span>
                       {c.blocked && <span className="pill t-rejected">{t("contacts.blocked")}</span>}
                     </td>
+                    <td className="muted small">{c.opt_in_source ? t(`contacts.source_${c.opt_in_source}`) : "—"}</td>
+                    <td className="muted small">{shortDate(c.last_message_at)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          )}
+          {contacts.length > 0 && (
+            <div className="muted small">{t("contacts.showing", { from: 1, to: contacts.length.toLocaleString(), total: total.toLocaleString() })}</div>
           )}
           {list.hasNextPage && (
             <button className="link" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>{t("contacts.more")}</button>

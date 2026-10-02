@@ -38,6 +38,7 @@ func (s *Service) Routes(r chi.Router) {
 
 func (s *Service) InternalRoutes(r chi.Router) {
 	r.Get("/tags", httpx.Handler(s.log, s.tags))
+	r.Get("/summary", httpx.Handler(s.log, s.summary))
 	r.Get("/{id}/consent", httpx.Handler(s.log, s.consentHistory))
 	r.With(auth.RequireRole(dbq.MemberRoleOwner, dbq.MemberRoleAdmin)).Post("/import", httpx.Handler(s.log, s.importCSV))
 }
@@ -204,6 +205,14 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	if v := strings.TrimSpace(qs.Get("tag")); v != "" {
 		params.Tag = &v
 	}
+	switch v := qs.Get("blocked"); v {
+	case "":
+	case "true", "false":
+		b := v == "true"
+		params.Blocked = &b
+	default:
+		return httpx.BadRequest("blocked", "blocked must be true or false.")
+	}
 	if v := strings.TrimSpace(qs.Get("q")); v != "" {
 		v = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.TrimPrefix(v, "+"))
 		params.Search = &v
@@ -215,8 +224,11 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 		}
 		params.BeforeAt, params.BeforeID = &at, &id
 	}
-	out := []Contact{}
-	var next *string
+	var (
+		out   []Listed
+		next  *string
+		total int32
+	)
 	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		rows, err := q.ListContacts(r.Context(), params)
 		if err != nil {
@@ -228,24 +240,18 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 			c := httpx.EncodeCursor(last.CreatedAt, last.ID)
 			next = &c
 		}
-		ids := make([]uuid.UUID, len(rows))
-		for i, c := range rows {
-			ids[i] = c.ID
-		}
-		tagRows, err := q.ListContactTags(r.Context(), ids)
-		if err != nil {
+		if out, err = activity(r.Context(), q, rows); err != nil {
 			return err
 		}
-		tags := Tags(tagRows)
-		for _, c := range rows {
-			out = append(out, View(c, tags[c.ID]))
-		}
-		return nil
+		total, err = q.CountContacts(r.Context(), dbq.CountContactsParams{
+			OptInStatus: params.OptInStatus, Tag: params.Tag, Blocked: params.Blocked, Search: params.Search,
+		})
+		return err
 	})
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"data": out, "next_cursor": next})
+	httpx.JSON(w, http.StatusOK, map[string]any{"data": out, "next_cursor": next, "total": total})
 	return nil
 }
 
@@ -340,13 +346,19 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	var out Contact
+	var out Listed
 	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		c, err := q.GetContact(r.Context(), id)
 		if err != nil {
 			return err
 		}
-		out, err = view(r.Context(), q, c)
+		rows, err := activity(r.Context(), q, []dbq.Contact{c})
+		if err != nil {
+			return err
+		}
+		out = rows[0]
+		n, err := q.ContactConversationCount(r.Context(), id)
+		out.ConversationCount = &n
 		return err
 	})
 	if db.IsNotFound(err) {
@@ -496,5 +508,29 @@ func (s *Service) consentHistory(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"data": out})
+	return nil
+}
+
+// Summary is the contacts header: totals by consent, and blocked contacts on their own.
+type Summary struct {
+	Total    int32 `json:"total"`
+	OptedIn  int32 `json:"opted_in"`
+	OptedOut int32 `json:"opted_out"`
+	Unknown  int32 `json:"unknown"`
+	Blocked  int32 `json:"blocked"`
+}
+
+func (s *Service) summary(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	var out Summary
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		row, err := q.ContactSummary(r.Context())
+		out = Summary(row)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
 	return nil
 }

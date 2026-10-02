@@ -12,6 +12,49 @@ import (
 	"github.com/google/uuid"
 )
 
+const conversationCounts = `-- name: ConversationCounts :one
+SELECT (count(*) FILTER (WHERE status = 'open'))::int AS open,
+       (count(*) FILTER (WHERE status = 'open' AND assignee_user_id = $1::uuid))::int AS mine,
+       (count(*) FILTER (WHERE status = 'open' AND assignee_user_id IS NULL))::int AS unassigned,
+       (count(*) FILTER (WHERE status = 'pending'))::int AS pending,
+       (count(*) FILTER (WHERE status = 'closed'))::int AS closed,
+       (count(*) FILTER (WHERE unread_count > 0))::int AS unread_conversations,
+       coalesce(sum(unread_count), 0)::int AS unread_messages
+FROM conversations
+WHERE $2::uuid IS NULL OR phone_number_id = $2
+`
+
+type ConversationCountsParams struct {
+	UserID        *uuid.UUID
+	PhoneNumberID *uuid.UUID
+}
+
+type ConversationCountsRow struct {
+	Open                int32
+	Mine                int32
+	Unassigned          int32
+	Pending             int32
+	Closed              int32
+	UnreadConversations int32
+	UnreadMessages      int32
+}
+
+// The inbox tab counts and the unread badge. Mine needs a team member; API keys pass NULL.
+func (q *Queries) ConversationCounts(ctx context.Context, arg ConversationCountsParams) (ConversationCountsRow, error) {
+	row := q.db.QueryRow(ctx, conversationCounts, arg.UserID, arg.PhoneNumberID)
+	var i ConversationCountsRow
+	err := row.Scan(
+		&i.Open,
+		&i.Mine,
+		&i.Unassigned,
+		&i.Pending,
+		&i.Closed,
+		&i.UnreadConversations,
+		&i.UnreadMessages,
+	)
+	return i, err
+}
+
 const deleteQuickReply = `-- name: DeleteQuickReply :execrows
 DELETE FROM quick_replies WHERE id = $1
 `

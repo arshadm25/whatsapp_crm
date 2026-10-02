@@ -68,3 +68,15 @@ RETURNING *;
 
 -- name: DeleteQuickReply :execrows
 DELETE FROM quick_replies WHERE id = $1;
+
+-- name: ConversationCounts :one
+-- The inbox tab counts and the unread badge. Mine needs a team member; API keys pass NULL.
+SELECT (count(*) FILTER (WHERE status = 'open'))::int AS open,
+       (count(*) FILTER (WHERE status = 'open' AND assignee_user_id = sqlc.narg(user_id)::uuid))::int AS mine,
+       (count(*) FILTER (WHERE status = 'open' AND assignee_user_id IS NULL))::int AS unassigned,
+       (count(*) FILTER (WHERE status = 'pending'))::int AS pending,
+       (count(*) FILTER (WHERE status = 'closed'))::int AS closed,
+       (count(*) FILTER (WHERE unread_count > 0))::int AS unread_conversations,
+       coalesce(sum(unread_count), 0)::int AS unread_messages
+FROM conversations
+WHERE sqlc.narg(phone_number_id)::uuid IS NULL OR phone_number_id = sqlc.narg(phone_number_id);

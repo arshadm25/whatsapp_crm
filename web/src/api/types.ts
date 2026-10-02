@@ -124,6 +124,29 @@ export interface Contact {
   opted_out_at: string | null;
   blocked: boolean;
   created_at: string;
+  // Returned by the contacts list and GET only.
+  last_message_at?: string | null;
+  opt_in_source?: "api" | "dashboard" | "csv_import" | "whatsapp_flow" | null;
+  // Returned by GET only.
+  conversation_count?: number;
+}
+
+export interface InboxCounts {
+  open: number;
+  mine: number;
+  unassigned: number;
+  pending: number;
+  closed: number;
+  unread_conversations: number;
+  unread_messages: number;
+}
+
+export interface ContactSummary {
+  total: number;
+  opted_in: number;
+  opted_out: number;
+  unknown: number;
+  blocked: number;
 }
 
 export interface Conversation {

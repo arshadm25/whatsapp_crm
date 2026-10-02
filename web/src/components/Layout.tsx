@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
-import { useLiveEvents, useMe, usePhoneNumbers } from "../api/hooks";
+import { useInboxCounts, useLiveEvents, useMe, usePhoneNumbers } from "../api/hooks";
 import type { BillingOverview, Me } from "../api/types";
 import { daysLeft } from "../lib/billing";
 import Icon, { type IconName } from "./Icon";
@@ -64,6 +64,7 @@ export default function Layout() {
   useLiveEvents();
 
   const connected = numbers.data?.find((n) => n.status === "connected");
+  const unread = useInboxCounts().data?.unread_conversations ?? 0;
   const page = location.pathname.startsWith("/admin")
     ? "admin"
     : [...ALL_ITEMS].reverse().find((n) => (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)))?.key;
@@ -113,6 +114,7 @@ export default function Layout() {
                 <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
                   <Icon name={n.icon} />
                   {t(`nav.${n.key}`)}
+                  {n.key === "inbox" && unread > 0 && <span className="badge nav-badge" aria-label={t("inbox.unreadBadge", { count: unread })}>{unread}</span>}
                 </NavLink>
               ))}
               {g.group === "manage" && me.user.is_platform_admin && (

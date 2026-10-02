@@ -40,6 +40,7 @@ func (s *Service) Routes(r chi.Router) {
 // InternalRoutes mounts /internal/inbox for the dashboard: team members, notes and quick replies.
 func (s *Service) InternalRoutes(r chi.Router) {
 	r.Get("/members", httpx.Handler(s.log, s.members))
+	r.Get("/counts", httpx.Handler(s.log, s.counts))
 	r.Get("/conversations/{id}/notes", httpx.Handler(s.log, s.notes))
 	r.Post("/conversations/{id}/notes", httpx.Handler(s.log, s.addNote))
 	r.Get("/quick-replies", httpx.Handler(s.log, s.quickReplies))
@@ -498,5 +499,40 @@ func (s *Service) deleteQuickReply(w http.ResponseWriter, r *http.Request) error
 		return httpx.ErrNotFound
 	}
 	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// Counts are the inbox tab counts and the unread badge. Open, mine and unassigned count open
+// conversations only.
+type Counts struct {
+	Open                int32 `json:"open"`
+	Mine                int32 `json:"mine"`
+	Unassigned          int32 `json:"unassigned"`
+	Pending             int32 `json:"pending"`
+	Closed              int32 `json:"closed"`
+	UnreadConversations int32 `json:"unread_conversations"`
+	UnreadMessages      int32 `json:"unread_messages"`
+}
+
+func (s *Service) counts(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	params := dbq.ConversationCountsParams{UserID: p.User()}
+	if v := r.URL.Query().Get("phone_number_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return httpx.BadRequest("phone_number_id", "phone_number_id must be a UUID.")
+		}
+		params.PhoneNumberID = &id
+	}
+	var out Counts
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		row, err := q.ConversationCounts(r.Context(), params)
+		out = Counts(row)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
 	return nil
 }

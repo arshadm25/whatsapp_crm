@@ -4,6 +4,7 @@ WHERE (sqlc.narg(opt_in_status)::opt_in_status IS NULL OR c.opt_in_status = sqlc
   AND (sqlc.narg(tag)::text IS NULL OR EXISTS (
         SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
         WHERE ct.contact_id = c.id AND t.name = sqlc.narg(tag)::citext))
+  AND (sqlc.narg(blocked)::bool IS NULL OR c.blocked = sqlc.narg(blocked))
   AND (sqlc.narg(search)::text IS NULL OR c.wa_id LIKE '%' || sqlc.narg(search) || '%'
        OR c.name ILIKE '%' || sqlc.narg(search) || '%' OR c.profile_name ILIKE '%' || sqlc.narg(search) || '%')
   AND (sqlc.narg(before_at)::timestamptz IS NULL OR (c.created_at, c.id) < (sqlc.narg(before_at), sqlc.narg(before_id)::uuid))
@@ -73,3 +74,45 @@ SELECT t.id, t.name, count(ct.contact_id) AS contacts
 FROM tags t LEFT JOIN contact_tags ct ON ct.tag_id = t.id
 GROUP BY t.id, t.name
 ORDER BY t.name;
+
+-- name: CountContacts :one
+-- How many contacts match the list filters, for "Showing 1-50 of N".
+SELECT count(*)::int FROM contacts c
+WHERE (sqlc.narg(opt_in_status)::opt_in_status IS NULL OR c.opt_in_status = sqlc.narg(opt_in_status))
+  AND (sqlc.narg(tag)::text IS NULL OR EXISTS (
+        SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
+        WHERE ct.contact_id = c.id AND t.name = sqlc.narg(tag)::citext))
+  AND (sqlc.narg(blocked)::bool IS NULL OR c.blocked = sqlc.narg(blocked))
+  AND (sqlc.narg(search)::text IS NULL OR c.wa_id LIKE '%' || sqlc.narg(search) || '%'
+       OR c.name ILIKE '%' || sqlc.narg(search) || '%' OR c.profile_name ILIKE '%' || sqlc.narg(search) || '%');
+
+-- name: ContactSummary :one
+-- Totals for the contacts header and filter tabs. Consent counts leave out blocked contacts.
+SELECT count(*)::int AS total,
+       (count(*) FILTER (WHERE NOT blocked AND opt_in_status = 'opted_in'))::int AS opted_in,
+       (count(*) FILTER (WHERE NOT blocked AND opt_in_status = 'opted_out'))::int AS opted_out,
+       (count(*) FILTER (WHERE NOT blocked AND opt_in_status = 'unknown'))::int AS unknown,
+       (count(*) FILTER (WHERE blocked))::int AS blocked
+FROM contacts;
+
+-- name: ContactLastMessages :many
+SELECT contact_id, max(last_message_at)::timestamptz AS last_message_at
+FROM conversations
+WHERE contact_id = ANY(@ids::uuid[]) AND last_message_at IS NOT NULL
+GROUP BY contact_id;
+
+-- name: ContactOptInSources :many
+-- Where each contact's latest opt-in came from.
+SELECT DISTINCT ON (contact_id) contact_id, source
+FROM consent_events
+WHERE contact_id = ANY(@ids::uuid[]) AND kind = 'opt_in'
+ORDER BY contact_id, occurred_at DESC;
+
+-- name: ContactConversationCount :one
+-- Customer service conversations with a contact: each inbound message that arrives more than 24
+-- hours after the previous one starts a new one.
+SELECT count(*)::int FROM (
+    SELECT created_at, lag(created_at) OVER (ORDER BY created_at) AS prev
+    FROM messages WHERE contact_id = $1 AND direction = 'inbound'
+) m
+WHERE prev IS NULL OR created_at > prev + interval '24 hours';

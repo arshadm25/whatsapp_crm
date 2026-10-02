@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type { Me, Media, Member, PhoneNumber, PublicConfig, QuickReply, Tag, Template } from "./types";
+import type { ContactSummary, InboxCounts, Me, Media, Member, PhoneNumber, PublicConfig, QuickReply, Tag, Template } from "./types";
 
 export function useMe() {
   return useQuery<Me | null>({
@@ -48,6 +48,22 @@ export function useTags() {
   return useQuery({
     queryKey: ["tags"],
     queryFn: async () => (await api<{ data: Tag[] }>("GET", "/internal/contacts/tags")).data,
+  });
+}
+
+// Inbox tab counts and the unread badge. The key sits under "conversations" so live events
+// refresh it with the list.
+export function useInboxCounts() {
+  return useQuery({
+    queryKey: ["conversations", "counts"],
+    queryFn: () => api<InboxCounts>("GET", "/internal/inbox/counts"),
+  });
+}
+
+export function useContactSummary() {
+  return useQuery({
+    queryKey: ["contacts", "summary"],
+    queryFn: () => api<ContactSummary>("GET", "/internal/contacts/summary"),
   });
 }
 
