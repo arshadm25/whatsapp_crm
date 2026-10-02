@@ -21,13 +21,15 @@ export default function VerifyEmail() {
 
   return (
     <div className="auth-page">
-      <div className="card auth-card">
-        <div className="brand">{t("app.name")}</div>
-        {state === "pending" && <p>{t("auth.verifying")}</p>}
-        {state === "done" && <p>{t("auth.verified")}</p>}
-        {state !== "pending" && state !== "done" && <p className="error">{state}</p>}
-        <Link className="button primary" to="/">{t("auth.continue")}</Link>
-      </div>
+      <main className="auth-main">
+        <div className="card auth-card">
+          <div className="brand">{t("app.name")}</div>
+          {state === "pending" && <p>{t("auth.verifying")}</p>}
+          {state === "done" && <p>{t("auth.verified")}</p>}
+          {state !== "pending" && state !== "done" && <p className="error">{state}</p>}
+          <Link className="button primary" to="/">{t("auth.continue")}</Link>
+        </div>
+      </main>
     </div>
   );
 }

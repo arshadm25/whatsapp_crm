@@ -19,7 +19,15 @@
     "admin": "Admin console",
     "bots": "Chatbots",
     "flows": "Flows",
-    "knowledge": "AI knowledge"
+    "knowledge": "AI knowledge",
+    "main": "Main",
+    "group_overview": "Overview",
+    "group_messaging": "Messaging",
+    "group_automation": "Automation",
+    "group_manage": "Manage",
+    "connected": "WhatsApp connected",
+    "notConnected": "WhatsApp not connected",
+    "connectHint": "Connect a number to start messaging"
   },
   "auth": {
     "loginTitle": "Log in",
@@ -40,7 +48,16 @@
     "resent": "Sent. Check your inbox.",
     "verifying": "Verifying your email…",
     "verified": "Your email is verified.",
-    "continue": "Continue"
+    "continue": "Continue",
+    "panelTag": "WhatsApp Business Platform",
+    "panelTitle": "Every WhatsApp conversation, in one shared inbox.",
+    "panelLead": "Connect your number, answer customers as a team, and send approved templates to the people who opted in.",
+    "featConnect": "Connect in minutes",
+    "featConnectText": "Meta's Embedded Signup, with every step saved and retryable.",
+    "featTeam": "Reply as a team",
+    "featTeamText": "Assign chats, leave notes, and see read receipts in real time.",
+    "featTemplates": "Templates and campaigns",
+    "featTemplatesText": "Submit templates to Meta and track approval without leaving the app."
   },
   "getStarted": {
     "title": "Welcome, {{name}}",
@@ -50,7 +67,27 @@
     "stepConnect": "Connect a WhatsApp number",
     "stepConnectHint": "Use Meta's sign-up to link your WhatsApp Business Account.",
     "connect": "Connect WhatsApp",
-    "done": "Done"
+    "done": "Done",
+    "allSet": "You're all set",
+    "progressTitle": "{{done}} of {{total}} steps done",
+    "progressText": "Connecting WhatsApp unlocks the inbox, templates and campaigns.",
+    "progressTextDone": "Your number is connected. Start a conversation from the inbox or send a template.",
+    "checklist": "Setup checklist",
+    "stepAccountHint": "Your workspace is ready.",
+    "stepVerifyHint": "Use the link we emailed to you.",
+    "featInbox": "Shared inbox",
+    "featInboxText": "Assign chats and reply as a team.",
+    "featTemplates": "Message templates",
+    "featTemplatesText": "Get approval for order and offer updates.",
+    "featCampaigns": "Campaigns",
+    "featCampaignsText": "Reach opted-in contacts at scale.",
+    "quickLinks": "Quick links",
+    "linkInbox": "Open the inbox",
+    "linkInboxText": "Answer customer chats",
+    "linkApi": "API keys and webhooks",
+    "linkApiText": "Send messages from your systems",
+    "linkTeam": "Invite your team",
+    "linkTeamText": "Admins, agents and developers"
   },
   "numbers": {
     "title": "Numbers",
@@ -108,7 +145,13 @@
       "TRAVEL": "Travel and transportation",
       "RESTAURANT": "Restaurant",
       "NOT_A_BIZ": "Not a business"
-    }
+    },
+    "intro": "Phone numbers on your WhatsApp Business Accounts, with their health and limits.",
+    "statConnected": "Connected numbers",
+    "statQuality": "Lowest quality",
+    "statLimit": "Highest daily limit",
+    "statLimitHint": "unique users per 24 hours",
+    "statOf": "of {{count}} added"
   },
   "connect": {
     "title": "Connect WhatsApp",
