@@ -68,6 +68,12 @@ spec:
         - { port: 443 }
         - { port: 587 }
         - { port: 2525 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.storageNamespace }}
+      ports:
+        - { port: {{ .Values.networkPolicy.storagePort }} }
 {{- if .Values.postgres.cnpg.enabled }}
 ---
 # Let our pods and the CloudNativePG operator reach the database pods.

@@ -40,6 +40,19 @@ type Config struct {
 	AppSecret []byte
 
 	Mail Mail
+
+	Storage Storage
+}
+
+// Storage is where media files live: an S3-compatible bucket (MinIO in the cluster) when
+// Endpoint is set, otherwise a local directory for development.
+type Storage struct {
+	Endpoint  string // host:port, no scheme
+	AccessKey string
+	SecretKey string
+	Bucket    string
+	UseSSL    bool
+	Dir       string
 }
 
 type Meta struct {
@@ -82,6 +95,13 @@ func Load() (*Config, error) {
 			Password: os.Getenv("ECOGO_SMTP_PASSWORD"),
 			From:     env("ECOGO_MAIL_FROM", "Ecogo WhatsApp <no-reply@ecogo.co.in>"),
 		},
+		Storage: Storage{
+			Endpoint:  os.Getenv("ECOGO_S3_ENDPOINT"),
+			AccessKey: os.Getenv("ECOGO_S3_ACCESS_KEY"),
+			SecretKey: os.Getenv("ECOGO_S3_SECRET_KEY"),
+			Bucket:    env("ECOGO_S3_BUCKET", "ecogo-media"),
+			Dir:       env("ECOGO_MEDIA_DIR", "data/media"),
+		},
 	}
 
 	var err error
@@ -93,6 +113,9 @@ func Load() (*Config, error) {
 	}
 	if c.Mail.SMTPPort, err = strconv.Atoi(env("ECOGO_SMTP_PORT", "1025")); err != nil {
 		return nil, fmt.Errorf("ECOGO_SMTP_PORT: %w", err)
+	}
+	if c.Storage.UseSSL, err = strconv.ParseBool(env("ECOGO_S3_USE_SSL", "false")); err != nil {
+		return nil, fmt.Errorf("ECOGO_S3_USE_SSL: %w", err)
 	}
 	if c.MasterKeys, c.MasterKeyVersion, err = parseMasterKeys(os.Getenv("ECOGO_MASTER_KEYS")); err != nil {
 		return nil, err

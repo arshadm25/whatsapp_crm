@@ -285,8 +285,8 @@ func (q *Queries) HasUnsentMessageTo(ctx context.Context, arg HasUnsentMessageTo
 
 const insertOutboundMessage = `-- name: InsertOutboundMessage :one
 INSERT INTO messages (id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin,
-                      type, content, template_id, reply_to_wamid, status, sent_by_user_id, idempotency_key)
-VALUES ($1, $2, $3, $4, $5, 'outbound', $6, $7, $8, $9, $10, 'queued', $11, $12)
+                      type, content, template_id, reply_to_wamid, status, sent_by_user_id, idempotency_key, media_id)
+VALUES ($1, $2, $3, $4, $5, 'outbound', $6, $7, $8, $9, $10, 'queued', $11, $12, $13)
 RETURNING id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at
 `
 
@@ -303,6 +303,7 @@ type InsertOutboundMessageParams struct {
 	ReplyToWamid   *string
 	SentByUserID   *uuid.UUID
 	IdempotencyKey *string
+	MediaID        *uuid.UUID
 }
 
 func (q *Queries) InsertOutboundMessage(ctx context.Context, arg InsertOutboundMessageParams) (Message, error) {
@@ -319,6 +320,7 @@ func (q *Queries) InsertOutboundMessage(ctx context.Context, arg InsertOutboundM
 		arg.ReplyToWamid,
 		arg.SentByUserID,
 		arg.IdempotencyKey,
+		arg.MediaID,
 	)
 	var i Message
 	err := row.Scan(

@@ -30,12 +30,14 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
+	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
+	"github.com/arshadm25/whatsapp_crm/internal/storage"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
 )
 
@@ -88,6 +90,10 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	store, err := storage.Open(ctx, cfg.Storage)
+	if err != nil {
+		return err
+	}
 	hub := events.NewHub(d.Pool, log)
 	go hub.Run(ctx)
 	h := server.NewAPI(server.APIDeps{
@@ -100,6 +106,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
 		Templates:  templates.NewService(d, keys, meta, log),
 		Inbox:      inbox.NewService(d, log),
+		Media:      media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
 		Events:     hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
@@ -132,10 +139,15 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	}
 	defer d.Close()
 
+	store, err := storage.Open(ctx, cfg.Storage)
+	if err != nil {
+		return err
+	}
 	workers := river.NewWorkers()
 	river.AddWorker(workers, onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log))
 	river.AddWorker(workers, metaevents.NewProcessor(d, log))
-	river.AddWorker(workers, messaging.NewWorker(d, keys, meta, log))
+	river.AddWorker(workers, messaging.NewWorker(d, keys, meta, media.NewUploader(store, meta), log))
+	river.AddWorker(workers, media.NewDownloadWorker(d, keys, meta, store, log))
 	rc, err := jobs.NewWorkerClient(d.Pool, workers, log)
 	if err != nil {
 		return err

@@ -13,8 +13,9 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 | D1 Sign-up, login, sessions, email verification | Done (invites, roles screen and 2FA later) |
 | D2 Connect WhatsApp with Embedded Signup v4, standard and coexistence | Done |
 | D5 Phone numbers list (`GET /v1/phone-numbers`) | Done (profile and health sync later) |
-| Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import, media download, client webhooks later) |
-| Sending messages (`POST /v1/messages`): opt-out and 24-hour window checks, `Idempotency-Key`, send worker with Meta error mapping, `GET /v1/messages/{id}`, mark as read | Done (media upload, inbox and API keys later) |
+| Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import, client webhooks later) |
+| Sending messages (`POST /v1/messages`): opt-out and 24-hour window checks, `Idempotency-Key`, send worker with Meta error mapping, `GET /v1/messages/{id}`, mark as read | Done (API keys later) |
+| Media: `POST /v1/media` with WhatsApp's type and size limits, `GET /v1/media/{id}` with a 15-minute signed download link, sending uploaded files, copying inbound files from Meta into the MinIO bucket, attachments and previews in the inbox | Done |
 | D4 Templates: list, create and edit through Meta review, delete by name, sync from Meta (also at the end of onboarding) | Done |
 | Dashboard: Templates list and editor, Send a message test screen | Done |
 | D3 Inbox: conversations with filters and search, assignment, close and reopen, internal notes, quick replies, template picker when the 24-hour window is closed, live updates over SSE | Done |
@@ -31,6 +32,8 @@ internal/
   templates/          D4: /v1/templates, template sync from Meta
   credentials/        opens the encrypted Meta tokens
   inbox/              D3: /v1/conversations, notes, quick replies
+  media/              /v1/media, signed download links, inbound media copies, uploads to Meta
+  storage/            media files in MinIO (S3 API) or a local directory
   events/             live updates: Postgres LISTEN/NOTIFY to Server-Sent Events
   contacts/           D6: contact representation (more with the contacts slice)
   metaclient/         the only package that calls Meta's Graph API
@@ -52,7 +55,7 @@ Needs Go 1.26, Node 22 and Docker.
 
 ```sh
 cp .env.example .env               # then fill ECOGO_MASTER_KEYS, ECOGO_APP_SECRET and the Meta app
-docker compose up -d               # Postgres 16 and Mailpit (mail UI on http://localhost:8025)
+docker compose up -d               # Postgres 16, MinIO and Mailpit (mail UI on http://localhost:8025)
 make migrate
 make run-api                       # :8080
 make run-worker                    # in another terminal

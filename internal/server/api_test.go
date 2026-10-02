@@ -32,12 +32,14 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
+	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
+	"github.com/arshadm25/whatsapp_crm/internal/storage"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
 	"github.com/arshadm25/whatsapp_crm/internal/testdb"
 )
@@ -51,8 +53,10 @@ type fakeMeta struct {
 	sendErr     string            // JSON error body for sends, if set
 	sent        []map[string]any  // bodies of message sends
 	wamids      int
-	templates   []string         // JSON objects returned by GET message_templates
-	created     []map[string]any // bodies of template creates
+	templates   []string          // JSON objects returned by GET message_templates
+	created     []map[string]any  // bodies of template creates
+	uploads     [][]byte          // files uploaded to POST /{phone}/media
+	inbound     map[string][]byte // inbound media ID -> file served for download
 }
 
 func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +67,31 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	w.Header().Set("Content-Type", "application/json")
 	switch {
+	case len(parts) == 2 && parts[0] == "download":
+		w.Header().Set("Content-Type", "application/octet-stream")
+		if r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write(f.inbound[parts[1]])
+	case len(parts) == 2 && parts[1] == "media" && r.Method == http.MethodPost:
+		file, _, err := r.FormFile("file")
+		if err != nil || r.FormValue("messaging_product") != "whatsapp" || r.FormValue("type") == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"bad upload","code":100}}`)
+			return
+		}
+		b, _ := io.ReadAll(file)
+		f.uploads = append(f.uploads, b)
+		fmt.Fprintf(w, `{"id":"metamedia-%d"}`, len(f.uploads))
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "media-"):
+		b, ok := f.inbound[parts[0]]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":{"message":"unknown media","code":100}}`)
+			return
+		}
+		fmt.Fprintf(w, `{"url":"http://%s/download/%s","mime_type":"image/jpeg","file_size":%d}`, r.Host, parts[0], len(b))
 	case path == "/oauth/access_token":
 		fmt.Fprintf(w, `{"access_token":"EAAG-%s"}`, r.URL.Query().Get("code"))
 	case len(parts) == 2 && parts[1] == "subscribed_apps":
@@ -142,12 +171,14 @@ type harness struct {
 	worker *onboarding.Worker
 	sender *messaging.Worker
 	events *metaevents.Processor
+	// downloader copies inbound media from Meta.
+	downloader *media.DownloadWorker
 }
 
 func newHarness(t *testing.T) *harness {
 	d := testdb.New(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	fm := &fakeMeta{numbers: map[string]string{}}
+	fm := &fakeMeta{numbers: map[string]string{}, inbound: map[string][]byte{}}
 	metaSrv := httptest.NewServer(fm)
 	t.Cleanup(metaSrv.Close)
 
@@ -167,6 +198,10 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	store, err := storage.NewDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	hub := events.NewHub(d.Pool, log)
 	hubCtx, stopHub := context.WithCancel(context.Background())
 	t.Cleanup(stopHub)
@@ -179,15 +214,19 @@ func newHarness(t *testing.T) *harness {
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
 		Templates:  templates.NewService(d, keys, meta, log),
 		Inbox:      inbox.NewService(d, log),
+		Media:      media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)
 	t.Cleanup(api.Close)
+	proc := metaevents.NewProcessor(d, log)
+	proc.Jobs = rc
 	return &harness{
 		t: t, db: d, meta: fm, api: api,
-		worker: onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
-		sender: messaging.NewWorker(d, keys, meta, log),
-		events: metaevents.NewProcessor(d, log),
+		worker:     onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
+		sender:     messaging.NewWorker(d, keys, meta, media.NewUploader(store, meta), log),
+		events:     proc,
+		downloader: media.NewDownloadWorker(d, keys, meta, store, log),
 	}
 }
 

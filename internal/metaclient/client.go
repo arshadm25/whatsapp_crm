@@ -96,6 +96,11 @@ func (c *Client) do(ctx context.Context, method, path, token string, query url.V
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	return c.send(ctx, req, method, path, token, out)
+}
+
+// send runs a prepared Graph request and decodes the response or the Graph error.
+func (c *Client) send(ctx context.Context, req *http.Request, method, path, token string, out any) error {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

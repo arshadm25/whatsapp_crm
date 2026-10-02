@@ -31,6 +31,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
+	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
 )
@@ -126,6 +127,7 @@ type Message struct {
 	Origin          string          `json:"origin"`
 	Type            string          `json:"type"`
 	Content         json.RawMessage `json:"content"`
+	MediaID         *uuid.UUID      `json:"media_id"`
 	Status          string          `json:"status"`
 	Error           *ErrorView      `json:"error"`
 	Pricing         *Pricing        `json:"pricing"`
@@ -150,7 +152,7 @@ func View(m dbq.Message, waID string, name *string) Message {
 	v := Message{
 		ID: m.ID, Wamid: m.Wamid, ConversationID: m.ConversationID, PhoneNumberID: m.PhoneNumberID,
 		Contact: ContactRef{ID: m.ContactID, WaID: waID, Name: name}, Direction: string(m.Direction),
-		Origin: string(m.Origin), Type: string(m.Type), Content: m.Content, Status: string(m.Status),
+		Origin: string(m.Origin), Type: string(m.Type), Content: m.Content, MediaID: m.MediaID, Status: string(m.Status),
 		Error: errorView(m.ErrorCode, m.ErrorTitle), CampaignID: m.CampaignID,
 		CreatedAt: m.CreatedAt, StatusUpdatedAt: m.StatusUpdatedAt,
 	}
@@ -328,6 +330,11 @@ func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.P
 		templateID = &t.ID
 	}
 
+	mediaID, err := attachedMedia(ctx, q, req)
+	if err != nil {
+		return Message{}, err
+	}
+
 	body, err := json.Marshal(content)
 	if err != nil {
 		return Message{}, err
@@ -340,6 +347,7 @@ func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.P
 		ID: db.NewID(), TenantID: p.TenantID, ConversationID: conv.ID, PhoneNumberID: num.PhoneNumber.ID,
 		ContactID: contact.ID, Origin: dbq.MessageOriginDashboard, Type: dbq.MessageType(req.Type), Content: body,
 		TemplateID: templateID, ReplyToWamid: replyWamid(content), SentByUserID: &p.UserID, IdempotencyKey: idemKey,
+		MediaID: mediaID,
 	})
 	if err != nil {
 		return Message{}, err
@@ -351,6 +359,28 @@ func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.P
 		return Message{}, err
 	}
 	return View(msg, contact.WaID, displayName(contact)), nil
+}
+
+// attachedMedia checks an uploaded file named by media_id exists and suits the message type.
+func attachedMedia(ctx context.Context, q *dbq.Queries, req *SendRequest) (*uuid.UUID, error) {
+	ref := map[string]*MediaRef{"image": req.Image, "video": req.Video, "audio": req.Audio, "document": req.Document, "sticker": req.Sticker}[req.Type]
+	if ref == nil || ref.MediaID == nil {
+		return nil, nil
+	}
+	m, err := q.GetMedia(ctx, *ref.MediaID)
+	if db.IsNotFound(err) {
+		return nil, unprocessable("invalid_request", req.Type+".media_id", "There is no uploaded file with this media_id.")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !media.Fits(req.Type, m.MimeType) {
+		return nil, unprocessable("invalid_request", req.Type+".media_id", "A "+m.MimeType+" file cannot be sent as "+req.Type+".")
+	}
+	if _, limit, _ := media.KindOf(m.MimeType); req.Type != media.KindDocument && m.SizeBytes > limit {
+		return nil, unprocessable("media_too_large", req.Type+".media_id", "This file is too large to send as "+req.Type+".")
+	}
+	return &m.ID, nil
 }
 
 func (s *Service) wamidOf(ctx context.Context, q *dbq.Queries, id, conversationID uuid.UUID, param string) (string, error) {
@@ -522,14 +552,20 @@ func buildContent(req *SendRequest) (map[string]any, error) {
 }
 
 func mediaObject(typ string, m *MediaRef) (map[string]any, error) {
-	if m.MediaID != nil {
-		return nil, unprocessable("invalid_request", typ+".media_id", "Media upload is not available yet. Send a public HTTPS link instead.")
+	var obj map[string]any
+	switch {
+	case m.MediaID != nil && m.Link != "":
+		return nil, httpx.BadRequest(typ, "Send either media_id or link, not both.")
+	case m.MediaID != nil:
+		// The worker swaps our media ID for Meta's when it sends.
+		obj = map[string]any{"media_id": m.MediaID.String()}
+	default:
+		u, err := url.Parse(m.Link)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, httpx.BadRequest(typ+".link", "link must be a public HTTPS URL, or upload the file with POST /v1/media and send its media_id.")
+		}
+		obj = map[string]any{"link": m.Link}
 	}
-	u, err := url.Parse(m.Link)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return nil, httpx.BadRequest(typ+".link", "link must be a public HTTPS URL.")
-	}
-	obj := map[string]any{"link": m.Link}
 	if m.Caption != "" {
 		if typ == "audio" || typ == "sticker" {
 			return nil, httpx.BadRequest(typ+".caption", "Audio and stickers cannot have a caption.")

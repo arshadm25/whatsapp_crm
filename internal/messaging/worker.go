@@ -16,6 +16,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
+	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 )
 
@@ -42,14 +43,15 @@ func (SendArgs) InsertOpts() river.InsertOpts {
 // Meta-side errors are retried with River's backoff; every other Meta error fails the message.
 type Worker struct {
 	river.WorkerDefaults[SendArgs]
-	db   *db.DB
-	keys *envelope.Keyring
-	meta Meta
-	log  *slog.Logger
+	db       *db.DB
+	keys     *envelope.Keyring
+	meta     Meta
+	uploader *media.Uploader
+	log      *slog.Logger
 }
 
-func NewWorker(d *db.DB, keys *envelope.Keyring, meta Meta, log *slog.Logger) *Worker {
-	return &Worker{db: d, keys: keys, meta: meta, log: log}
+func NewWorker(d *db.DB, keys *envelope.Keyring, meta Meta, uploader *media.Uploader, log *slog.Logger) *Worker {
+	return &Worker{db: d, keys: keys, meta: meta, uploader: uploader, log: log}
 }
 
 // Timeout leaves room for Meta's own timeout and the database writes around it.
@@ -65,6 +67,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[SendArgs]) error {
 	var (
 		row   dbq.GetMessageForSendRow
 		token string
+		file  *dbq.Medium
 	)
 	err := w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
@@ -80,6 +83,13 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[SendArgs]) error {
 		}
 		if acct.Status != dbq.ConnectionStatusConnected || row.PhoneStatus != dbq.ConnectionStatusConnected {
 			return errNumberGone
+		}
+		if row.Message.MediaID != nil {
+			m, err := q.GetMedia(ctx, *row.Message.MediaID)
+			if err != nil {
+				return err
+			}
+			file = &m
 		}
 		token, err = credentials.Token(ctx, q, w.keys, acct)
 		return err
@@ -102,6 +112,11 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[SendArgs]) error {
 		w.fail(ctx, a, codeUnreachable, nil)
 		return river.JobCancel(err)
 	}
+	if file != nil {
+		if err = w.attachMetaMedia(ctx, a, token, row, *file, content); err != nil {
+			return w.sendErr(ctx, job, log, err)
+		}
+	}
 	wamid, err := w.meta.SendMessage(ctx, token, row.MetaPhoneNumberID, row.ContactWaID, content)
 	if err == nil {
 		return w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
@@ -109,7 +124,40 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[SendArgs]) error {
 			return err
 		})
 	}
+	return w.sendErr(ctx, job, log, err)
+}
 
+// attachMetaMedia uploads the message's file to Meta if needed and puts Meta's media ID in
+// place of ours in the message object.
+func (w *Worker) attachMetaMedia(ctx context.Context, a SendArgs, token string, row dbq.GetMessageForSendRow, file dbq.Medium, content map[string]any) error {
+	metaID, uploaded, err := w.uploader.MetaID(ctx, token, file, row.Message.PhoneNumberID, row.MetaPhoneNumberID)
+	if err != nil {
+		return err
+	}
+	if uploaded {
+		now := time.Now().UTC()
+		err := w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+			return q.MarkMediaUploaded(ctx, dbq.MarkMediaUploadedParams{
+				ID: file.ID, PhoneNumberID: &row.Message.PhoneNumberID, MetaMediaID: &metaID, MetaUploadedAt: &now,
+			})
+		})
+		if err != nil {
+			return err
+		}
+	}
+	typ, _ := content["type"].(string)
+	obj, _ := content[typ].(map[string]any)
+	if obj == nil {
+		return errors.New("send: media message without a media object")
+	}
+	delete(obj, "media_id")
+	obj["id"] = metaID
+	return nil
+}
+
+// sendErr decides between retrying and failing the message after an error from Meta.
+func (w *Worker) sendErr(ctx context.Context, job *river.Job[SendArgs], log *slog.Logger, err error) error {
+	a := job.Args
 	final := job.Attempt >= job.MaxAttempts
 	var me *metaclient.Error
 	if errors.As(err, &me) {

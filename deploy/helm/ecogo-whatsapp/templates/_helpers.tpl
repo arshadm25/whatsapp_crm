@@ -53,6 +53,16 @@ app.kubernetes.io/component: {{ .component }}
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: app-secret } }
 - name: ECOGO_SMTP_PASSWORD
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: smtp-password, optional: true } }
+- name: ECOGO_S3_ENDPOINT
+  value: {{ .root.Values.config.s3Endpoint | quote }}
+- name: ECOGO_S3_BUCKET
+  value: {{ .root.Values.config.s3Bucket | default (printf "%s-media" .root.Release.Name) | quote }}
+- name: ECOGO_S3_USE_SSL
+  value: {{ .root.Values.config.s3UseSSL | quote }}
+- name: ECOGO_S3_ACCESS_KEY
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: s3-access-key } }
+- name: ECOGO_S3_SECRET_KEY
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: s3-secret-key } }
 {{- end }}
 {{- end -}}
 

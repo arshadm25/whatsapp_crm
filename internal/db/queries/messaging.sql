@@ -31,8 +31,8 @@ SELECT * FROM messages WHERE id = $1;
 
 -- name: InsertOutboundMessage :one
 INSERT INTO messages (id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin,
-                      type, content, template_id, reply_to_wamid, status, sent_by_user_id, idempotency_key)
-VALUES ($1, $2, $3, $4, $5, 'outbound', $6, $7, $8, $9, $10, 'queued', $11, $12)
+                      type, content, template_id, reply_to_wamid, status, sent_by_user_id, idempotency_key, media_id)
+VALUES ($1, $2, $3, $4, $5, 'outbound', $6, $7, $8, $9, $10, 'queued', $11, $12, $13)
 RETURNING *;
 
 -- name: GetMessageView :one

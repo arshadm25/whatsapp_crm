@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type { Me, Member, PhoneNumber, PublicConfig, QuickReply, Template } from "./types";
+import type { Me, Media, Member, PhoneNumber, PublicConfig, QuickReply, Template } from "./types";
 
 export function useMe() {
   return useQuery<Me | null>({
@@ -82,4 +82,15 @@ export function useLiveEvents() {
     for (const type of ["message", "conversation", "template"]) es.addEventListener(type, onChange);
     return () => es.close();
   }, [qc]);
+}
+
+// A file's details and download link. Links last 15 minutes, so they are refetched after 10.
+export function useMedia(id: string | null) {
+  return useQuery({
+    queryKey: ["media", id],
+    queryFn: () => api<Media>("GET", `/v1/media/${id}`),
+    enabled: !!id,
+    staleTime: 10 * 60_000,
+    refetchInterval: 10 * 60_000,
+  });
 }
