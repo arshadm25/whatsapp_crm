@@ -48,7 +48,7 @@ VALUES ($1, $2, $3, $4, now())
 RETURNING *;
 
 -- name: UpdateTenantSettings :one
-UPDATE tenants SET name = $2, legal_name = $3, timezone = $4, updated_at = now() WHERE id = $1
+UPDATE tenants SET name = $2, legal_name = $3, timezone = $4, message_retention_days = $5, updated_at = now() WHERE id = $1
 RETURNING *;
 
 -- name: SetPassword :exec

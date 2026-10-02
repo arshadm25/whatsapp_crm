@@ -348,6 +348,7 @@ export interface Workspace {
   name: string;
   legal_name: string | null;
   time_zone: string;
+  message_retention_days: number | null;
 }
 
 // Platform admin console (A1).

@@ -302,6 +302,8 @@ type Workspace struct {
 	Name      string    `json:"name"`
 	LegalName *string   `json:"legal_name"`
 	TimeZone  string    `json:"time_zone"`
+	// MessageRetentionDays deletes messages and media older than this many days; null keeps them.
+	MessageRetentionDays *int32 `json:"message_retention_days"`
 }
 
 func (s *Service) workspace(w http.ResponseWriter, r *http.Request) error {
@@ -315,7 +317,7 @@ func (s *Service) workspace(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone})
+	httpx.JSON(w, http.StatusOK, Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone, MessageRetentionDays: t.MessageRetentionDays})
 	return nil
 }
 
@@ -341,12 +343,15 @@ func (s *Service) updateWorkspace(w http.ResponseWriter, r *http.Request) error 
 	if _, err := time.LoadLocation(req.TimeZone); err != nil || req.TimeZone == "" || req.TimeZone == "Local" {
 		return httpx.BadRequest("time_zone", "time_zone must be an IANA zone such as Asia/Kolkata.")
 	}
+	if d := req.MessageRetentionDays; d != nil && (*d < 30 || *d > 3650) {
+		return httpx.BadRequest("message_retention_days", "Keep messages for 30 to 3650 days, or leave it empty to keep them.")
+	}
 	ip, _ := clientInfo(r)
 	var t dbq.Tenant
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
 		if t, err = q.UpdateTenantSettings(r.Context(), dbq.UpdateTenantSettingsParams{
-			ID: p.TenantID, Name: req.Name, LegalName: req.LegalName, Timezone: req.TimeZone,
+			ID: p.TenantID, Name: req.Name, LegalName: req.LegalName, Timezone: req.TimeZone, MessageRetentionDays: req.MessageRetentionDays,
 		}); err != nil {
 			return err
 		}
@@ -355,7 +360,7 @@ func (s *Service) updateWorkspace(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone})
+	httpx.JSON(w, http.StatusOK, Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone, MessageRetentionDays: t.MessageRetentionDays})
 	return nil
 }
 

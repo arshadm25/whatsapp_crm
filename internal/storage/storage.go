@@ -29,6 +29,8 @@ func Open(ctx context.Context, c config.Storage) (Store, error) {
 type Store interface {
 	Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	// Delete removes an object; a key that is already gone is not an error.
+	Delete(ctx context.Context, key string) error
 }
 
 // ErrNotFound is returned by Get for a missing key.
@@ -77,6 +79,10 @@ func (s *S3) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	return obj, nil
+}
+
+func (s *S3) Delete(ctx context.Context, key string) error {
+	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
 }
 
 // Dir stores objects as files under a directory.
@@ -130,4 +136,15 @@ func (d *Dir) Get(_ context.Context, key string) (io.ReadCloser, error) {
 		return nil, ErrNotFound
 	}
 	return f, err
+}
+
+func (d *Dir) Delete(_ context.Context, key string) error {
+	p, err := d.path(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }

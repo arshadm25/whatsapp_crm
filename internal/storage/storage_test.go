@@ -26,6 +26,15 @@ func TestDir(t *testing.T) {
 	if string(b) != "hello" {
 		t.Fatalf("got %q", b)
 	}
+	if err := d.Delete(ctx, "tenant/a/b.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Delete(ctx, "tenant/a/b.jpg"); err != nil {
+		t.Fatalf("deleting a missing object: %v", err)
+	}
+	if _, err := d.Get(ctx, "tenant/a/b.jpg"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("after delete: %v", err)
+	}
 	if _, err := d.Get(ctx, "tenant/missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
