@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
-import type { Invite, Me, Role, TeamMember, Workspace } from "../api/types";
+import type { BillingOverview, Invite, Me, Role, TeamMember, Workspace } from "../api/types";
+import { daysLeft, formatPaise, graceEnd } from "../lib/billing";
 import { assignable } from "../lib/team";
 
 function message(e: unknown, fallback: string) {
@@ -14,7 +15,9 @@ export default function Settings() {
   const { t } = useTranslation();
   const role = useMe().data?.tenant?.role;
   const manager = role === "owner" || role === "admin";
-  const [tab, setTab] = useState<"team" | "workspace" | "account">(manager ? "team" : "account");
+  const [tab, setTab] = useState<"team" | "workspace" | "billing" | "account">(
+    new URLSearchParams(window.location.search).get("tab") === "billing" && role === "owner" ? "billing" : manager ? "team" : "account",
+  );
 
   return (
     <section>
@@ -22,10 +25,12 @@ export default function Settings() {
       <div className="segmented tabs">
         {manager && <button className={tab === "team" ? "on" : ""} onClick={() => setTab("team")}>{t("settings.team")}</button>}
         {manager && <button className={tab === "workspace" ? "on" : ""} onClick={() => setTab("workspace")}>{t("settings.workspace")}</button>}
+        {role === "owner" && <button className={tab === "billing" ? "on" : ""} onClick={() => setTab("billing")}>{t("settings.billing")}</button>}
         <button className={tab === "account" ? "on" : ""} onClick={() => setTab("account")}>{t("settings.account")}</button>
       </div>
       {tab === "team" && manager && <Team />}
       {tab === "workspace" && manager && <WorkspaceForm canEdit={role === "owner"} />}
+      {tab === "billing" && role === "owner" && <Billing />}
       {tab === "account" && <Account />}
     </section>
   );
@@ -370,5 +375,108 @@ function TwoFactor() {
       )}
       {(note || error) && <div className={error ? "error" : "muted small"}>{error || note}</div>}
     </form>
+  );
+}
+
+// Billing is the owner's view of the Ecogo plan: trial, current plan, usage against it, and
+// the plans to choose from. Payment happens on Razorpay's page.
+function Billing() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const billing = useQuery({ queryKey: ["billing"], queryFn: () => api<BillingOverview>("GET", "/internal/billing") });
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const b = billing.data;
+  if (!b) return <div className="card muted">{t("common.loading")}</div>;
+  const sub = b.subscription;
+  const end = new Date(sub.current_period_end).toLocaleDateString();
+
+  const choose = async (code: string) => {
+    setBusy(code);
+    setError("");
+    setNote("");
+    try {
+      const res = await api<{ payment_url?: string; scheduled?: boolean }>("POST", "/internal/billing/subscribe", { plan: code });
+      if (res.payment_url) {
+        window.location.href = res.payment_url;
+        return;
+      }
+      setNote(t("billing.changeScheduled"));
+      await qc.invalidateQueries({ queryKey: ["billing"] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    } finally {
+      setBusy("");
+    }
+  };
+  const cancel = async () => {
+    if (!window.confirm(sub.status === "trialing" ? t("billing.confirmDropPlan") : t("billing.confirmCancel", { date: end }))) return;
+    setError("");
+    try {
+      await api("POST", "/internal/billing/cancel");
+      await qc.invalidateQueries({ queryKey: ["billing"] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+
+  let status: string;
+  if (!sub.usable) status = t("billing.ended");
+  else if (sub.status === "trialing") status = t("billing.trial", { count: daysLeft(sub.current_period_end), date: end });
+  else if (sub.status === "past_due") status = t("billing.pastDue", { date: graceEnd(sub).toLocaleDateString() });
+  else if (sub.status === "cancelled" || sub.cancel_at_period_end) status = t("billing.endsOn", { date: end });
+  else status = t("billing.renews", { date: end });
+
+  return (
+    <>
+      <div className={`card ${sub.usable && sub.status !== "past_due" ? "" : "notice warn"}`}>
+        <h2>{b.plan ? t("billing.onPlan", { plan: b.plan.name }) : t("billing.noPlan")}</h2>
+        <p>{status}</p>
+        {sub.status === "trialing" && b.plan && <p className="muted small">{t("billing.chosenDuringTrial", { plan: b.plan.name, date: end })}</p>}
+        {sub.payment_pending && <p className="muted small">{t("billing.paymentPending")}</p>}
+        <p className="muted small">
+          {t("billing.usage", {
+            numbers: b.connected_numbers, includedNumbers: b.plan?.included_numbers ?? "—",
+            seats: b.seats, includedSeats: b.plan?.included_seats ?? "—",
+          })}
+        </p>
+        {b.plan && sub.status !== "cancelled" && !sub.cancel_at_period_end && (
+          <button className="link danger" onClick={cancel}>{sub.status === "trialing" ? t("billing.dropPlan") : t("billing.cancel")}</button>
+        )}
+      </div>
+      {!b.payments_enabled && <div className="card notice">{t("billing.paymentsOff")}</div>}
+      {error && <div className="error">{error}</div>}
+      {note && <div className="muted">{note}</div>}
+      <h2>{t("billing.plans")}</h2>
+      {b.plans.length === 0 ? (
+        <div className="card muted">{t("billing.noPlans")}</div>
+      ) : (
+        <div className="plans">
+          {b.plans.map((p) => {
+            const current = b.plan?.code === p.code && sub.status !== "cancelled";
+            return (
+              <div key={p.code} className={`card plan ${current ? "current" : ""}`}>
+                <h3>{p.name}</h3>
+                <div className="price">{formatPaise(p.price_minor)}<span className="muted small"> {t("billing.perMonth")}</span></div>
+                <ul className="small">
+                  <li>{t("billing.numbers", { count: p.included_numbers })}</li>
+                  <li>{t("billing.seats", { count: p.included_seats })}</li>
+                  {p.extra_seat_minor > 0 && <li>{t("billing.extraSeat", { price: formatPaise(p.extra_seat_minor) })}</li>}
+                </ul>
+                {current ? (
+                  <span className="pill">{t("billing.current")}</span>
+                ) : (
+                  <button className="primary" disabled={!b.payments_enabled || busy !== ""} onClick={() => choose(p.code)}>
+                    {busy === p.code ? t("billing.opening") : b.plan && sub.status === "active" ? t("billing.switch") : t("billing.choose")}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="muted small">{t("billing.metaFees")}</p>
+    </>
   );
 }

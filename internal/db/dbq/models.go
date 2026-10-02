@@ -1571,6 +1571,10 @@ type Plan struct {
 	ExtraSeatMinor  int64
 	Features        []byte
 	IsActive        bool
+	RazorpayPlanID  *string
+	SortOrder       int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type QuickReply struct {
@@ -1580,6 +1584,12 @@ type QuickReply struct {
 	Body      string
 	CreatedBy *uuid.UUID
 	CreatedAt time.Time
+}
+
+type RazorpayEvent struct {
+	ID         string
+	Event      string
+	ReceivedAt time.Time
 }
 
 type Session struct {
@@ -1598,7 +1608,7 @@ type Session struct {
 type Subscription struct {
 	ID                     uuid.UUID
 	TenantID               uuid.UUID
-	PlanCode               string
+	PlanCode               *string
 	Status                 SubscriptionStatus
 	Seats                  int32
 	CurrentPeriodStart     time.Time
@@ -1608,6 +1618,7 @@ type Subscription struct {
 	ProviderSubscriptionID *string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	CancelAtPeriodEnd      bool
 }
 
 type Tag struct {

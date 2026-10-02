@@ -1,10 +1,11 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import { useLiveEvents, useMe } from "../api/hooks";
-import type { Me } from "../api/types";
+import type { BillingOverview, Me } from "../api/types";
+import { daysLeft } from "../lib/billing";
 
 const NAV: { to: string; key: string; ready: boolean }[] = [
   { to: "/", key: "getStarted", ready: true },
@@ -90,8 +91,32 @@ export default function Layout() {
             )}
           </div>
         )}
+        {me.tenant?.role === "owner" && <PlanBanner />}
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+// PlanBanner warns the owner when sending has stopped or the trial is about to end.
+function PlanBanner() {
+  const { t } = useTranslation();
+  const billing = useQuery({
+    queryKey: ["billing"],
+    queryFn: () => api<BillingOverview>("GET", "/internal/billing"),
+    staleTime: 5 * 60_000,
+  });
+  const sub = billing.data?.subscription;
+  if (!sub) return null;
+  const days = daysLeft(sub.current_period_end);
+  let text = "";
+  if (!sub.usable) text = t("billing.bannerEnded");
+  else if (sub.status === "past_due") text = t("billing.bannerPastDue");
+  else if (sub.status === "trialing" && !billing.data?.plan && days <= 3) text = t("billing.bannerTrial", { count: days });
+  if (!text) return null;
+  return (
+    <div className="banner">
+      {text} <Link to="/settings?tab=billing">{t("billing.bannerAction")}</Link>
     </div>
   );
 }

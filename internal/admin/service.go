@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -47,6 +49,9 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/webhook-health", httpx.Handler(s.log, s.webhookHealth))
 	r.Get("/meta-errors", httpx.Handler(s.log, s.metaErrors))
 	r.Get("/audit-log", httpx.Handler(s.log, s.auditLog))
+	r.Get("/plans", httpx.Handler(s.log, s.listPlans))
+	r.Put("/plans/{code}", httpx.Handler(s.log, s.savePlan))
+	r.Post("/tenants/{id}/extend-trial", httpx.Handler(s.log, s.extendTrial))
 }
 
 // RequireAdmin hides the console from everyone but platform admins, who must have two-step
@@ -140,12 +145,13 @@ func (s *Service) listTenants(w http.ResponseWriter, r *http.Request) error {
 // TenantDetail is one workspace's health at a glance. It has counts, never message content.
 type TenantDetail struct {
 	Tenant
-	Members          int32            `json:"members"`
-	Numbers          []Number         `json:"numbers"`
-	Sent30d          int32            `json:"sent_30d"`
-	Received30d      int32            `json:"received_30d"`
-	LastMessageAt    *time.Time       `json:"last_message_at"`
-	WebhookDelivered map[string]int32 `json:"webhook_deliveries_24h"`
+	Members          int32                 `json:"members"`
+	Numbers          []Number              `json:"numbers"`
+	Sent30d          int32                 `json:"sent_30d"`
+	Received30d      int32                 `json:"received_30d"`
+	LastMessageAt    *time.Time            `json:"last_message_at"`
+	WebhookDelivered map[string]int32      `json:"webhook_deliveries_24h"`
+	Subscription     *billing.Subscription `json:"subscription"`
 }
 
 type Number struct {
@@ -213,6 +219,13 @@ func (s *Service) getTenant(w http.ResponseWriter, r *http.Request) error {
 		d.WebhookDelivered = map[string]int32{}
 		for _, st := range stats {
 			d.WebhookDelivered[string(st.Status)] = st.N
+		}
+		sub, err := q.GetSubscription(r.Context())
+		if err == nil {
+			v := billing.SubscriptionView(sub, s.now())
+			d.Subscription = &v
+		} else if !db.IsNotFound(err) {
+			return err
 		}
 		return nil
 	})
@@ -571,5 +584,123 @@ func (s *Service) auditLog(w http.ResponseWriter, r *http.Request) error {
 		out[i] = e
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"data": out, "next_cursor": next})
+	return nil
+}
+
+func (s *Service) listPlans(w http.ResponseWriter, r *http.Request) error {
+	out := []billing.Plan{}
+	err := s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
+		plans, err := q.ListPlans(r.Context(), false)
+		for _, p := range plans {
+			out = append(out, billing.PlanView(p))
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"data": out})
+	return nil
+}
+
+var planCode = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
+
+// savePlan creates or updates a plan. Prices are in paise. A plan needs its Razorpay plan
+// (created in the Razorpay dashboard with the same monthly amount) before customers can pay.
+func (s *Service) savePlan(w http.ResponseWriter, r *http.Request) error {
+	code := chi.URLParam(r, "code")
+	if !planCode.MatchString(code) {
+		return httpx.BadRequest("code", "Use 2 to 32 lowercase letters, digits or underscores, starting with a letter.")
+	}
+	var req billing.Plan
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	switch {
+	case req.Name == "" || len(req.Name) > 60:
+		return httpx.BadRequest("name", "Give the plan a name of up to 60 characters.")
+	case req.PriceMinor < 0 || req.ExtraSeatMinor < 0:
+		return httpx.BadRequest("price_minor", "Prices cannot be negative.")
+	case req.IncludedNumbers < 1 || req.IncludedSeats < 1:
+		return httpx.BadRequest("included_numbers", "A plan includes at least one number and one seat.")
+	}
+	if req.RazorpayPlanID != nil {
+		v := strings.TrimSpace(*req.RazorpayPlanID)
+		if v == "" {
+			req.RazorpayPlanID = nil
+		} else if !strings.HasPrefix(v, "plan_") {
+			return httpx.BadRequest("razorpay_plan_id", "Razorpay plan IDs start with plan_.")
+		} else {
+			req.RazorpayPlanID = &v
+		}
+	}
+	var out dbq.Plan
+	err := s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
+		var err error
+		out, err = q.UpsertPlan(r.Context(), dbq.UpsertPlanParams{
+			Code: code, Name: req.Name, PriceMinor: req.PriceMinor, IncludedNumbers: req.IncludedNumbers,
+			IncludedSeats: req.IncludedSeats, ExtraSeatMinor: req.ExtraSeatMinor, RazorpayPlanID: req.RazorpayPlanID,
+			SortOrder: req.SortOrder, IsActive: req.Active,
+		})
+		if db.IsUniqueViolation(err, "plans_razorpay_plan_id_key") {
+			return httpx.BadRequest("razorpay_plan_id", "Another plan already uses this Razorpay plan.")
+		}
+		if err != nil {
+			return err
+		}
+		return s.record(r, q, nil, "plan.save", "plan", code, nil)
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, billing.PlanView(out))
+	return nil
+}
+
+// extendTrial gives a workspace on trial more days, e.g. while it finishes Meta verification.
+func (s *Service) extendTrial(w http.ResponseWriter, r *http.Request) error {
+	id, err := tenantID(r)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Days   int    `json:"days"`
+		Reason string `json:"reason"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	if req.Days < 1 || req.Days > 90 {
+		return httpx.BadRequest("days", "Extend by 1 to 90 days.")
+	}
+	why := strings.TrimSpace(req.Reason)
+	if len(why) < 5 || len(why) > 500 {
+		return httpx.BadRequest("reason", "Give a reason of 5 to 500 characters; it is kept in the audit log.")
+	}
+	var out billing.Subscription
+	err = s.db.InTenant(r.Context(), id, func(q *dbq.Queries, _ pgx.Tx) error {
+		sub, err := q.GetSubscription(r.Context())
+		if err != nil {
+			return err
+		}
+		if sub.Status != dbq.SubscriptionStatusTrialing {
+			return httpx.NewError(http.StatusConflict, "conflict", "Only a workspace on trial can have its trial extended.")
+		}
+		from := sub.CurrentPeriodEnd
+		if now := s.now(); from.Before(now) {
+			from = now
+		}
+		sub, err = q.ExtendTrial(r.Context(), dbq.ExtendTrialParams{Until: from.AddDate(0, 0, req.Days), TenantID: id})
+		if err != nil {
+			return err
+		}
+		out = billing.SubscriptionView(sub, s.now())
+		return s.record(r, q, &id, "subscription.extend_trial", "tenant", id.String(), &why)
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
 	return nil
 }
