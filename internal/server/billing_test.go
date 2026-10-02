@@ -543,9 +543,26 @@ func TestInvoices(t *testing.T) {
 }
 
 // captureMail keeps the emails the code under test sends.
-type captureMail struct{ sent []mailer.Message }
+type captureMail struct {
+	mu   sync.Mutex
+	sent []mailer.Message
+}
 
 func (c *captureMail) Send(_ context.Context, m mailer.Message) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.sent = append(c.sent, m)
 	return nil
+}
+
+// last returns the latest email sent to the address.
+func (c *captureMail) last(to string) (mailer.Message, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := len(c.sent) - 1; i >= 0; i-- {
+		if c.sent[i].To == to {
+			return c.sent[i], true
+		}
+	}
+	return mailer.Message{}, false
 }

@@ -18,6 +18,8 @@ export interface Me {
   memberships: TenantInfo[];
   // Set, alone, while a login still needs its two-step code.
   mfa_required?: boolean;
+  // The workspace requires two-step verification and this user has not turned it on.
+  two_factor_setup_required?: boolean;
 }
 
 export interface PublicConfig {
@@ -417,6 +419,25 @@ export interface Workspace {
   legal_name: string | null;
   time_zone: string;
   message_retention_days: number | null;
+  require_two_factor: boolean;
+}
+
+export type NotificationKind = "conversation_assigned" | "template_reviewed" | "number_quality" | "campaign_finished";
+
+export interface AppNotification {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  link: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationSetting {
+  kind: NotificationKind;
+  in_app: boolean;
+  email: boolean;
 }
 
 // Platform admin console (A1).

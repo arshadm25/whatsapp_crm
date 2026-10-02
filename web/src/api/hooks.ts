@@ -95,6 +95,10 @@ export function useLiveEvents() {
         qc.invalidateQueries({ queryKey: ["templates"] });
         return;
       }
+      if (ev.type === "notification") {
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+        return;
+      }
       qc.invalidateQueries({ queryKey: ["conversations"] });
       if (ev.conversation_id) {
         qc.invalidateQueries({ queryKey: ["conversation", ev.conversation_id] });
@@ -102,7 +106,7 @@ export function useLiveEvents() {
       }
       if (ev.type === "message") qc.invalidateQueries({ queryKey: ["message", ev.id] });
     };
-    for (const type of ["message", "conversation", "template"]) es.addEventListener(type, onChange);
+    for (const type of ["message", "conversation", "template", "notification"]) es.addEventListener(type, onChange);
     return () => es.close();
   }, [qc]);
 }

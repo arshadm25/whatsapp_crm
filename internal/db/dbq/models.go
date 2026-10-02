@@ -1715,6 +1715,28 @@ type MetaWebhookEvent struct {
 	Error             *string
 }
 
+type Notification struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	UserID    uuid.UUID
+	Kind      string
+	Title     string
+	Body      string
+	Link      *string
+	InApp     bool
+	Email     string
+	ReadAt    *time.Time
+	CreatedAt time.Time
+}
+
+type NotificationSetting struct {
+	TenantID uuid.UUID
+	UserID   uuid.UUID
+	Kind     string
+	InApp    bool
+	Email    bool
+}
+
 type OnboardingSession struct {
 	ID            uuid.UUID
 	TenantID      uuid.UUID
@@ -1799,6 +1821,7 @@ type Session struct {
 	CreatedAt  time.Time
 	LastSeenAt time.Time
 	ExpiresAt  time.Time
+	Persistent bool
 }
 
 type Subscription struct {
@@ -1860,6 +1883,7 @@ type Tenant struct {
 	UpdatedAt            time.Time
 	MetaPaymentMode      string
 	MetaPaymentModeSince *time.Time
+	RequireTwoFactor     bool
 }
 
 type UsageDaily struct {

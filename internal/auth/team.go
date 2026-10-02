@@ -31,8 +31,10 @@ func (s *Service) TeamRoutes(r chi.Router) {
 	r.Get("/invites", httpx.Handler(s.log, s.listInvites))
 	r.Post("/invites", httpx.Handler(s.log, s.invite))
 	r.Delete("/invites/{id}", httpx.Handler(s.log, s.revokeInvite))
+	r.Post("/invites/{id}/resend", httpx.Handler(s.log, s.resendInvite))
 	r.Get("/workspace", httpx.Handler(s.log, s.workspace))
 	r.With(RequireRole(dbq.MemberRoleOwner)).Patch("/workspace", httpx.Handler(s.log, s.updateWorkspace))
+	r.With(RequireRole(dbq.MemberRoleOwner)).Put("/workspace/two-factor", httpx.Handler(s.log, s.setRequireTwoFactor))
 }
 
 type Member struct {
@@ -263,17 +265,104 @@ func (s *Service) invite(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	out.Link = s.cfg.PublicAppURL + "/invite?token=" + token
-	err = s.mailer.Send(r.Context(), mailer.Message{
-		To:      email,
+	s.sendInvite(r.Context(), out, inviter, workspace)
+	httpx.JSON(w, http.StatusCreated, out)
+	return nil
+}
+
+// sendInvite emails the invite link. A failure is logged: the invite stands, and the inviter can
+// copy the link from the response instead.
+func (s *Service) sendInvite(ctx context.Context, inv Invite, inviter, workspace string) {
+	err := s.mailer.Send(ctx, mailer.Message{
+		To:      inv.Email,
 		Subject: fmt.Sprintf("%s invited you to %s on Ecogo WhatsApp", inviter, workspace),
 		Text: fmt.Sprintf("Hi,\n\n%s invited you to join %s on Ecogo WhatsApp as %s.\n\nAccept the invite within 7 days:\n\n%s\n\n"+
-			"If you were not expecting this, ignore this email.\n\nEcogo Software Solutions Pvt Ltd\n", inviter, workspace, role, out.Link),
+			"If you were not expecting this, ignore this email.\n\nEcogo Software Solutions Pvt Ltd\n", inviter, workspace, inv.Role, inv.Link),
 	})
 	if err != nil {
-		// The invite stands; the inviter can copy the link from the response instead.
-		s.log.Warn("invite email not sent", "invite_id", out.ID, "err", err)
+		s.log.Warn("invite email not sent", "invite_id", inv.ID, "err", err)
 	}
-	httpx.JSON(w, http.StatusCreated, out)
+}
+
+// resendInvite emails an open invite again with a new link, valid for another 7 days. The old
+// link stops working.
+func (s *Service) resendInvite(w http.ResponseWriter, r *http.Request) error {
+	p, _ := PrincipalFrom(r.Context())
+	id, err := memberID(r)
+	if err != nil {
+		return err
+	}
+	token := randomToken()
+	ip, _ := clientInfo(r)
+	var (
+		out                Invite
+		inviter, workspace string
+	)
+	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		inv, err := q.RefreshInvite(r.Context(), dbq.RefreshInviteParams{ID: id, TokenHash: hashToken(token), ExpiresAt: s.now().Add(inviteTTL)})
+		if db.IsNotFound(err) {
+			return httpx.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if !canManage(p.Role, inv.Role) {
+			return httpx.NewError(http.StatusForbidden, "forbidden", "Only an owner can invite admins.")
+		}
+		u, err := q.GetUserByID(r.Context(), p.UserID)
+		if err != nil {
+			return err
+		}
+		t, err := q.GetTenant(r.Context(), p.TenantID)
+		if err != nil {
+			return err
+		}
+		inviter, workspace = u.Name, t.Name
+		out = Invite{ID: inv.ID, Email: inv.Email, Role: string(inv.Role), InvitedByName: inviter, ExpiresAt: inv.ExpiresAt, CreatedAt: inv.CreatedAt}
+		return audit(r.Context(), q, &p.TenantID, p.UserID, "invite.resend", "invite", inv.ID.String(), ip)
+	})
+	if err != nil {
+		return err
+	}
+	out.Link = s.cfg.PublicAppURL + "/invite?token=" + token
+	s.sendInvite(r.Context(), out, inviter, workspace)
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
+}
+
+// setRequireTwoFactor turns the workspace's two-step verification requirement on or off. Members
+// without it are asked to set it up before they can do anything else in the workspace.
+func (s *Service) setRequireTwoFactor(w http.ResponseWriter, r *http.Request) error {
+	p, _ := PrincipalFrom(r.Context())
+	var req struct {
+		Required bool `json:"required"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	if req.Required && !p.TOTPEnabled {
+		return httpx.NewError(http.StatusConflict, "conflict", "Turn on two-step verification for your own account first, under Settings, Security.")
+	}
+	ip, _ := clientInfo(r)
+	var t dbq.Tenant
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		if err := q.SetRequireTwoFactor(r.Context(), dbq.SetRequireTwoFactorParams{ID: p.TenantID, RequireTwoFactor: req.Required}); err != nil {
+			return err
+		}
+		action := "tenant.require_2fa_off"
+		if req.Required {
+			action = "tenant.require_2fa_on"
+		}
+		var err error
+		if t, err = q.GetTenant(r.Context(), p.TenantID); err != nil {
+			return err
+		}
+		return audit(r.Context(), q, &p.TenantID, p.UserID, action, "tenant", p.TenantID.String(), ip)
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, workspaceOf(t))
 	return nil
 }
 
@@ -304,6 +393,13 @@ type Workspace struct {
 	TimeZone  string    `json:"time_zone"`
 	// MessageRetentionDays deletes messages and media older than this many days; null keeps them.
 	MessageRetentionDays *int32 `json:"message_retention_days"`
+	// RequireTwoFactor is read-only here; PUT /workspace/two-factor changes it.
+	RequireTwoFactor bool `json:"require_two_factor"`
+}
+
+func workspaceOf(t dbq.Tenant) Workspace {
+	return Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone,
+		MessageRetentionDays: t.MessageRetentionDays, RequireTwoFactor: t.RequireTwoFactor}
 }
 
 func (s *Service) workspace(w http.ResponseWriter, r *http.Request) error {
@@ -317,7 +413,7 @@ func (s *Service) workspace(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone, MessageRetentionDays: t.MessageRetentionDays})
+	httpx.JSON(w, http.StatusOK, workspaceOf(t))
 	return nil
 }
 
@@ -360,7 +456,7 @@ func (s *Service) updateWorkspace(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone, MessageRetentionDays: t.MessageRetentionDays})
+	httpx.JSON(w, http.StatusOK, workspaceOf(t))
 	return nil
 }
 

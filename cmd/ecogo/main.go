@@ -47,6 +47,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/metafees"
 	"github.com/arshadm25/whatsapp_crm/internal/metrics"
+	"github.com/arshadm25/whatsapp_crm/internal/notifications"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/razorpay"
@@ -115,27 +116,28 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	hub := events.NewHub(d.Pool, log)
 	go hub.Run(ctx)
 	h := server.NewAPI(server.APIDeps{
-		Config:     cfg,
-		DB:         d,
-		Log:        log,
-		Auth:       auth.NewService(d, keys, cfg, mailer.NewSMTP(cfg.Mail), log),
-		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
-		Numbers:    numbers.NewService(d, keys, meta, log),
-		Messaging:  messaging.NewService(d, keys, meta, rc, log),
-		Templates:  templates.NewService(d, keys, meta, log),
-		Inbox:      inbox.NewService(d, log),
-		Media:      media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
-		Developers: devportal.NewService(d, log),
-		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(60), log),
-		Webhooks:   webhooks.NewService(d, keys, rc, log),
-		Contacts:   contacts.NewService(d, log),
-		Campaigns:  campaigns.NewService(d, rc, log),
-		Bots:       bots.NewService(d, rc, log),
-		AI:         ai.NewService(d, ai.NewAgent(ai.New(cfg.AI, nil), log), rc, log),
-		Flows:      flows.NewService(d, keys, meta, log),
-		Analytics:  analytics.NewService(d, log),
-		MetaFees:   metafees.NewService(d, cfg.Seller, cfg.MetaMarkupBP, log),
-		Admin:      admin.NewService(d, log),
+		Config:        cfg,
+		DB:            d,
+		Log:           log,
+		Auth:          auth.NewService(d, keys, cfg, mailer.NewSMTP(cfg.Mail), log),
+		Onboarding:    onboarding.NewService(d, keys, meta, rc, log),
+		Numbers:       numbers.NewService(d, keys, meta, log),
+		Messaging:     messaging.NewService(d, keys, meta, rc, log),
+		Templates:     templates.NewService(d, keys, meta, log),
+		Inbox:         inbox.NewService(d, log),
+		Media:         media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
+		Developers:    devportal.NewService(d, log),
+		Keys:          devportal.NewAuthenticator(d, devportal.NewLimiter(60), log),
+		Webhooks:      webhooks.NewService(d, keys, rc, log),
+		Contacts:      contacts.NewService(d, log),
+		Campaigns:     campaigns.NewService(d, rc, log),
+		Bots:          bots.NewService(d, rc, log),
+		AI:            ai.NewService(d, ai.NewAgent(ai.New(cfg.AI, nil), log), rc, log),
+		Flows:         flows.NewService(d, keys, meta, log),
+		Analytics:     analytics.NewService(d, log),
+		Notifications: notifications.NewService(d, log),
+		MetaFees:      metafees.NewService(d, cfg.Seller, cfg.MetaMarkupBP, log),
+		Admin:         admin.NewService(d, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
 			cfg.Razorpay.WebhookSecret, cfg.Seller, rc, log),
 		Events:   hub,
@@ -193,7 +195,8 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, metafees.NewCreditLineWorker(d, meta, cfg.Meta.CreditLine, log))
 	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
 	river.AddWorker(workers, retention.NewWorker(d, store, log))
-	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), metafees.Periodic(), metafees.ReconcilePeriodic(), metafees.CreditLinePeriodic(), retention.Periodic()}, log)
+	river.AddWorker(workers, notifications.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
+	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), metafees.Periodic(), metafees.ReconcilePeriodic(), metafees.CreditLinePeriodic(), retention.Periodic(), notifications.Periodic()}, log)
 	if err != nil {
 		return err
 	}

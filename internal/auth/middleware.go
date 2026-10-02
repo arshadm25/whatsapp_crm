@@ -40,6 +40,9 @@ type Principal struct {
 	// session has not passed it yet.
 	TOTPEnabled bool
 	MFAPending  bool
+	// TwoFactorSetupRequired is set when the workspace requires two-step verification and the
+	// user has not turned it on yet.
+	TwoFactorSetupRequired bool
 	// PlatformAdmin marks Ecogo staff (A1).
 	PlatformAdmin bool
 }
@@ -76,6 +79,24 @@ func WithPrincipal(ctx context.Context, p Principal) context.Context {
 // mfaOpen lists what a session waiting for its two-step code may still call.
 var mfaOpen = map[string]bool{"/internal/auth/me": true, "/internal/auth/logout": true, "/internal/auth/2fa/verify": true}
 
+// setupOpen lists what a member of a workspace that requires two-step verification may call
+// before turning it on.
+var setupOpen = map[string]bool{
+	"/internal/auth/me": true, "/internal/auth/logout": true, "/internal/auth/switch-tenant": true,
+	"/internal/auth/2fa/setup": true, "/internal/auth/2fa/enable": true, "/internal/config": true,
+}
+
+// RememberTTL is how long a "Keep me logged in" session lasts without use.
+const RememberTTL = 30 * 24 * time.Hour
+
+// sessionTTL is the idle timeout of a session.
+func (s *Service) sessionTTL(persistent bool) time.Duration {
+	if persistent {
+		return RememberTTL
+	}
+	return s.cfg.SessionTTL
+}
+
 // RequireSession resolves the session cookie, slides its idle expiry, and rejects anonymous
 // requests. A user with two-step verification on can do nothing else until the session passes it.
 func (s *Service) RequireSession(next http.Handler) http.Handler {
@@ -106,8 +127,17 @@ func (s *Service) RequireSession(next http.Handler) http.Handler {
 					}
 				}
 			}
+			if p.TenantID != uuid.Nil && !p.TOTPEnabled {
+				if p.TwoFactorSetupRequired, err = q.TenantRequiresTwoFactor(r.Context(), p.TenantID); err != nil {
+					return err
+				}
+			}
 			if time.Since(sess.LastSeenAt) > time.Minute {
-				return q.TouchSession(r.Context(), dbq.TouchSessionParams{ID: sess.ID, ExpiresAt: time.Now().Add(s.cfg.SessionTTL)})
+				if sess.Persistent {
+					// Move the cookie's expiry along with the session's.
+					s.setSessionCookie(w, c.Value, true)
+				}
+				return q.TouchSession(r.Context(), dbq.TouchSessionParams{ID: sess.ID, ExpiresAt: time.Now().Add(s.sessionTTL(sess.Persistent))})
 			}
 			return nil
 		})
@@ -123,6 +153,12 @@ func (s *Service) RequireSession(next http.Handler) http.Handler {
 		if p.MFAPending && !mfaOpen[r.URL.Path] {
 			httpx.JSON(w, http.StatusForbidden, map[string]any{"error": httpx.Error{
 				Code: "mfa_required", Message: "Enter the code from your authenticator app first.", RequestID: httpx.GetRequestID(r.Context())}})
+			return
+		}
+		if p.TwoFactorSetupRequired && !setupOpen[r.URL.Path] {
+			httpx.JSON(w, http.StatusForbidden, map[string]any{"error": httpx.Error{
+				Code: "two_factor_required", Message: "This workspace requires two-step verification. Turn it on first.",
+				RequestID: httpx.GetRequestID(r.Context())}})
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
@@ -183,11 +219,17 @@ func (s *Service) CSRF(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Service) setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
+// setSessionCookie sets the session cookie. A persistent one survives closing the browser;
+// otherwise it lasts until the browser closes.
+func (s *Service) setSessionCookie(w http.ResponseWriter, token string, persistent bool) {
+	c := &http.Cookie{
 		Name: SessionCookie, Value: token, Path: "/", HttpOnly: true,
 		Secure: s.cfg.CookieSecure, SameSite: http.SameSiteLaxMode,
-	})
+	}
+	if persistent {
+		c.MaxAge = int(RememberTTL.Seconds())
+	}
+	http.SetCookie(w, c)
 }
 
 func (s *Service) clearSessionCookie(w http.ResponseWriter) {

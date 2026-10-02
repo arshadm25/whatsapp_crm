@@ -446,7 +446,7 @@ func (q *Queries) SetMetaFeeStatementPaid(ctx context.Context, arg SetMetaFeeSta
 
 const setMetaPaymentMode = `-- name: SetMetaPaymentMode :one
 UPDATE tenants SET meta_payment_mode = $1, meta_payment_mode_since = now(), updated_at = now()
-WHERE id = $2 RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since
+WHERE id = $2 RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor
 `
 
 type SetMetaPaymentModeParams struct {
@@ -471,6 +471,7 @@ func (q *Queries) SetMetaPaymentMode(ctx context.Context, arg SetMetaPaymentMode
 		&i.UpdatedAt,
 		&i.MetaPaymentMode,
 		&i.MetaPaymentModeSince,
+		&i.RequireTwoFactor,
 	)
 	return i, err
 }

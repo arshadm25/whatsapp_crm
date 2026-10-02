@@ -756,3 +756,15 @@ nav .nav-badge { margin-left: auto; }
 
 /* A webhook delivery's payload. */
 pre.code.payload { max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+/* Notification bell */
+.bell { position: relative; }
+.bell > .ib { position: relative; }
+.bell .dot { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; }
+.bell-menu { position: absolute; right: 0; top: calc(100% + 6px); width: min(360px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .12); z-index: 20; }
+.bell-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.bell-empty { padding: 14px; margin: 0; }
+.bell-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 10px 14px; background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; cursor: pointer; color: var(--text); font: inherit; }
+.bell-item:hover { background: var(--surface-2); }
+.bell-item.unread b::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
+.bell-foot { display: block; padding: 10px 14px; }
+.auth-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

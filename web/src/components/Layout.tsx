@@ -7,6 +7,7 @@ import { useInboxCounts, useLiveEvents, useMe, usePhoneNumbers } from "../api/ho
 import type { BillingOverview, Me } from "../api/types";
 import { daysLeft } from "../lib/billing";
 import Icon, { type IconName } from "./Icon";
+import NotificationBell from "./NotificationBell";
 
 type NavItem = { to: string; key: string; icon: IconName };
 
@@ -150,6 +151,7 @@ export default function Layout() {
             {page && <> / <b>{t(`nav.${page}`)}</b></>}
           </span>
           <span className="sp" />
+          <NotificationBell />
           {connected && (
             <Link className="num" to="/numbers">
               <span className="gd" />

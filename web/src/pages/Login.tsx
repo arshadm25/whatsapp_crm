@@ -14,6 +14,7 @@ export default function Login() {
   const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -22,7 +23,7 @@ export default function Login() {
     setBusy(true);
     setError("");
     try {
-      const me = await api<Me>("POST", "/internal/auth/login", { email, password });
+      const me = await api<Me>("POST", "/internal/auth/login", { email, password, remember });
       qc.setQueryData(["me"], me);
       const from = (location.state as { from?: string } | null)?.from ?? "/";
       navigate(me.mfa_required ? "/2fa" : from, { state: { from } });
@@ -41,6 +42,13 @@ export default function Login() {
     >
       <Field label={t("auth.email")} type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
       <Field label={t("auth.password")} type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+      <div className="auth-row">
+        <label className="check">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          {t("auth.remember")}
+        </label>
+        <Link to="/forgot-password" className="small">{t("auth.forgot")}</Link>
+      </div>
       {error && <div className="error">{error}</div>}
       <button className="primary" disabled={busy}>{t("auth.login")}<Icon name="arrowRight" size="s" /></button>
       <div className="auth-note">
