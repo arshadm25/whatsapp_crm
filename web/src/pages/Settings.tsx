@@ -414,6 +414,8 @@ function Billing() {
     queryFn: async () => (await api<{ data: Invoice[] }>("GET", "/internal/billing/invoices")).data,
   });
   const [draft, setDraft] = useState<BillingProfile | null>(null);
+  // Shown beside the Save button: the page-level message is out of sight at the bottom of a long form.
+  const [detailsMsg, setDetailsMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const form: BillingProfile = draft ?? details.data?.profile ?? { legal_name: "", gstin: "", state_code: "", address: "" };
   const setField = (k: keyof BillingProfile) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setDraft({ ...form, [k]: e.target.value });
@@ -454,15 +456,14 @@ function Billing() {
   };
   const saveDetails = async (e: FormEvent) => {
     e.preventDefault();
-    setError("");
-    setNote("");
+    setDetailsMsg(null);
     try {
       await api("PUT", "/internal/billing/profile", form);
       setDraft(null);
-      setNote(t("billing.detailsSaved"));
+      setDetailsMsg({ ok: true, text: t("billing.detailsSaved") });
       await qc.invalidateQueries({ queryKey: ["billing", "profile"] });
     } catch (err) {
-      setError(message(err, t("common.error")));
+      setDetailsMsg({ ok: false, text: message(err, t("common.error")) });
     }
   };
   const saveSeats = async (e: FormEvent) => {
@@ -533,6 +534,7 @@ function Billing() {
       {error && <div className="error">{error}</div>}
       {note && <div className="muted">{note}</div>}
       <h2>{t("billing.plans")}</h2>
+      {sub.status === "trialing" && b.plans.length > 0 && <p className="muted small">{t("billing.verifyNote", { date: end })}</p>}
       {b.plans.length === 0 ? (
         <div className="card muted">{t("billing.noPlans")}</div>
       ) : (
@@ -573,6 +575,7 @@ function Billing() {
           </select>
         </label>
         <label className="field">{t("billing.address")}<textarea value={form.address} onChange={setField("address")} required maxLength={500} rows={3} /></label>
+        {detailsMsg && <div className={detailsMsg.ok ? "muted" : "field-error"}>{detailsMsg.text}</div>}
         <div className="actions"><button className="primary">{t("billing.saveDetails")}</button></div>
       </form>
       <h2>{t("billing.invoices")}</h2>

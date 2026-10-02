@@ -36,8 +36,8 @@ config:
   metaAppId: ""
   metaConfigId: ""
   metaGraphVersion: v24.0
-  smtpHost: live.smtp.mailtrap.io
-  smtpPort: "587"
+  smtpHost: sandbox.smtp.mailtrap.io   # Mailtrap Email Testing until go-live; live sending uses live.smtp.mailtrap.io
+  smtpPort: "2525"
   smtpUsername: ""
   mailFrom: "Ecogo WhatsApp <no-reply@ecogo.co.in>"
   # Media files (uploads and copies of inbound media) live in this S3-compatible bucket; the
