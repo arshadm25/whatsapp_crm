@@ -45,6 +45,17 @@ func NewWorker(d *db.DB, keys *envelope.Keyring, meta Meta, templates TemplateSy
 	return &Worker{db: d, keys: keys, meta: meta, templates: templates, log: log}
 }
 
+// coexistenceError explains Meta's "not registered" reply to a coexistence sign-up: the number
+// has to be in use on the WhatsApp Business app, which a new or virtual number is not.
+func coexistenceError(err error) error {
+	var me *metaclient.Error
+	if errors.As(err, &me) && me.Code == 133010 {
+		return &stepError{code: "meta_133010", msg: "This number is not active on the WhatsApp Business app, so there are no chats to bring over. " +
+			"Use Start again and pick \"A new number\", or first set the number up in the WhatsApp Business app on a phone."}
+	}
+	return err
+}
+
 // stepError is a failure the client has to act on; it stops the job instead of retrying.
 type stepError struct {
 	code, msg string
@@ -156,7 +167,7 @@ func (w *Worker) step(ctx context.Context, tenantID uuid.UUID, sess dbq.Onboardi
 		if sess.Flow == dbq.OnboardingFlowCoexistence {
 			// The number stays registered to the Business app; ask Meta to send its contacts.
 			if err := w.meta.RequestSMBAppData(ctx, token, pn.ID, metaclient.SyncContacts); err != nil {
-				return "", err
+				return "", coexistenceError(err)
 			}
 			return dbq.OnboardingStepContactsSyncRequested, w.commit(ctx, tenantID, sess.ID, dbq.OnboardingStepContactsSyncRequested, nil)
 		}
