@@ -1677,6 +1677,21 @@ type MetaRateCard struct {
 	CreatedAt      time.Time
 }
 
+type MetaReconciliation struct {
+	TenantID      uuid.UUID
+	WabaID        string
+	Day           pgtype.Date
+	Category      string
+	Country       string
+	OurMessages   int64
+	MetaMessages  int64
+	OurCostMinor  int64
+	MetaCostMinor int64
+	Currency      string
+	Status        string
+	CheckedAt     time.Time
+}
+
 type MetaWebhookEvent struct {
 	ID                int64
 	PayloadHash       []byte
@@ -1895,18 +1910,21 @@ type WebhookEndpoint struct {
 }
 
 type WhatsappAccount struct {
-	ID                   uuid.UUID
-	TenantID             uuid.UUID
-	WabaID               string
-	BusinessID           string
-	Name                 *string
-	Currency             *string
-	TimezoneID           *string
-	OnboardingFlow       OnboardingFlow
-	Status               ConnectionStatus
-	WebhooksSubscribedAt *time.Time
-	ConnectedAt          *time.Time
-	DisconnectedAt       *time.Time
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                     uuid.UUID
+	TenantID               uuid.UUID
+	WabaID                 string
+	BusinessID             string
+	Name                   *string
+	Currency               *string
+	TimezoneID             *string
+	OnboardingFlow         OnboardingFlow
+	Status                 ConnectionStatus
+	WebhooksSubscribedAt   *time.Time
+	ConnectedAt            *time.Time
+	DisconnectedAt         *time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	CreditLineAllocationID *string
+	CreditLineAttachedAt   *time.Time
+	CreditLineError        *string
 }

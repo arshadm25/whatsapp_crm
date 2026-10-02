@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import type { AdminTenant, MetaFeeStatement, MetaRate } from "../api/types";
+import type { AdminTenant, MetaFeeStatement, MetaRate, MetaReconciliation } from "../api/types";
 import { formatPaise } from "../lib/billing";
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
@@ -94,6 +94,7 @@ export default function MetaFeesAdmin() {
 
   return (
     <>
+      <Reconciliation />
       <h3>{t("admin.rateCard")}</h3>
       <p className="muted small">{t("admin.rateHelp")}</p>
       <div className="card table-wrap">
@@ -164,6 +165,49 @@ export default function MetaFeesAdmin() {
         </form>
       )}
       {error && <div className="error">{error}</div>}
+    </>
+  );
+}
+
+// Reconciliation lists the days on which our usage and Meta's billing data disagree.
+function Reconciliation() {
+  const { t } = useTranslation();
+  const [onlyDiffs, setOnlyDiffs] = useState(true);
+  const q = useQuery({
+    queryKey: ["admin", "meta-reconciliation", onlyDiffs],
+    queryFn: () => api<MetaReconciliation>("GET", `/internal/admin/meta-reconciliation${onlyDiffs ? "?status=mismatch" : ""}`),
+  });
+  const d = q.data;
+  return (
+    <>
+      <h3>{t("admin.reconTitle")}</h3>
+      <p className="muted small">{t("admin.reconHelp")}</p>
+      {d && d.credit_line_problems.length > 0 && (
+        <div className="card notice">
+          <strong>{t("admin.creditLineProblems")}</strong>
+          {d.credit_line_problems.map((p) => <div key={p.waba_id} className="small">{p.tenant_name} · WABA {p.waba_id}: {p.error}</div>)}
+        </div>
+      )}
+      <label className="field check"><input type="checkbox" checked={onlyDiffs} onChange={(e) => setOnlyDiffs(e.target.checked)} /> {t("admin.reconOnlyMismatches")}</label>
+      <div className="card table-wrap">
+        <table>
+          <thead>
+            <tr><th>{t("admin.reconDay")}</th><th>{t("admin.workspace")}</th><th>{t("admin.rateCategory")}</th><th>{t("admin.reconOurs")}</th><th>{t("admin.reconMeta")}</th></tr>
+          </thead>
+          <tbody>
+            {d?.data.map((r) => (
+              <tr key={`${r.waba_id}${r.day}${r.category}${r.country}`}>
+                <td>{r.day}</td>
+                <td>{r.tenant_name}</td>
+                <td>{r.category} · {r.country}</td>
+                <td className={r.status === "mismatch" ? "danger-text" : ""}>{r.our_messages} · {formatPaise(r.our_cost_minor)}</td>
+                <td className={r.status === "mismatch" ? "danger-text" : ""}>{r.meta_messages} · {formatPaise(r.meta_cost_minor)}{r.currency !== "INR" ? ` ${r.currency}` : ""}</td>
+              </tr>
+            ))}
+            {q.isSuccess && d!.data.length === 0 && <tr><td colSpan={5} className="muted">{t("admin.reconNone")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

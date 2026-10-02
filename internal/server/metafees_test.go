@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/metafees"
 )
@@ -187,5 +188,151 @@ func TestMetaRateCard(t *testing.T) {
 	tot = metafees.Price(10000, 0, 1800, false)
 	if tot.IGST != 1800 || tot.CGST != 0 || tot.TotalMinor != 11800 {
 		t.Fatalf("inter = %+v", tot)
+	}
+}
+
+func TestMetaBillingReconciliation(t *testing.T) {
+	h := newHarness(t)
+	_, me, phone := h.connected()
+	tenant := me.Tenant.ID
+	staff := h.platformAdmin("ops@ecogo.co.in")
+
+	ist := time.FixedZone("IST", 5*3600+1800)
+	n := time.Now().In(ist)
+	today := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, ist)
+	day := func(back int) time.Time { return today.AddDate(0, 0, -back) }
+	ymd := func(back int) string { return day(back).Format("2006-01-02") }
+
+	h.usage(tenant, phone.ID, ymd(4), "marketing", "IN", 100)
+	h.usage(tenant, phone.ID, ymd(3), "utility", "IN", 50)
+	h.usage(tenant, phone.ID, ymd(2), "marketing", "IN", 10)
+	h.meta.mu.Lock()
+	h.meta.pricing = fmt.Sprintf(`[
+		{"start":%d,"volume":100,"cost":78.46,"pricing_category":"MARKETING","country":"IN"},
+		{"start":%d,"volume":50,"cost":5.75,"pricing_category":"UTILITY","country":"IN"},
+		{"start":%d,"volume":20,"cost":15.69,"pricing_category":"MARKETING","country":"IN"},
+		{"start":%d,"volume":30,"cost":0,"pricing_category":"SERVICE","country":"IN"},
+		{"start":%d,"volume":3,"cost":0.9,"pricing_category":"MARKETING","country":"US"}]`,
+		day(4).Unix(), day(3).Unix(), day(2).Unix(), day(1).Unix(), day(1).Unix())
+	h.meta.mu.Unlock()
+
+	run := func() {
+		if err := h.reconciler.Work(context.Background(), &river.Job[metafees.ReconcileArgs]{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run()
+	run() // checking again changes nothing
+	var rec struct {
+		Data []struct {
+			TenantName   string `json:"tenant_name"`
+			Day          string
+			Category     string
+			Country      string
+			OurMessages  int64 `json:"our_messages"`
+			MetaMessages int64 `json:"meta_messages"`
+			OurCost      int64 `json:"our_cost_minor"`
+			MetaCost     int64 `json:"meta_cost_minor"`
+			Status       string
+		}
+		Mismatches int
+	}
+	staff.do("GET", "/internal/admin/meta-reconciliation", nil, http.StatusOK, &rec)
+	if len(rec.Data) != 4 || rec.Mismatches != 2 {
+		t.Fatalf("reconciliation = %+v", rec)
+	}
+	got := map[string]string{}
+	for _, r := range rec.Data {
+		got[r.Day+" "+r.Category+" "+r.Country] = fmt.Sprintf("%s %d/%d %d/%d", r.Status, r.OurMessages, r.MetaMessages, r.OurCost, r.MetaCost)
+	}
+	want := map[string]string{
+		ymd(4) + " marketing IN": "match 100/100 7846/7846",
+		ymd(3) + " utility IN":   "match 50/50 575/575",
+		ymd(2) + " marketing IN": "mismatch 10/20 785/1569",
+		ymd(1) + " marketing US": "mismatch 0/3 0/90",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	staff.do("GET", "/internal/admin/meta-reconciliation?status=mismatch", nil, http.StatusOK, &rec)
+	if len(rec.Data) != 2 {
+		t.Fatalf("mismatches = %+v", rec.Data)
+	}
+	staff.do("GET", "/internal/admin/meta-reconciliation?status=other", nil, http.StatusBadRequest, nil)
+	staff.do("GET", "/internal/admin/meta-reconciliation?days=0", nil, http.StatusBadRequest, nil)
+
+	// A late correction from Meta turns a mismatch into a match on the next run.
+	h.usage(tenant, phone.ID, ymd(1), "marketing", "US", 3)
+	run()
+	staff.do("GET", "/internal/admin/meta-reconciliation?status=mismatch", nil, http.StatusOK, &rec)
+	if len(rec.Data) != 1 {
+		t.Fatalf("mismatches after correction = %+v", rec.Data)
+	}
+}
+
+func TestCreditLineStep(t *testing.T) {
+	h := newHarness(t)
+	_, me, _ := h.connected()
+	tenant := me.Tenant.ID
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	work := func(w *metafees.CreditLineWorker) {
+		t.Helper()
+		if err := w.Work(context.Background(), &river.Job[metafees.CreditLineArgs]{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := func() []string {
+		h.meta.mu.Lock()
+		defer h.meta.mu.Unlock()
+		return append([]string(nil), h.meta.creditLines...)
+	}
+	var problems struct {
+		CreditLineProblems []struct {
+			TenantName string `json:"tenant_name"`
+			Error      string
+		} `json:"credit_line_problems"`
+	}
+
+	// Workspaces that pay Meta directly never get a credit line.
+	work(h.creditLine)
+	if len(calls()) != 0 {
+		t.Fatalf("direct workspace calls = %v", calls())
+	}
+	staff.do("POST", "/internal/admin/tenants/"+tenant.String()+"/meta-payment-mode", map[string]any{"mode": "through_us", "reason": "Pays through Ecogo"}, http.StatusOK, nil)
+
+	// Until Meta approves Ecogo the step is switched off.
+	work(metafees.NewCreditLineWorker(h.db, nil, config.CreditLine{}, h.log))
+	if len(calls()) != 0 {
+		t.Fatalf("disabled step calls = %v", calls())
+	}
+
+	// A refusal from Meta is kept for admins and tried again.
+	h.meta.mu.Lock()
+	h.meta.creditErr = `{"error":{"message":"The credit line is not available","code":100}}`
+	h.meta.mu.Unlock()
+	work(h.creditLine)
+	staff.do("GET", "/internal/admin/meta-reconciliation", nil, http.StatusOK, &problems)
+	if len(problems.CreditLineProblems) != 1 || !strings.Contains(problems.CreditLineProblems[0].Error, "not available") {
+		t.Fatalf("problems = %+v", problems)
+	}
+	h.meta.mu.Lock()
+	h.meta.creditErr = ""
+	h.meta.mu.Unlock()
+	work(h.creditLine)
+	work(h.creditLine) // already attached: nothing more is sent
+	if c := calls(); len(c) != 1 || !strings.HasSuffix(c[0], "INR Bearer partner-token") {
+		t.Fatalf("calls = %v", c)
+	}
+	var alloc string
+	var attached bool
+	h.scalar(tenant, "SELECT coalesce(credit_line_allocation_id, ''), credit_line_error IS NULL AND credit_line_attached_at IS NOT NULL FROM whatsapp_accounts", &alloc, &attached)
+	if alloc != "alloc-1" || !attached {
+		t.Fatalf("account = %q, %v", alloc, attached)
+	}
+	staff.do("GET", "/internal/admin/meta-reconciliation", nil, http.StatusOK, &problems)
+	if len(problems.CreditLineProblems) != 0 {
+		t.Fatalf("problems after success = %+v", problems)
 	}
 }
