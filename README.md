@@ -10,7 +10,7 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 
 | Area | Status |
 | --- | --- |
-| D1 Sign-up, login, sessions, email verification | Done (invites, roles screen and 2FA later) |
+| D1 Sign-up, login, sessions, email verification; Settings with team members and roles (owners manage everyone, admins manage agents and developers), email invites with a shareable 7-day link, workspace name, legal name and time zone, own name and password change; workspace switcher for people in several workspaces | Done (2FA with the admin console) |
 | D2 Connect WhatsApp with Embedded Signup v4, standard and coexistence | Done |
 | D5 Phone numbers list (`GET /v1/phone-numbers`) | Done (profile and health sync later) |
 | Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import later) |
@@ -30,7 +30,7 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 ```
 cmd/ecogo/            one binary: `ecogo api | ingest | worker | migrate`
 internal/
-  auth/               D1: sign-up, login, sessions, CSRF, email verification
+  auth/               D1: sign-up, login, sessions, CSRF, email verification, team, invites
   onboarding/         D2: Embedded Signup code exchange (api) and onboarding steps (River worker)
   numbers/            D5: /v1/phone-numbers
   messaging/          Flow 3: /v1/messages and the send worker
