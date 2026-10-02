@@ -27,6 +27,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
+	"github.com/arshadm25/whatsapp_crm/internal/bots"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
@@ -223,6 +224,7 @@ type harness struct {
 	// downloader copies inbound media from Meta.
 	downloader *media.DownloadWorker
 	campaigns  *campaigns.Worker
+	bots       *bots.Worker
 	razorpay   *fakeRazorpay
 	keys       *envelope.Keyring
 	log        *slog.Logger
@@ -276,6 +278,7 @@ func newHarness(t *testing.T) *harness {
 		Webhooks:   webhooks.NewService(d, keys, rc, log),
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
+		Bots:       bots.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
 		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),
@@ -291,6 +294,8 @@ func newHarness(t *testing.T) *harness {
 	sender.Jobs = rc
 	runner := campaigns.NewWorker(d, log)
 	runner.Jobs = rc
+	botRunner := bots.NewWorker(d, log)
+	botRunner.Jobs = rc
 	return &harness{
 		t: t, db: d, meta: fm, api: api,
 		worker:     onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
@@ -298,6 +303,7 @@ func newHarness(t *testing.T) *harness {
 		events:     proc,
 		downloader: media.NewDownloadWorker(d, keys, meta, store, log),
 		campaigns:  runner,
+		bots:       botRunner,
 		razorpay:   rp,
 		keys:       keys,
 		log:        log,

@@ -188,7 +188,7 @@ export interface CreatedAPIKey extends APIKey {
   key: string;
 }
 
-export type WebhookEventType = "message.received" | "message.status" | "template.status" | "number.quality";
+export type WebhookEventType = "message.received" | "message.status" | "template.status" | "number.quality" | "bot.handoff";
 
 export interface WebhookEndpoint {
   id: string;

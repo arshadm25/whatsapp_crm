@@ -60,7 +60,7 @@ func (q *Queries) FinishMetaWebhookEvent(ctx context.Context, arg FinishMetaWebh
 }
 
 const getMessageByWamid = `-- name: GetMessageByWamid :one
-SELECT id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at FROM messages WHERE wamid = $1
+SELECT id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at, bot_id FROM messages WHERE wamid = $1
 `
 
 func (q *Queries) GetMessageByWamid(ctx context.Context, wamid *string) (Message, error) {
@@ -93,6 +93,7 @@ func (q *Queries) GetMessageByWamid(ctx context.Context, wamid *string) (Message
 		&i.MetaTimestamp,
 		&i.StatusUpdatedAt,
 		&i.CreatedAt,
+		&i.BotID,
 	)
 	return i, err
 }

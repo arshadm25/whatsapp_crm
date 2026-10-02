@@ -71,7 +71,7 @@ func (q *Queries) GetIdempotencyRecordForUpdate(ctx context.Context, arg GetIdem
 }
 
 const getMessageByID = `-- name: GetMessageByID :one
-SELECT id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at FROM messages WHERE id = $1
+SELECT id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at, bot_id FROM messages WHERE id = $1
 `
 
 func (q *Queries) GetMessageByID(ctx context.Context, id uuid.UUID) (Message, error) {
@@ -104,12 +104,13 @@ func (q *Queries) GetMessageByID(ctx context.Context, id uuid.UUID) (Message, er
 		&i.MetaTimestamp,
 		&i.StatusUpdatedAt,
 		&i.CreatedAt,
+		&i.BotID,
 	)
 	return i, err
 }
 
 const getMessageForSend = `-- name: GetMessageForSend :one
-SELECT m.id, m.tenant_id, m.conversation_id, m.phone_number_id, m.contact_id, m.direction, m.origin, m.wamid, m.type, m.content, m.media_id, m.template_id, m.reply_to_wamid, m.status, m.error_code, m.error_title, m.sent_by_user_id, m.api_key_id, m.campaign_id, m.idempotency_key, m.pricing_category, m.pricing_billable, m.recipient_country, m.meta_timestamp, m.status_updated_at, m.created_at, c.wa_id AS contact_wa_id, p.phone_number_id AS meta_phone_number_id,
+SELECT m.id, m.tenant_id, m.conversation_id, m.phone_number_id, m.contact_id, m.direction, m.origin, m.wamid, m.type, m.content, m.media_id, m.template_id, m.reply_to_wamid, m.status, m.error_code, m.error_title, m.sent_by_user_id, m.api_key_id, m.campaign_id, m.idempotency_key, m.pricing_category, m.pricing_billable, m.recipient_country, m.meta_timestamp, m.status_updated_at, m.created_at, m.bot_id, c.wa_id AS contact_wa_id, p.phone_number_id AS meta_phone_number_id,
        p.whatsapp_account_id, p.status AS phone_status
 FROM messages m
 JOIN contacts c ON c.id = m.contact_id
@@ -155,6 +156,7 @@ func (q *Queries) GetMessageForSend(ctx context.Context, id uuid.UUID) (GetMessa
 		&i.Message.MetaTimestamp,
 		&i.Message.StatusUpdatedAt,
 		&i.Message.CreatedAt,
+		&i.Message.BotID,
 		&i.ContactWaID,
 		&i.MetaPhoneNumberID,
 		&i.WhatsappAccountID,
@@ -164,7 +166,7 @@ func (q *Queries) GetMessageForSend(ctx context.Context, id uuid.UUID) (GetMessa
 }
 
 const getMessageView = `-- name: GetMessageView :one
-SELECT m.id, m.tenant_id, m.conversation_id, m.phone_number_id, m.contact_id, m.direction, m.origin, m.wamid, m.type, m.content, m.media_id, m.template_id, m.reply_to_wamid, m.status, m.error_code, m.error_title, m.sent_by_user_id, m.api_key_id, m.campaign_id, m.idempotency_key, m.pricing_category, m.pricing_billable, m.recipient_country, m.meta_timestamp, m.status_updated_at, m.created_at, c.wa_id AS contact_wa_id, coalesce(c.name, c.profile_name) AS contact_name
+SELECT m.id, m.tenant_id, m.conversation_id, m.phone_number_id, m.contact_id, m.direction, m.origin, m.wamid, m.type, m.content, m.media_id, m.template_id, m.reply_to_wamid, m.status, m.error_code, m.error_title, m.sent_by_user_id, m.api_key_id, m.campaign_id, m.idempotency_key, m.pricing_category, m.pricing_billable, m.recipient_country, m.meta_timestamp, m.status_updated_at, m.created_at, m.bot_id, c.wa_id AS contact_wa_id, coalesce(c.name, c.profile_name) AS contact_name
 FROM messages m JOIN contacts c ON c.id = m.contact_id
 WHERE m.id = $1
 `
@@ -205,6 +207,7 @@ func (q *Queries) GetMessageView(ctx context.Context, id uuid.UUID) (GetMessageV
 		&i.Message.MetaTimestamp,
 		&i.Message.StatusUpdatedAt,
 		&i.Message.CreatedAt,
+		&i.Message.BotID,
 		&i.ContactWaID,
 		&i.ContactName,
 	)
@@ -287,7 +290,7 @@ const insertOutboundMessage = `-- name: InsertOutboundMessage :one
 INSERT INTO messages (id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin,
                       type, content, template_id, reply_to_wamid, status, sent_by_user_id, idempotency_key, media_id)
 VALUES ($1, $2, $3, $4, $5, 'outbound', $6, $7, $8, $9, $10, 'queued', $11, $12, $13)
-RETURNING id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at
+RETURNING id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at, bot_id
 `
 
 type InsertOutboundMessageParams struct {
@@ -350,6 +353,7 @@ func (q *Queries) InsertOutboundMessage(ctx context.Context, arg InsertOutboundM
 		&i.MetaTimestamp,
 		&i.StatusUpdatedAt,
 		&i.CreatedAt,
+		&i.BotID,
 	)
 	return i, err
 }

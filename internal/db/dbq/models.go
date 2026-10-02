@@ -1313,6 +1313,33 @@ type BillingProfile struct {
 	UpdatedAt time.Time
 }
 
+type Bot struct {
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	Name          string
+	Status        string
+	PhoneNumberID *uuid.UUID
+	Flow          []byte
+	CreatedBy     *uuid.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type BotSession struct {
+	ID             uuid.UUID
+	TenantID       uuid.UUID
+	BotID          uuid.UUID
+	ConversationID uuid.UUID
+	ContactID      uuid.UUID
+	NodeID         *string
+	Vars           []byte
+	Status         string
+	EndReason      *string
+	StartedAt      time.Time
+	UpdatedAt      time.Time
+	EndedAt        *time.Time
+}
+
 type Campaign struct {
 	ID             uuid.UUID
 	TenantID       uuid.UUID
@@ -1506,6 +1533,7 @@ type Message struct {
 	MetaTimestamp    *time.Time
 	StatusUpdatedAt  time.Time
 	CreatedAt        time.Time
+	BotID            *uuid.UUID
 }
 
 type MessageStatusEvent struct {

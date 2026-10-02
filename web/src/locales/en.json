@@ -273,6 +273,7 @@
     "event_message.status": "Message status",
     "event_template.status": "Template status",
     "event_number.quality": "Number quality",
+    "event_bot.handoff": "Bot handoff",
     "addEndpoint": "Add endpoint",
     "noEndpoints": "No webhook endpoints yet.",
     "secretNow": "Copy this signing secret now. It will not be shown again.",
