@@ -583,8 +583,8 @@ func buildContent(req *SendRequest) (map[string]any, error) {
 		var head struct {
 			Type string `json:"type"`
 		}
-		if json.Unmarshal(req.Interactive, &head) != nil || (head.Type != "button" && head.Type != "list" && head.Type != "cta_url") {
-			return nil, httpx.BadRequest("interactive.type", "interactive.type must be button, list or cta_url.")
+		if json.Unmarshal(req.Interactive, &head) != nil || (head.Type != "button" && head.Type != "list" && head.Type != "cta_url" && head.Type != "flow") {
+			return nil, httpx.BadRequest("interactive.type", "interactive.type must be button, list, cta_url or flow.")
 		}
 		c["interactive"] = req.Interactive
 	case "reaction":

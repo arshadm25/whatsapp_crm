@@ -61,6 +61,13 @@ describe("bot flows", () => {
     expect(problems(f).some((p) => p.node === "bye" || p.node === "ask")).toBe(true);
   });
 
+  it("checks a Flow step and lets it wait for the customer", () => {
+    const f: BotFlow = { start: "form", triggers: [], nodes: { form: { type: "flow", text: "Fill in", flow_id: "", cta: "Open", next: "form" } } };
+    expect(problems(f).map((p) => p.message)).toContain("Choose a Flow.");
+    f.nodes.form.flow_id = "7d2c1f0e-3a55-4a39-9f0b-0f6f7f2f6a10";
+    expect(problems(f)).toEqual([]);
+  });
+
   it("refuses a loop that never waits and allows one that does", () => {
     const loop: BotFlow = {
       start: "a",

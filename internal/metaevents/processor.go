@@ -20,6 +20,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/flows"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
@@ -149,6 +150,8 @@ func (p *Processor) apply(ctx context.Context, entry Entry, change Change) error
 		return p.accountUpdate(ctx, entry, change.Value)
 	case "smb_app_state_sync":
 		return p.stateSync(ctx, entry, change.Value)
+	case "flows":
+		return p.flowStatus(ctx, entry, change.Value)
 	default:
 		// history (coexistence chat import) and other fields are stored in meta_webhook_events
 		// and applied by later slices.
@@ -269,6 +272,15 @@ func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tx pgx.Tx,
 	}
 	if err := messaging.EmitEvent(ctx, q, tx, p.Jobs, tenantID, msgID, webhooks.MessageReceived); err != nil {
 		return err
+	}
+	if !echo && h.Interactive != nil && h.Interactive.NfmReply != nil && h.Interactive.NfmReply.Name == "flow" {
+		var replyTo string
+		if h.Context != nil {
+			replyTo = h.Context.ID
+		}
+		if err := flows.RecordSubmission(ctx, q, tx, p.Jobs, tenantID, contact, conv.ID, msgID, replyTo, h.Interactive.NfmReply.ResponseJSON); err != nil {
+			return err
+		}
 	}
 	if !echo && h.Text != nil {
 		if err := applyKeyword(ctx, q, tenantID, contact, h.Text.Body, at); err != nil {
@@ -599,6 +611,8 @@ func preview(h MessageHeader) string {
 		s = h.Interactive.ButtonReply.Title
 	case h.Interactive != nil && h.Interactive.ListReply != nil:
 		s = h.Interactive.ListReply.Title
+	case h.Interactive != nil && h.Interactive.NfmReply != nil:
+		s = "Form submitted"
 	default:
 		s = "[" + h.Type + "]"
 	}
@@ -629,4 +643,20 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// flowStatus applies a Flow status change Meta reports (published, deprecated, blocked,
+// throttled) to our copy of the Flow.
+func (p *Processor) flowStatus(ctx context.Context, entry Entry, raw json.RawMessage) error {
+	var v struct {
+		Event     string `json:"event"`
+		FlowID    string `json:"flow_id"`
+		NewStatus string `json:"new_status"`
+	}
+	if json.Unmarshal(raw, &v) != nil || v.FlowID == "" || v.NewStatus == "" {
+		return nil
+	}
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, _ uuid.UUID) error {
+		return flows.ApplyStatusEvent(ctx, q, v.FlowID, v.NewStatus)
+	})
 }

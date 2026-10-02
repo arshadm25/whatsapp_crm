@@ -1437,6 +1437,37 @@ type DataDeletionRequest struct {
 	CompletedAt      *time.Time
 }
 
+type Flow struct {
+	ID                uuid.UUID
+	TenantID          uuid.UUID
+	WhatsappAccountID uuid.UUID
+	MetaFlowID        string
+	Name              string
+	Categories        []string
+	Status            string
+	FlowJson          []byte
+	ValidationErrors  []byte
+	PreviewUrl        *string
+	PreviewExpiresAt  *time.Time
+	CreatedBy         *uuid.UUID
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	PublishedAt       *time.Time
+}
+
+type FlowSubmission struct {
+	ID             uuid.UUID
+	TenantID       uuid.UUID
+	FlowID         *uuid.UUID
+	MetaFlowID     *string
+	ContactID      uuid.UUID
+	ConversationID uuid.UUID
+	MessageID      uuid.UUID
+	FlowToken      *string
+	Response       []byte
+	CreatedAt      time.Time
+}
+
 type IdempotencyRecord struct {
 	TenantID       uuid.UUID
 	Key            string

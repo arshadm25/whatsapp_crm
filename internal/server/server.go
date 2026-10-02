@@ -21,6 +21,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/deletion"
 	"github.com/arshadm25/whatsapp_crm/internal/devportal"
+	"github.com/arshadm25/whatsapp_crm/internal/flows"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
@@ -49,6 +50,7 @@ type APIDeps struct {
 	Contacts   *contacts.Service
 	Campaigns  *campaigns.Service
 	Bots       *bots.Service
+	Flows      *flows.Service
 	Analytics  *analytics.Service
 	Admin      *admin.Service
 	Billing    *billing.Service
@@ -113,6 +115,8 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/contacts", d.Contacts.Routes)
 			r.Route("/campaigns", d.Campaigns.Routes)
 			r.Route("/bots", d.Bots.Routes)
+			r.Route("/flows", d.Flows.Routes)
+			r.Route("/flow-submissions", d.Flows.SubmissionRoutes)
 		})
 	})
 

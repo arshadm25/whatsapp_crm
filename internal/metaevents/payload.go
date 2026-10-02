@@ -77,6 +77,11 @@ type MessageHeader struct {
 		ListReply *struct {
 			Title string `json:"title"`
 		} `json:"list_reply"`
+		NfmReply *struct {
+			Name         string `json:"name"`
+			Body         string `json:"body"`
+			ResponseJSON string `json:"response_json"`
+		} `json:"nfm_reply"`
 	} `json:"interactive"`
 }
 

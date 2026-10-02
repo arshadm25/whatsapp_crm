@@ -9,8 +9,9 @@ import (
 
 // Input is what the customer sent.
 type Input struct {
-	Text     string // text body, or the title of a tapped button or list row
-	ButtonID string // id of a tapped reply button or list row
+	Text     string            // text body, or the title of a tapped button or list row
+	ButtonID string            // id of a tapped reply button or list row
+	Flow     map[string]string // answers the customer submitted in a WhatsApp Flow
 }
 
 // State is a session's position and variables.
@@ -32,6 +33,7 @@ type Action struct {
 	Content  map[string]any
 	Template *TemplateRef // template, with params already filled in
 	Tag      string
+	FlowNode *Node  // flow: the node to send
 	Reason   string // handoff
 	AssignTo string // handoff
 	Preview  string // short text for the conversation list
@@ -42,6 +44,7 @@ const (
 	ActionTemplate = "template"
 	ActionTag      = "tag"
 	ActionHandoff  = "handoff"
+	ActionFlow     = "flow"
 )
 
 // Outcome of one run.
@@ -140,6 +143,12 @@ func run(f Flow, st State, in *Input, c Contact) Outcome {
 			out.Actions = append(out.Actions, textAction(fill(n.Text, st.Vars, c)))
 			out.State.NodeID = cur
 			return out
+		case NodeFlow:
+			node := n
+			node.Text = fill(n.Text, st.Vars, c)
+			out.Actions = append(out.Actions, Action{Kind: ActionFlow, FlowNode: &node, Preview: node.Text})
+			out.State.NodeID = cur
+			return out
 		case NodeCondition:
 			if holds(n, st.Vars) {
 				cur = n.Then
@@ -202,6 +211,17 @@ func answer(n Node, vars map[string]string, in Input) (next string, ok bool) {
 				return b.Next, true
 			}
 		}
+	case NodeFlow:
+		if in.Flow == nil {
+			return "", false
+		}
+		for k, v := range in.Flow {
+			if n.Var != "" {
+				k = n.Var + "_" + k
+			}
+			vars[k] = v
+		}
+		return n.Next, true
 	case NodeQuestion:
 		v := strings.TrimSpace(in.Text)
 		if v == "" || !validAnswer(n.Kind, v) {
@@ -281,6 +301,9 @@ func atoi(s string) int {
 
 // Matches reports whether an inbound message starts the bot.
 func (f Flow) Matches(in Input, firstMessage bool) bool {
+	if in.Flow != nil {
+		return false // a submitted form belongs to the bot that sent it
+	}
 	text := strings.ToLower(strings.TrimSpace(in.Text))
 	for _, t := range f.Triggers {
 		switch t.Type {

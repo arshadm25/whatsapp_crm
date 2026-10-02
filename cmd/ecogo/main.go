@@ -36,6 +36,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/deletion"
 	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/events"
+	"github.com/arshadm25/whatsapp_crm/internal/flows"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
@@ -128,6 +129,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Bots:       bots.NewService(d, rc, log),
+		Flows:      flows.NewService(d, keys, meta, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),

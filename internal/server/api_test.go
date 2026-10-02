@@ -37,6 +37,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/deletion"
 	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/events"
+	"github.com/arshadm25/whatsapp_crm/internal/flows"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
@@ -70,6 +71,10 @@ type fakeMeta struct {
 	inbound     map[string][]byte // inbound media ID -> file served for download
 	profile     map[string]any    // business profile returned by GET whatsapp_business_profile
 	pictures    [][]byte          // files sent through the resumable upload API
+	flowN       int               // Flows created
+	flowAssets  [][]byte          // Flow JSON files uploaded
+	flowErrs    string            // JSON array of validation errors returned for Flow uploads
+	flowStatus  map[string]string // Flow ID -> status Meta reports
 }
 
 func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +181,41 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.wamids++
 		fmt.Fprintf(w, `{"messaging_product":"whatsapp","contacts":[{"input":%q,"wa_id":%q}],"messages":[{"id":"wamid.TEST%d"}]}`, body["to"], body["to"], f.wamids)
+	case len(parts) == 2 && parts[1] == "flows" && r.Method == http.MethodPost:
+		f.flowN++
+		id := fmt.Sprintf("flow-%d", f.flowN)
+		if f.flowStatus == nil {
+			f.flowStatus = map[string]string{}
+		}
+		f.flowStatus[id] = "DRAFT"
+		fmt.Fprintf(w, `{"id":%q,"success":true}`, id)
+	case len(parts) == 2 && parts[1] == "assets":
+		file, _, err := r.FormFile("file")
+		if err != nil || r.FormValue("asset_type") != "FLOW_JSON" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"bad asset","code":100}}`)
+			return
+		}
+		b, _ := io.ReadAll(file)
+		f.flowAssets = append(f.flowAssets, b)
+		errs := f.flowErrs
+		if errs == "" {
+			errs = "[]"
+		}
+		fmt.Fprintf(w, `{"success":true,"validation_errors":%s}`, errs)
+	case len(parts) == 2 && (parts[1] == "publish" || parts[1] == "deprecate") && strings.HasPrefix(parts[0], "flow-"):
+		f.flowStatus[parts[0]] = map[string]string{"publish": "PUBLISHED", "deprecate": "DEPRECATED"}[parts[1]]
+		fmt.Fprint(w, `{"success":true}`)
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "flow-") && r.Method == http.MethodGet:
+		errs := f.flowErrs
+		if errs == "" {
+			errs = "[]"
+		}
+		fmt.Fprintf(w, `{"id":%q,"name":"Flow","status":%q,"categories":["OTHER"],"validation_errors":%s,"preview":{"preview_url":"https://business.facebook.com/wa/manage/flows/preview/%s","expires_at":"2030-01-01T00:00:00+0000"}}`,
+			parts[0], f.flowStatus[parts[0]], errs, parts[0])
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "flow-") && r.Method == http.MethodDelete:
+		delete(f.flowStatus, parts[0])
+		fmt.Fprint(w, `{"success":true}`)
 	case len(parts) == 2 && parts[1] == "message_templates":
 		switch r.Method {
 		case http.MethodGet:
@@ -279,6 +319,7 @@ func newHarness(t *testing.T) *harness {
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Bots:       bots.NewService(d, rc, log),
+		Flows:      flows.NewService(d, keys, meta, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
 		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),

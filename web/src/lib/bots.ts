@@ -10,9 +10,10 @@ export type NodeType =
   | "tag"
   | "template"
   | "handoff"
+  | "flow"
   | "end";
 
-export const NODE_TYPES: NodeType[] = ["message", "buttons", "question", "condition", "set", "tag", "template", "handoff", "end"];
+export const NODE_TYPES: NodeType[] = ["message", "buttons", "question", "condition", "set", "tag", "template", "flow", "handoff", "end"];
 
 export interface BotButton {
   id: string;
@@ -35,6 +36,9 @@ export interface BotNode {
   template?: { name: string; language: string; params?: string[] };
   reason?: string;
   assign_to?: string;
+  flow_id?: string;
+  cta?: string;
+  screen?: string;
 }
 
 export type TriggerType = "keyword" | "first_message" | "button_reply" | "any_message";
@@ -100,6 +104,8 @@ export function newNode(type: NodeType): BotNode {
       return { type, tag: "" };
     case "template":
       return { type, template: { name: "", language: "en", params: [] } };
+    case "flow":
+      return { type, text: "", flow_id: "", cta: "Open" };
     case "handoff":
       return { type, text: "", reason: "wants_agent" };
     case "end":
@@ -282,6 +288,13 @@ export function problems(flow: BotFlow): Problem[] {
         if (!(n.tag ?? "").trim()) out.push({ node: id, message: "Enter a tag." });
         link(id, "next", n.next);
         break;
+      case "flow":
+        text(MAX_BODY);
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n.flow_id ?? "")) out.push({ node: id, message: "Choose a Flow." });
+        if ([...(n.cta ?? "")].length > MAX_BUTTON_TITLE) out.push({ node: id, message: `The button text can have at most ${MAX_BUTTON_TITLE} characters.` });
+        if (n.var && !VAR_RE.test(n.var)) out.push({ node: id, message: "Name the answers with letters, digits and underscores." });
+        link(id, "next", n.next);
+        break;
       case "template":
         if (!n.template?.name || !n.template.language) out.push({ node: id, message: "Choose a template." });
         link(id, "next", n.next);
@@ -296,7 +309,7 @@ export function problems(flow: BotFlow): Problem[] {
   return out;
 }
 
-const waits = (n: BotNode) => n.type === "buttons" || n.type === "question";
+const waits = (n: BotNode) => n.type === "buttons" || n.type === "question" || n.type === "flow";
 
 // loops reports a cycle made only of nodes that do not wait for the customer.
 function loops(flow: BotFlow): boolean {
@@ -329,6 +342,8 @@ export function summary(n: BotNode): string {
       return `${n.var} ${n.op} ${n.value ?? ""}`.trim();
     case "set":
       return `${n.var} = ${n.value ?? ""}`;
+    case "flow":
+      return n.text ?? "";
     case "tag":
       return n.tag ?? "";
     case "template":
