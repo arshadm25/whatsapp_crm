@@ -17,6 +17,7 @@ import Inbox from "./pages/Inbox";
 import Developers from "./pages/Developers";
 import Contacts from "./pages/Contacts";
 import Campaigns from "./pages/Campaigns";
+import Analytics from "./pages/Analytics";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="developers" element={<Developers />} />
         <Route path="contacts" element={<Contacts />} />
         <Route path="campaigns" element={<Campaigns />} />
+        <Route path="analytics" element={<Analytics />} />
         <Route path="settings" element={<ComingSoon section="settings" />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

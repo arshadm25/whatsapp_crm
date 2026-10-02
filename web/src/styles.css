@@ -259,3 +259,23 @@ table.clickable tbody tr:hover, table.clickable tr.selected { background: var(--
 .stats dd { margin: 0; font-size: 1.2rem; font-weight: 600; }
 .recipient-filter { margin-bottom: 0.5rem; }
 .nowrap { white-space: nowrap; }
+
+/* Analytics */
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; background: var(--surface); padding: 0.45rem 0.8rem; }
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button.on { background: var(--accent); color: #fff; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.kpi-value { font-size: 1.5rem; font-weight: 600; }
+.chart { width: 100%; height: 150px; display: block; }
+.chart .bar-sent, .sw-sent { fill: var(--accent); background: var(--accent); }
+.chart .bar-received, .sw-received { fill: var(--warn); background: var(--warn); }
+.chart .axis { stroke: var(--border); }
+.ticks { display: flex; justify-content: space-between; }
+.breakdown h2 { padding: 0.9rem 1rem 0; }
+.breakdown > .muted { padding: 0 1rem 1rem; }
+.legend { display: flex; align-items: center; gap: 0.4rem; color: var(--muted); margin-top: 0.4rem; }
+.sw { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; }
+.sw + * { margin-right: 0.6rem; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-top: 1rem; }
+.grid-2 h2, .card > h2 { font-size: 1rem; margin: 0 0 0.6rem; }

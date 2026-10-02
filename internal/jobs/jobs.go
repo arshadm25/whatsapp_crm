@@ -34,12 +34,14 @@ func NewInsertOnly(pool *pgxpool.Pool, log *slog.Logger) (*river.Client[pgx.Tx],
 	return river.NewClient(riverpgxv5.New(pool), &river.Config{Logger: log})
 }
 
-// NewWorkerClient returns a client that works the given workers (worker deployment).
-func NewWorkerClient(pool *pgxpool.Pool, workers *river.Workers, log *slog.Logger) (*river.Client[pgx.Tx], error) {
+// NewWorkerClient returns a client that works the given workers (worker deployment) and
+// schedules the periodic jobs.
+func NewWorkerClient(pool *pgxpool.Pool, workers *river.Workers, periodic []*river.PeriodicJob, log *slog.Logger) (*river.Client[pgx.Tx], error) {
 	return river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Logger:  log,
-		Workers: workers,
-		Queues:  Queues,
+		Logger:       log,
+		Workers:      workers,
+		Queues:       Queues,
+		PeriodicJobs: periodic,
 	})
 }
 
