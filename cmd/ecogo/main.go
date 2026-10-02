@@ -42,6 +42,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
+	"github.com/arshadm25/whatsapp_crm/internal/metrics"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/razorpay"
@@ -131,6 +132,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			cfg.Razorpay.WebhookSecret, cfg.Seller, rc, log),
 		Events:   hub,
 		Deletion: deletion.NewHandler(d, cfg.Meta.AppSecret, cfg.PublicAppURL, log),
+		Metrics:  metrics.New(d),
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
 }
@@ -149,7 +151,7 @@ func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 		return err
 	}
 	hooks := metaevents.NewHandler(cfg.Meta.AppSecret, cfg.Meta.VerifyToken, rc, log)
-	return serve(ctx, cfg.HTTPAddr, server.NewIngest(d, hooks, deletion.NewHandler(d, cfg.Meta.AppSecret, cfg.PublicAppURL, log), log), log)
+	return serve(ctx, cfg.HTTPAddr, server.NewIngest(d, hooks, deletion.NewHandler(d, cfg.Meta.AppSecret, cfg.PublicAppURL, log), metrics.New(d), log), log)
 }
 
 func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
@@ -187,7 +189,7 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 
 	// The worker has no traffic port, but Kubernetes probes and metrics need one.
 	go func() {
-		if err := serve(ctx, cfg.HTTPAddr, server.NewHealth(d, log), log); err != nil {
+		if err := serve(ctx, cfg.HTTPAddr, server.NewHealth(d, metrics.New(d), log), log); err != nil {
 			log.Error("worker health server", "err", err)
 		}
 	}()

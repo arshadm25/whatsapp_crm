@@ -124,3 +124,18 @@ helm upgrade --install ecogo-whatsapp-staging deploy/helm/ecogo-whatsapp \
 The chart assumes ingress-nginx, cert-manager and the CloudNativePG operator; each can be switched
 off in `values.yaml`. Database migrations run as a Helm hook Job before every upgrade. CI builds
 images to GitHub Container Registry on every push to `main`.
+
+### Monitoring
+
+The api, ingest and worker pods serve Prometheus metrics at `/metrics` on their HTTP port: request
+counts and latency by route, database pool use, job queue depth and age, and Meta webhook and
+Graph API error counts. The ingress does not route `/metrics`, so only the cluster can scrape it.
+With the Prometheus Operator installed, set `metrics.podMonitor.enabled=true` and
+`metrics.rules.enabled=true` (plus the `labels` your Prometheus selects on) to scrape the pods and
+load the alert rules in `templates/monitoring.yaml`.
+
+### Encryption keys
+
+Meta tokens and two-step PINs are envelope-encrypted with the master key in the `master-keys`
+Secret (mounted only into api and worker). Keys are versioned (`1:<key>,2:<key>`), so rotating
+means adding a new version and re-encrypting. A cloud KMS is not used.
