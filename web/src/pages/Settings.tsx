@@ -385,6 +385,7 @@ function Billing() {
   const qc = useQueryClient();
   const billing = useQuery({ queryKey: ["billing"], queryFn: () => api<BillingOverview>("GET", "/internal/billing") });
   const [busy, setBusy] = useState("");
+  const [extra, setExtra] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const b = billing.data;
@@ -408,6 +409,23 @@ function Billing() {
       setError(message(err, t("common.error")));
     } finally {
       setBusy("");
+    }
+  };
+  const saveSeats = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setNote("");
+    try {
+      const res = await api<{ payment_url?: string; scheduled?: boolean }>("POST", "/internal/billing/seats", { extra: Number(extra) });
+      if (res.payment_url) {
+        window.location.href = res.payment_url;
+        return;
+      }
+      setNote(res.scheduled ? t("billing.extraSeatsScheduled") : t("billing.extraSeatsDone"));
+      setExtra(null);
+      await qc.invalidateQueries({ queryKey: ["billing"] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
     }
   };
   const cancel = async () => {
@@ -438,13 +456,28 @@ function Billing() {
         <p className="muted small">
           {t("billing.usage", {
             numbers: b.connected_numbers, includedNumbers: b.plan?.included_numbers ?? "—",
-            seats: b.seats, includedSeats: b.plan?.included_seats ?? "—",
+            seats: b.seats, includedSeats: b.plan ? b.plan.included_seats + sub.extra_seats : "—",
           })}
         </p>
         {b.plan && sub.status !== "cancelled" && !sub.cancel_at_period_end && (
           <button className="link danger" onClick={cancel}>{sub.status === "trialing" ? t("billing.dropPlan") : t("billing.cancel")}</button>
         )}
       </div>
+      {b.plan?.extra_seats_available && sub.status === "active" && !sub.cancel_at_period_end && (
+        <form className="card form" onSubmit={saveSeats}>
+          <h3>{t("billing.extraSeatsTitle")}</h3>
+          <p className="muted small">
+            {t("billing.extraSeatsLead", { included: b.plan.included_seats, price: formatPaise(b.plan.extra_seat_minor), members: b.seats })}
+          </p>
+          <label className="field">
+            {t("billing.extraSeatsCount")}
+            <input type="number" min={0} max={500} value={extra ?? String(sub.extra_seats)} onChange={(e) => setExtra(e.target.value)} />
+          </label>
+          <div className="actions">
+            <button className="primary" disabled={extra === null || extra === String(sub.extra_seats)}>{t("billing.extraSeatsSave")}</button>
+          </div>
+        </form>
+      )}
       {!b.payments_enabled && <div className="card notice">{t("billing.paymentsOff")}</div>}
       {error && <div className="error">{error}</div>}
       {note && <div className="muted">{note}</div>}

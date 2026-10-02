@@ -420,6 +420,8 @@ export interface Plan {
   included_seats: number;
   extra_seat_minor: number;
   razorpay_plan_id?: string | null;
+  extra_seat_razorpay_plan_id?: string | null;
+  extra_seats_available: boolean;
   sort_order: number;
   is_active: boolean;
 }
@@ -432,6 +434,7 @@ export interface Subscription {
   cancel_at_period_end: boolean;
   usable: boolean;
   payment_pending: boolean;
+  extra_seats: number;
 }
 
 export interface BillingOverview {

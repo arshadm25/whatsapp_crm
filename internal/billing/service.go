@@ -52,6 +52,7 @@ func (s *Service) InternalRoutes(r chi.Router) {
 	r.Get("/", httpx.Handler(s.log, s.get))
 	r.Post("/subscribe", httpx.Handler(s.log, s.subscribe))
 	r.Post("/cancel", httpx.Handler(s.log, s.cancel))
+	r.Post("/seats", httpx.Handler(s.log, s.seats))
 }
 
 // Usable reports whether a workspace on this subscription may send.
@@ -129,14 +130,19 @@ type Plan struct {
 	IncludedSeats   int32   `json:"included_seats"`
 	ExtraSeatMinor  int64   `json:"extra_seat_minor"`
 	RazorpayPlanID  *string `json:"razorpay_plan_id,omitempty"`
-	SortOrder       int32   `json:"sort_order"`
-	Active          bool    `json:"is_active"`
+	// ExtraSeatRazorpayPlanID is the Razorpay plan that charges one extra seat a month (admins only).
+	ExtraSeatRazorpayPlanID *string `json:"extra_seat_razorpay_plan_id,omitempty"`
+	// ExtraSeatsAvailable tells customers they can buy seats beyond the included ones.
+	ExtraSeatsAvailable bool  `json:"extra_seats_available"`
+	SortOrder           int32 `json:"sort_order"`
+	Active              bool  `json:"is_active"`
 }
 
 func PlanView(p dbq.Plan) Plan {
 	return Plan{Code: p.Code, Name: p.Name, PriceMinor: p.PriceMinor, Currency: p.Currency,
 		IncludedNumbers: p.IncludedNumbers, IncludedSeats: p.IncludedSeats, ExtraSeatMinor: p.ExtraSeatMinor,
-		RazorpayPlanID: p.RazorpayPlanID, SortOrder: p.SortOrder, Active: p.IsActive}
+		RazorpayPlanID: p.RazorpayPlanID, ExtraSeatRazorpayPlanID: p.ExtraSeatRazorpayPlanID,
+		ExtraSeatsAvailable: p.RazorpayPlanID != nil && p.ExtraSeatRazorpayPlanID != nil, SortOrder: p.SortOrder, Active: p.IsActive}
 }
 
 // Subscription is the workspace's billing state.
@@ -149,12 +155,14 @@ type Subscription struct {
 	Usable            bool      `json:"usable"`
 	// PaymentPending is set after the owner was sent to Razorpay and before it confirmed.
 	PaymentPending bool `json:"payment_pending"`
+	// ExtraSeats is how many seats beyond the plan's included ones are paid for.
+	ExtraSeats int32 `json:"extra_seats"`
 }
 
 func SubscriptionView(sub dbq.Subscription, now time.Time) Subscription {
 	return Subscription{Status: string(sub.Status), PlanCode: sub.PlanCode, PeriodStart: sub.CurrentPeriodStart,
 		PeriodEnd: sub.CurrentPeriodEnd, CancelAtPeriodEnd: sub.CancelAtPeriodEnd, Usable: Usable(sub, now),
-		PaymentPending: sub.ProviderSubscriptionID != nil && sub.PlanCode == nil}
+		PaymentPending: sub.ProviderSubscriptionID != nil && sub.PlanCode == nil, ExtraSeats: sub.ExtraSeats}
 }
 
 type Overview struct {
@@ -187,7 +195,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 			// Only plans Razorpay can charge are offered.
 			if pl.IsActive && pl.RazorpayPlanID != nil {
 				v := PlanView(pl)
-				v.RazorpayPlanID = nil
+				v.RazorpayPlanID, v.ExtraSeatRazorpayPlanID = nil, nil
 				out.Plans = append(out.Plans, v)
 			}
 		}
@@ -244,6 +252,13 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 			return httpx.NewError(http.StatusConflict, "plan_limit", fmt.Sprintf(
 				"You have %d WhatsApp numbers connected and %s includes %d. Disconnect numbers or choose a larger plan.",
 				used, plan.Name, plan.IncludedNumbers))
+		}
+		if u, err := q.BillingUsage(ctx); err != nil {
+			return err
+		} else if u.Seats > plan.IncludedSeats+sub.ExtraSeats {
+			return httpx.NewError(http.StatusConflict, "seat_limit", fmt.Sprintf(
+				"You have %d members and %s includes %d seats. Remove members or choose a larger plan.",
+				u.Seats, plan.Name, plan.IncludedSeats+sub.ExtraSeats))
 		}
 		if tenant, err = q.GetTenant(ctx, p.TenantID); err != nil {
 			return err
@@ -438,6 +453,20 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 		sub, err := q.GetSubscriptionForUpdate(ctx)
 		if err != nil {
 			return err
+		}
+		if sub.SeatProviderSubscriptionID != nil && *sub.SeatProviderSubscriptionID == rs.ID {
+			extra, ended, ok := seatEvent(ev.Event, rs)
+			if !ok {
+				return nil
+			}
+			if err := q.SetExtraSeats(ctx, dbq.SetExtraSeatsParams{TenantID: tenantID, ExtraSeats: extra, Ended: ended}); err != nil {
+				return err
+			}
+			target, meta := "subscription", json.RawMessage(`{"event":"`+ev.Event+`","seats":true}`)
+			return q.InsertAuditLog(ctx, dbq.InsertAuditLogParams{
+				TenantID: &tenantID, ActorType: dbq.ActorTypeSystem, Action: "subscription.seats",
+				TargetType: &target, TargetID: &rs.ID, Metadata: meta,
+			})
 		}
 		next := Transition(sub, ev.Event, rs)
 		if next == nil {

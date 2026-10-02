@@ -635,13 +635,23 @@ func (s *Service) savePlan(w http.ResponseWriter, r *http.Request) error {
 			req.RazorpayPlanID = &v
 		}
 	}
+	if req.ExtraSeatRazorpayPlanID != nil {
+		v := strings.TrimSpace(*req.ExtraSeatRazorpayPlanID)
+		if v == "" {
+			req.ExtraSeatRazorpayPlanID = nil
+		} else if !strings.HasPrefix(v, "plan_") {
+			return httpx.BadRequest("extra_seat_razorpay_plan_id", "Razorpay plan IDs start with plan_.")
+		} else {
+			req.ExtraSeatRazorpayPlanID = &v
+		}
+	}
 	var out dbq.Plan
 	err := s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
 		out, err = q.UpsertPlan(r.Context(), dbq.UpsertPlanParams{
 			Code: code, Name: req.Name, PriceMinor: req.PriceMinor, IncludedNumbers: req.IncludedNumbers,
 			IncludedSeats: req.IncludedSeats, ExtraSeatMinor: req.ExtraSeatMinor, RazorpayPlanID: req.RazorpayPlanID,
-			SortOrder: req.SortOrder, IsActive: req.Active,
+			ExtraSeatRazorpayPlanID: req.ExtraSeatRazorpayPlanID, SortOrder: req.SortOrder, IsActive: req.Active,
 		})
 		if db.IsUniqueViolation(err, "plans_razorpay_plan_id_key") {
 			return httpx.BadRequest("razorpay_plan_id", "Another plan already uses this Razorpay plan.")

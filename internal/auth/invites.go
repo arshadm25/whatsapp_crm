@@ -133,6 +133,11 @@ func (s *Service) acceptInvite(w http.ResponseWriter, r *http.Request) error {
 		if err := db.SetTenant(r.Context(), tx, tenantID); err != nil {
 			return err
 		}
+		if _, err := q.GetMemberRole(r.Context(), userID); db.IsNotFound(err) {
+			if err := seatRoom(r.Context(), q, false); err != nil {
+				return err
+			}
+		}
 		if n, err := q.MarkInviteAccepted(r.Context(), inv.ID); err != nil || n == 0 {
 			if err == nil {
 				err = errBadInvite
