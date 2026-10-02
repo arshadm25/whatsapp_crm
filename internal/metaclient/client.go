@@ -243,3 +243,115 @@ func TenantFrom(ctx context.Context) string {
 	s, _ := ctx.Value(tenantKey{}).(string)
 	return s
 }
+
+// SendMessage sends one message from a phone number. body is the Cloud API message object
+// without messaging_product, recipient_type and to, which are filled in here. It returns the
+// wamid Meta assigned.
+func (c *Client) SendMessage(ctx context.Context, token, phoneNumberID, to string, body map[string]any) (string, error) {
+	req := make(map[string]any, len(body)+3)
+	for k, v := range body {
+		req[k] = v
+	}
+	req["messaging_product"] = "whatsapp"
+	req["recipient_type"] = "individual"
+	req["to"] = to
+	var out struct {
+		Messages []struct {
+			ID string `json:"id"`
+		} `json:"messages"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/"+url.PathEscape(phoneNumberID)+"/messages", token, nil, req, &out); err != nil {
+		return "", err
+	}
+	if len(out.Messages) == 0 || out.Messages[0].ID == "" {
+		return "", fmt.Errorf("meta: send returned no message id")
+	}
+	return out.Messages[0].ID, nil
+}
+
+// MarkRead marks an inbound message (and earlier ones) as read, optionally showing a typing indicator.
+func (c *Client) MarkRead(ctx context.Context, token, phoneNumberID, wamid string, typing bool) error {
+	body := map[string]any{"messaging_product": "whatsapp", "status": "read", "message_id": wamid}
+	if typing {
+		body["typing_indicator"] = map[string]string{"type": "text"}
+	}
+	return c.do(ctx, http.MethodPost, "/"+url.PathEscape(phoneNumberID)+"/messages", token, nil, body, nil)
+}
+
+// Template is a message template as Meta lists it.
+type Template struct {
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Language        string          `json:"language"`
+	Status          string          `json:"status"`
+	Category        string          `json:"category"`
+	ParameterFormat string          `json:"parameter_format"`
+	RejectedReason  string          `json:"rejected_reason"`
+	Components      json.RawMessage `json:"components"`
+	QualityScore    *struct {
+		Score string `json:"score"`
+	} `json:"quality_score"`
+}
+
+const templateFields = "id,name,language,status,category,parameter_format,rejected_reason,components,quality_score"
+
+// ListTemplates returns every template on a WABA, following Meta's paging.
+func (c *Client) ListTemplates(ctx context.Context, token, wabaID string) ([]Template, error) {
+	var all []Template
+	after := ""
+	for range 50 { // 50 pages of 100 is far above Meta's per-WABA template limit
+		q := url.Values{"fields": {templateFields}, "limit": {"100"}}
+		if after != "" {
+			q.Set("after", after)
+		}
+		var out struct {
+			Data   []Template `json:"data"`
+			Paging struct {
+				Cursors struct {
+					After string `json:"after"`
+				} `json:"cursors"`
+				Next string `json:"next"`
+			} `json:"paging"`
+		}
+		if err := c.do(ctx, http.MethodGet, "/"+url.PathEscape(wabaID)+"/message_templates", token, q, nil, &out); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Data...)
+		if out.Paging.Next == "" || out.Paging.Cursors.After == "" {
+			return all, nil
+		}
+		after = out.Paging.Cursors.After
+	}
+	return all, nil
+}
+
+// CreatedTemplate is Meta's answer to a template submission.
+type CreatedTemplate struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Category string `json:"category"`
+}
+
+// CreateTemplate submits a new template for review. body holds name, language, category,
+// components and optionally parameter_format, in Meta's shape.
+func (c *Client) CreateTemplate(ctx context.Context, token, wabaID string, body map[string]any) (*CreatedTemplate, error) {
+	var out CreatedTemplate
+	if err := c.do(ctx, http.MethodPost, "/"+url.PathEscape(wabaID)+"/message_templates", token, nil, body, &out); err != nil {
+		return nil, err
+	}
+	if out.ID == "" {
+		return nil, fmt.Errorf("meta: template create returned no id")
+	}
+	return &out, nil
+}
+
+// EditTemplate changes an existing template's category or components and resubmits it.
+func (c *Client) EditTemplate(ctx context.Context, token, templateID string, body map[string]any) error {
+	return c.do(ctx, http.MethodPost, "/"+url.PathEscape(templateID), token, nil, body, nil)
+}
+
+// DeleteTemplate deletes every language of a template name on a WABA.
+func (c *Client) DeleteTemplate(ctx context.Context, token, wabaID, name string) error {
+	q := url.Values{"name": {name}}
+	return c.do(ctx, http.MethodDelete, "/"+url.PathEscape(wabaID)+"/message_templates", token, q, nil, nil)
+}

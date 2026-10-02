@@ -28,11 +28,13 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
+	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
+	"github.com/arshadm25/whatsapp_crm/internal/templates"
 )
 
 func main() {
@@ -91,6 +93,8 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Auth:       auth.NewService(d, cfg, mailer.NewSMTP(cfg.Mail), log),
 		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
 		Numbers:    numbers.NewService(d, log),
+		Messaging:  messaging.NewService(d, keys, meta, rc, log),
+		Templates:  templates.NewService(d, keys, meta, log),
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
 }
@@ -123,8 +127,9 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	defer d.Close()
 
 	workers := river.NewWorkers()
-	river.AddWorker(workers, onboarding.NewWorker(d, keys, meta, log))
+	river.AddWorker(workers, onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log))
 	river.AddWorker(workers, metaevents.NewProcessor(d, log))
+	river.AddWorker(workers, messaging.NewWorker(d, keys, meta, log))
 	rc, err := jobs.NewWorkerClient(d.Pool, workers, log)
 	if err != nil {
 		return err

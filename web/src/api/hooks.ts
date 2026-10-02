@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type { Me, PhoneNumber, PublicConfig } from "./types";
+import type { Me, PhoneNumber, PublicConfig, Template } from "./types";
 
 export function useMe() {
   return useQuery<Me | null>({
@@ -29,5 +29,16 @@ export function usePhoneNumbers() {
   return useQuery({
     queryKey: ["phone-numbers"],
     queryFn: async () => (await api<{ data: PhoneNumber[] }>("GET", "/v1/phone-numbers")).data,
+  });
+}
+
+export function useTemplates(status?: string) {
+  return useQuery({
+    queryKey: ["templates", status ?? "all"],
+    queryFn: async () => {
+      const qs = new URLSearchParams({ limit: "100" });
+      if (status) qs.set("status", status);
+      return (await api<{ data: Template[] }>("GET", `/v1/templates?${qs}`)).data;
+    },
   });
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/credentials"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
@@ -398,9 +399,7 @@ var metaHints = map[int]string{
 	133016: "This number was registered too many times recently. Meta allows a retry later.",
 }
 
-func credentialAAD(tenantID, accountID uuid.UUID) []byte {
-	return []byte("meta_credentials:" + tenantID.String() + ":" + accountID.String())
-}
+func credentialAAD(tenantID, accountID uuid.UUID) []byte { return credentials.AAD(tenantID, accountID) }
 
 func nonEmpty(s string) *string {
 	if s == "" {
