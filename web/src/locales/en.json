@@ -641,7 +641,18 @@
     "sortOrder": "Order",
     "showToCustomers": "Show to customers",
     "savePlan": "Save plan",
-    "badPrice": "Enter prices in rupees, for example 2999."
+    "badPrice": "Enter prices in rupees, for example 2999.",
+    "tab_deletions": "Deletion requests",
+    "deletionsIntro": "Requests Meta sends when someone removes the app in Facebook. Delete anything held for the person, then mark the request done; they can follow it on a public status page.",
+    "deletionCode": "Code",
+    "deletionUser": "Meta user",
+    "deletionStatus": "Status",
+    "deletion_received": "Received",
+    "deletion_in_progress": "In progress",
+    "deletion_completed": "Completed",
+    "deletionStart": "Start",
+    "deletionDone": "Mark done",
+    "noDeletions": "No deletion requests."
   },
   "billing": {
     "onPlan": "{{plan}} plan",

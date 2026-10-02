@@ -5,7 +5,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
 import type {
-  AdminConversation, AdminInvoice, AdminTenant, AdminTenantDetail, AuditEntry, Message, MetaApiError, Page, Plan, WebhookHealth,
+  AdminConversation, AdminInvoice, DeletionRequest, AdminTenant, AdminTenantDetail, AuditEntry, Message, MetaApiError, Page, Plan, WebhookHealth,
 } from "../api/types";
 import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
@@ -38,7 +38,7 @@ function More({ q }: { q: { hasNextPage: boolean; isFetchingNextPage: boolean; f
   );
 }
 
-type Tab = "tenants" | "plans" | "invoices" | "webhooks" | "metaErrors" | "audit";
+type Tab = "tenants" | "plans" | "invoices" | "webhooks" | "metaErrors" | "deletions" | "audit";
 
 export default function Admin() {
   const { t } = useTranslation();
@@ -59,7 +59,7 @@ export default function Admin() {
     <section>
       <h1>{t("admin.title")}</h1>
       <div className="segmented tabs">
-        {(["tenants", "plans", "invoices", "webhooks", "metaErrors", "audit"] as Tab[]).map((k) => (
+        {(["tenants", "plans", "invoices", "webhooks", "metaErrors", "deletions", "audit"] as Tab[]).map((k) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t(`admin.tab_${k}`)}</button>
         ))}
       </div>
@@ -68,6 +68,7 @@ export default function Admin() {
       {tab === "invoices" && <Invoices />}
       {tab === "webhooks" && <Webhooks />}
       {tab === "metaErrors" && <MetaErrors />}
+      {tab === "deletions" && <Deletions />}
       {tab === "audit" && <Audit />}
     </section>
   );
@@ -454,6 +455,59 @@ function MetaErrors() {
         </table>
       </div>
       <More q={list} />
+    </>
+  );
+}
+
+function Deletions() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [error, setError] = useState("");
+  const list = useQuery({
+    queryKey: ["admin", "deletions"],
+    queryFn: async () => (await api<{ data: DeletionRequest[] }>("GET", "/internal/admin/deletion-requests")).data,
+  });
+  const mark = async (d: DeletionRequest, status: "in_progress" | "completed") => {
+    setError("");
+    try {
+      await api("POST", `/internal/admin/deletion-requests/${d.id}/status`, { status });
+      await qc.invalidateQueries({ queryKey: ["admin", "deletions"] });
+    } catch (e) {
+      setError(message(e, t("common.error")));
+    }
+  };
+  return (
+    <>
+      <p className="muted small">{t("admin.deletionsIntro")}</p>
+      {error && <div className="error">{error}</div>}
+      <div className="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{t("admin.when")}</th>
+              <th>{t("admin.deletionCode")}</th>
+              <th>{t("admin.deletionUser")}</th>
+              <th>{t("admin.deletionStatus")}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.data?.map((d) => (
+              <tr key={d.id}>
+                <td className="small">{when(d.requested_at)}</td>
+                <td><code>{d.confirmation_code}</code></td>
+                <td className="small">{d.meta_user_id}</td>
+                <td>{t(`admin.deletion_${d.status}`)}</td>
+                <td>
+                  {d.status === "received" && <button className="link" onClick={() => mark(d, "in_progress")}>{t("admin.deletionStart")}</button>}{" "}
+                  {d.status !== "completed" && <button className="link" onClick={() => mark(d, "completed")}>{t("admin.deletionDone")}</button>}
+                </td>
+              </tr>
+            ))}
+            {list.isSuccess && list.data.length === 0 && <tr><td colSpan={5} className="muted">{t("admin.noDeletions")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
+	"github.com/arshadm25/whatsapp_crm/internal/deletion"
 	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
@@ -49,6 +50,7 @@ type APIDeps struct {
 	Admin      *admin.Service
 	Billing    *billing.Service
 	Events     http.Handler
+	Deletion   *deletion.Handler
 }
 
 // NewAPI returns the api router:
@@ -90,6 +92,7 @@ func NewAPI(d APIDeps) http.Handler {
 	r.Route("/v1", func(r chi.Router) {
 		// Signed download links work without a session.
 		r.Get("/media/{id}/content", d.Media.Content())
+		r.Get("/data-deletion/{code}", d.Deletion.StatusPage)
 		r.Get("/openapi.yaml", devportal.OpenAPISpec)
 		r.Get("/docs", devportal.Docs)
 		r.Group(func(r chi.Router) {
@@ -113,13 +116,14 @@ func NewAPI(d APIDeps) http.Handler {
 }
 
 // NewIngest returns the Meta webhook receiver router: /meta takes Meta's handshake and
-// deliveries. It holds no tokens and no master key; it only checks signatures and enqueues.
-func NewIngest(d *db.DB, meta http.Handler, log *slog.Logger) http.Handler {
+// deliveries, and /meta/data-deletion Meta's data deletion callback. It holds no tokens and no master key; it only checks signatures and enqueues.
+func NewIngest(d *db.DB, meta http.Handler, del *deletion.Handler, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID, middleware.RealIP, httpx.Logger(log), middleware.Recoverer)
 	health(r, d)
 	r.Method(http.MethodGet, "/meta", meta)
 	r.Method(http.MethodPost, "/meta", meta)
+	r.Post("/meta/data-deletion", del.Callback)
 	return r
 }
 
