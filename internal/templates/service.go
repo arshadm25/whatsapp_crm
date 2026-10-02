@@ -239,7 +239,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 		t, err = q.UpsertTemplateFromMeta(r.Context(), dbq.UpsertTemplateFromMetaParams{
 			ID: db.NewID(), TenantID: p.TenantID, WhatsappAccountID: acct.ID, MetaTemplateID: &created.ID,
 			Name: req.Name, Language: req.Language, Category: cat, Status: st, ParameterFormat: format,
-			Components: comps, CreatedBy: &p.UserID, SubmittedAt: &now,
+			Components: comps, CreatedBy: p.User(), SubmittedAt: &now,
 		})
 		return err
 	})

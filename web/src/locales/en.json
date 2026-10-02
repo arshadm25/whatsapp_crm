@@ -199,5 +199,28 @@
     "fileTooLarge": "{{name}} is larger than WhatsApp allows ({{limit}}).",
     "fileType": "WhatsApp does not accept this file type.",
     "download": "Download"
+  },
+  "developers": {
+    "title": "Developers",
+    "intro": "Connect your own systems to WhatsApp with the Ecogo API. Every request needs an API key in the Authorization header.",
+    "keys": "API keys",
+    "keyName": "Name",
+    "keyNameHint": "For example: Shopify store",
+    "number": "Phone number",
+    "allNumbers": "All numbers",
+    "create": "Create key",
+    "copyNow": "Copy this key now. It will not be shown again.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "usage": "Send it as Authorization: Bearer <key>. Each key can make 60 requests per second.",
+    "noKeys": "No API keys yet.",
+    "key": "Key",
+    "lastUsed": "Last used",
+    "created": "Created",
+    "never": "Never",
+    "revoke": "Revoke",
+    "revoked": "Revoked",
+    "confirmRevoke": "Revoke the key “{{name}}”? Systems using it stop working at once.",
+    "noAccess": "Only owners, admins and developers can manage API keys."
   }
 }

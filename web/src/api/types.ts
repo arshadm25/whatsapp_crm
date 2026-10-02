@@ -153,3 +153,17 @@ export interface Media {
   url: string;
   created_at: string;
 }
+
+export interface APIKey {
+  id: string;
+  name: string;
+  prefix: string;
+  phone_number_id: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface CreatedAPIKey extends APIKey {
+  key: string;
+}
