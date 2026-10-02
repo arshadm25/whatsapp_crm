@@ -59,6 +59,12 @@ jobs:
       - uses: azure/setup-helm@v4
       - run: helm lint deploy/helm/ecogo-whatsapp
       - run: helm template ci deploy/helm/ecogo-whatsapp > /dev/null
+      # Numeric IDs reach Helm as floats (values files, --reuse-values) and must still render
+      # as written, not as 8.8789121708352e+14.
+      - run: |
+          echo 'config: {metaAppId: 887891217083520}' > /tmp/ids.yaml
+          helm template ci deploy/helm/ecogo-whatsapp -f /tmp/ids.yaml \
+            | grep -A1 ECOGO_META_APP_ID | grep -q '"887891217083520"'
 
   # Images are pushed to GitHub Container Registry on main only.
   images:
