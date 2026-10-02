@@ -3,11 +3,9 @@
 package inbox
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -89,7 +87,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	qs := r.URL.Query()
 	params := dbq.ListConversationsParams{}
-	lim, err := limit(qs.Get("limit"))
+	lim, err := httpx.Limit(qs.Get("limit"))
 	if err != nil {
 		return err
 	}
@@ -136,7 +134,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 		params.Search = &esc
 	}
 	if v := qs.Get("cursor"); v != "" {
-		at, id, ok := decodeCursor(v)
+		at, id, ok := httpx.DecodeCursor(v)
 		if !ok {
 			return httpx.BadRequest("cursor", "Invalid cursor.")
 		}
@@ -154,7 +152,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 		if len(rows) > int(lim) {
 			rows = rows[:lim]
 			last := rows[len(rows)-1]
-			c := encodeCursor(last.ActivityAt, last.Conversation.ID)
+			c := httpx.EncodeCursor(last.ActivityAt, last.Conversation.ID)
 			next = &c
 		}
 		ids := make([]uuid.UUID, len(rows))
@@ -283,7 +281,7 @@ func (s *Service) messages(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return httpx.ErrNotFound
 	}
-	lim, err := limit(r.URL.Query().Get("limit"))
+	lim, err := httpx.Limit(r.URL.Query().Get("limit"))
 	if err != nil {
 		return err
 	}
@@ -501,33 +499,4 @@ func (s *Service) deleteQuickReply(w http.ResponseWriter, r *http.Request) error
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
-}
-
-func limit(v string) (int32, error) {
-	if v == "" {
-		return 25, nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 || n > 100 {
-		return 0, httpx.BadRequest("limit", "limit must be between 1 and 100.")
-	}
-	return int32(n), nil
-}
-
-func encodeCursor(at time.Time, id uuid.UUID) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(at.UTC().Format(time.RFC3339Nano) + "|" + id.String()))
-}
-
-func decodeCursor(s string) (time.Time, uuid.UUID, bool) {
-	b, err := base64.RawURLEncoding.DecodeString(s)
-	if err != nil {
-		return time.Time{}, uuid.Nil, false
-	}
-	at, rest, ok := strings.Cut(string(b), "|")
-	if !ok {
-		return time.Time{}, uuid.Nil, false
-	}
-	t, err1 := time.Parse(time.RFC3339Nano, at)
-	id, err2 := uuid.Parse(rest)
-	return t, id, err1 == nil && err2 == nil
 }

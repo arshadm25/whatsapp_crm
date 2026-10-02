@@ -72,7 +72,7 @@ type Template struct {
 	StatusUpdatedAt   *time.Time      `json:"status_updated_at"`
 }
 
-func view(t dbq.Template) Template {
+func View(t dbq.Template) Template {
 	return Template{
 		ID: t.ID, MetaTemplateID: t.MetaTemplateID, WhatsappAccountID: t.WhatsappAccountID, Name: t.Name,
 		Language: t.Language, Category: string(t.Category), Status: string(t.Status), RejectedReason: t.RejectedReason,
@@ -138,7 +138,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 			next = &c
 		}
 		for _, t := range rows {
-			out = append(out, view(t))
+			out = append(out, View(t))
 		}
 		return nil
 	})
@@ -166,7 +166,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, view(t))
+	httpx.JSON(w, http.StatusOK, View(t))
 	return nil
 }
 
@@ -246,7 +246,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusCreated, view(t))
+	httpx.JSON(w, http.StatusCreated, View(t))
 	return nil
 }
 
@@ -308,7 +308,7 @@ func (s *Service) edit(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, view(t))
+	httpx.JSON(w, http.StatusOK, View(t))
 	return nil
 }
 

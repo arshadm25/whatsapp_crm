@@ -13,13 +13,14 @@ import (
 	"github.com/riverqueue/river/rivertype"
 )
 
-// Queue names. Onboarding, Meta webhooks and outbound messages have their own queues, so a
-// backlog in one never delays the others.
+// Queue names. Onboarding, Meta webhooks, outbound messages and client webhook deliveries
+// have their own queues, so a backlog in one never delays the others.
 const (
 	QueueDefault    = river.QueueDefault
 	QueueOnboarding = "onboarding"
 	QueueMetaEvents = "meta_events"
 	QueueMessages   = "messages"
+	QueueWebhooks   = "webhooks"
 )
 
 // Inserter is the part of the River client that request handlers need.
@@ -48,4 +49,14 @@ var Queues = map[string]river.QueueConfig{
 	QueueOnboarding: {MaxWorkers: 10},
 	QueueMetaEvents: {MaxWorkers: 50},
 	QueueMessages:   {MaxWorkers: 50},
+	QueueWebhooks:   {MaxWorkers: 50},
+}
+
+// From returns ins, or when it is nil the River client working the current job. Workers use it
+// to enqueue follow-up jobs in their own transaction.
+func From(ctx context.Context, ins Inserter) (Inserter, error) {
+	if ins != nil {
+		return ins, nil
+	}
+	return river.ClientFromContextSafely[pgx.Tx](ctx)
 }

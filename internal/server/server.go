@@ -21,6 +21,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
+	"github.com/arshadm25/whatsapp_crm/internal/webhooks"
 )
 
 type APIDeps struct {
@@ -36,6 +37,7 @@ type APIDeps struct {
 	Media      *media.Service
 	Developers *devportal.Service
 	Keys       *devportal.Authenticator
+	Webhooks   *webhooks.Service
 	Events     http.Handler
 }
 
@@ -75,6 +77,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/templates", d.Templates.Routes)
 			r.Route("/conversations", d.Inbox.Routes)
 			r.Route("/media", d.Media.Routes)
+			r.Route("/webhook-endpoints", d.Webhooks.Routes)
 		})
 	})
 

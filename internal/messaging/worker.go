@@ -18,6 +18,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
+	"github.com/arshadm25/whatsapp_crm/internal/webhooks"
 )
 
 // SendArgs is the River job that sends one queued message.
@@ -48,6 +49,8 @@ type Worker struct {
 	meta     Meta
 	uploader *media.Uploader
 	log      *slog.Logger
+	// Jobs enqueues webhook deliveries; when nil, the River client working the job is used.
+	Jobs jobs.Inserter
 }
 
 func NewWorker(d *db.DB, keys *envelope.Keyring, meta Meta, uploader *media.Uploader, log *slog.Logger) *Worker {
@@ -119,9 +122,12 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[SendArgs]) error {
 	}
 	wamid, err := w.meta.SendMessage(ctx, token, row.MetaPhoneNumberID, row.ContactWaID, content)
 	if err == nil {
-		return w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
-			_, err := q.MarkMessageSent(ctx, dbq.MarkMessageSentParams{ID: a.MessageID, Wamid: &wamid})
-			return err
+		return w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
+			n, err := q.MarkMessageSent(ctx, dbq.MarkMessageSentParams{ID: a.MessageID, Wamid: &wamid})
+			if err != nil || n == 0 {
+				return err
+			}
+			return EmitEvent(ctx, q, tx, w.Jobs, a.TenantID, a.MessageID, webhooks.MessageStatus)
 		})
 	}
 	return w.sendErr(ctx, job, log, err)
@@ -179,6 +185,16 @@ func (w *Worker) sendErr(ctx context.Context, job *river.Job[SendArgs], log *slo
 
 var errNumberGone = errors.New("number not connected")
 
+// EmitEvent sends a message.received or message.status webhook event with the message as data.
+func EmitEvent(ctx context.Context, q *dbq.Queries, tx pgx.Tx, ins jobs.Inserter, tenantID, messageID uuid.UUID, typ string) error {
+	row, err := q.GetMessageView(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	return webhooks.Emit(ctx, q, tx, ins, tenantID, typ, &row.Message.PhoneNumberID,
+		View(row.Message, row.ContactWaID, row.ContactName))
+}
+
 // fail marks a still-queued message as failed and records the status event.
 func (w *Worker) fail(ctx context.Context, a SendArgs, code int32, title *string) {
 	ctx = context.WithoutCancel(ctx)
@@ -187,15 +203,19 @@ func (w *Worker) fail(ctx context.Context, a SendArgs, code int32, title *string
 			title = &m.message
 		}
 	}
-	err := w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+	err := w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
 		n, err := q.MarkMessageFailed(ctx, dbq.MarkMessageFailedParams{ID: a.MessageID, ErrorCode: &code, ErrorTitle: title})
 		if err != nil || n == 0 {
 			return err
 		}
-		return q.InsertMessageStatusEvent(ctx, dbq.InsertMessageStatusEventParams{
+		err = q.InsertMessageStatusEvent(ctx, dbq.InsertMessageStatusEventParams{
 			TenantID: a.TenantID, MessageID: a.MessageID, Status: dbq.MessageStatusFailed,
 			ErrorCode: &code, ErrorTitle: title, OccurredAt: time.Now().UTC(),
 		})
+		if err != nil {
+			return err
+		}
+		return EmitEvent(ctx, q, tx, w.Jobs, a.TenantID, a.MessageID, webhooks.MessageStatus)
 	})
 	if err != nil {
 		w.log.Error("send: record failure", "message_id", a.MessageID, "err", err)
