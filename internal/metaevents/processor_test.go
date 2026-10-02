@@ -300,6 +300,70 @@ func TestTemplateQualityAndAccountEvents(t *testing.T) {
 	})
 }
 
+func TestNameQualityCapabilityAndSecurityEvents(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.query(func(_ *dbq.Queries, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO templates (tenant_id, whatsapp_account_id, meta_template_id, name, language, category, status, components)
+			VALUES ($1, $2, '998877', 'order_update', 'en', 'utility', 'approved', '[]')`, f.tenantID, f.account.ID)
+		return err
+	})
+
+	f.deliver(envelope("phone_number_name_update",
+		`{"display_phone_number":"919876543210","decision":"DEFERRED","requested_verified_name":"Ignored"}`))
+	f.deliver(envelope("phone_number_name_update",
+		`{"display_phone_number":"919876543210","decision":"APPROVED","requested_verified_name":"Sharma Sweets Pvt"}`))
+	f.deliver(envelope("message_template_quality_update",
+		`{"previous_quality_score":"GREEN","new_quality_score":"red","message_template_id":998877,"message_template_name":"order_update","message_template_language":"en"}`))
+	f.deliver(envelope("business_capability_update", `{"max_daily_conversation_per_phone":1000,"max_phone_numbers_per_business":25}`))
+	f.deliver(envelope("security", `{"display_phone_number":"919876543210","event":"PIN_CHANGED","requester":"919000000001"}`))
+
+	f.query(func(_ *dbq.Queries, tx pgx.Tx) error {
+		var name, nameStatus, quality string
+		if err := tx.QueryRow(ctx, "SELECT verified_name, name_status FROM phone_numbers").Scan(&name, &nameStatus); err != nil {
+			return err
+		}
+		if name != "Sharma Sweets Pvt" || nameStatus != "APPROVED" {
+			t.Errorf("name = %q %q", name, nameStatus)
+		}
+		if err := tx.QueryRow(ctx, "SELECT quality_score FROM templates").Scan(&quality); err != nil {
+			return err
+		}
+		if quality != "RED" {
+			t.Errorf("template quality = %q", quality)
+		}
+		rows, err := tx.Query(ctx, "SELECT action FROM audit_log WHERE actor_type = 'meta' ORDER BY id")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var actions []string
+		for rows.Next() {
+			var a string
+			if err := rows.Scan(&a); err != nil {
+				return err
+			}
+			actions = append(actions, a)
+		}
+		if fmt.Sprint(actions) != "[meta.capability_update meta.security.pin_changed]" {
+			t.Errorf("audit actions = %v", actions)
+		}
+		return nil
+	})
+
+	f.deliver(envelope("phone_number_name_update", `{"display_phone_number":"919876543210","decision":"REJECTED","requested_verified_name":"Nope"}`))
+	f.query(func(_ *dbq.Queries, tx pgx.Tx) error {
+		var name, status string
+		if err := tx.QueryRow(ctx, "SELECT verified_name, name_status FROM phone_numbers").Scan(&name, &status); err != nil {
+			return err
+		}
+		if name != "Sharma Sweets Pvt" || status != "DECLINED" {
+			t.Errorf("after rejection: %q %q", name, status)
+		}
+		return nil
+	})
+}
+
 func TestUnknownNumberIsStoredButNotApplied(t *testing.T) {
 	f := newFixture(t)
 	body := fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"id":"999","changes":[{"field":"messages","value":

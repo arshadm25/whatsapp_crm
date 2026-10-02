@@ -136,6 +136,14 @@ func (p *Processor) apply(ctx context.Context, entry Entry, change Change) error
 		return p.templateStatus(ctx, entry, change.Value)
 	case "phone_number_quality_update":
 		return p.quality(ctx, entry, change.Value)
+	case "phone_number_name_update":
+		return p.nameUpdate(ctx, entry, change.Value)
+	case "message_template_quality_update":
+		return p.templateQuality(ctx, entry, change.Value)
+	case "business_capability_update":
+		return p.capabilityUpdate(ctx, entry, change.Value)
+	case "security":
+		return p.security(ctx, entry, change.Value)
 	case "account_update":
 		return p.accountUpdate(ctx, entry, change.Value)
 	case "smb_app_state_sync":
@@ -399,12 +407,7 @@ func (p *Processor) quality(ctx context.Context, entry Entry, raw json.RawMessag
 	if err := json.Unmarshal(raw, &v); err != nil || v.CurrentLimit == "" {
 		return nil
 	}
-	digits := strings.Map(func(r rune) rune {
-		if r >= '0' && r <= '9' {
-			return r
-		}
-		return -1
-	}, v.DisplayPhoneNumber)
+	digits := displayDigits(v.DisplayPhoneNumber)
 	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
 		rows, err := q.UpdatePhoneLimitTierByDisplay(ctx, dbq.UpdatePhoneLimitTierByDisplayParams{
 			Tier: &v.CurrentLimit, WabaID: entry.ID, DisplayDigits: digits,
@@ -415,6 +418,99 @@ func (p *Processor) quality(ctx context.Context, entry Entry, raw json.RawMessag
 			}
 		}
 		return err
+	})
+}
+
+func displayDigits(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, s)
+}
+
+// nameUpdate records Meta's review of a display name change. DEFERRED leaves the number as it is.
+func (p *Processor) nameUpdate(ctx context.Context, entry Entry, raw json.RawMessage) error {
+	var v NameUpdateValue
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	var status string
+	var name *string
+	switch strings.ToUpper(v.Decision) {
+	case "APPROVED":
+		status, name = "APPROVED", nonEmpty(v.RequestedVerifiedName)
+	case "REJECTED":
+		status = "DECLINED"
+	default:
+		return nil
+	}
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
+		rows, err := q.UpdatePhoneNameByDisplay(ctx, dbq.UpdatePhoneNameByDisplayParams{
+			NameStatus: &status, VerifiedName: name, WabaID: entry.ID, DisplayDigits: displayDigits(v.DisplayPhoneNumber),
+		})
+		for _, ph := range rows {
+			if err == nil {
+				err = webhooks.Emit(ctx, q, tx, p.Jobs, tenantID, webhooks.NumberQuality, &ph.ID, numbers.View(ph, entry.ID))
+			}
+		}
+		return err
+	})
+}
+
+// templateQuality stores a template's new quality score (GREEN, YELLOW, RED, UNKNOWN).
+func (p *Processor) templateQuality(ctx context.Context, entry Entry, raw json.RawMessage) error {
+	var v TemplateQualityValue
+	if err := json.Unmarshal(raw, &v); err != nil || v.MessageTemplateID == "" || v.NewQualityScore == "" {
+		return nil
+	}
+	score, id := strings.ToUpper(v.NewQualityScore), v.MessageTemplateID.String()
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
+		rows, err := q.UpdateTemplateQualityByMetaID(ctx, dbq.UpdateTemplateQualityByMetaIDParams{QualityScore: &score, MetaTemplateID: &id})
+		for _, t := range rows {
+			if err == nil {
+				err = webhooks.Emit(ctx, q, tx, p.Jobs, tenantID, webhooks.TemplateStatus, nil, templates.View(t))
+			}
+		}
+		return err
+	})
+}
+
+// audit records a Meta-originated event in the workspace's audit log.
+func audit(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, action, targetType, targetID string, meta map[string]any) error {
+	md, _ := json.Marshal(meta)
+	return q.InsertAuditLog(ctx, dbq.InsertAuditLogParams{
+		TenantID: &tenantID, ActorType: dbq.ActorTypeMeta, Action: action,
+		TargetType: &targetType, TargetID: &targetID, Metadata: md,
+	})
+}
+
+// capabilityUpdate keeps Meta's new account limits in the audit log for support to see.
+func (p *Processor) capabilityUpdate(ctx context.Context, entry Entry, raw json.RawMessage) error {
+	var v CapabilityValue
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, tenantID uuid.UUID) error {
+		return audit(ctx, q, tenantID, "meta.capability_update", "waba", entry.ID, map[string]any{
+			"max_daily_conversation_per_phone": v.MaxDailyConversationPerPhone,
+			"max_phone_numbers_per_business":   v.MaxPhoneNumbersPerBusiness,
+		})
+	})
+}
+
+// security logs a change to a number's two-step verification PIN, which the client or someone
+// else with access to the number may have made outside Ecogo.
+func (p *Processor) security(ctx context.Context, entry Entry, raw json.RawMessage) error {
+	var v SecurityValue
+	if err := json.Unmarshal(raw, &v); err != nil || v.Event == "" {
+		return nil
+	}
+	p.log.Warn("meta event: security", "event", v.Event, "waba_id", entry.ID)
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, tenantID uuid.UUID) error {
+		return audit(ctx, q, tenantID, "meta.security."+strings.ToLower(v.Event), "phone_number", v.DisplayPhoneNumber,
+			map[string]any{"requester": v.Requester})
 	})
 }
 
