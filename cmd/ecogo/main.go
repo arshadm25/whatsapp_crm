@@ -29,6 +29,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
+	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
@@ -95,7 +96,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 }
 
 func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	if err := cfg.Require("ECOGO_DATABASE_URL"); err != nil {
+	if err := cfg.Require("ECOGO_DATABASE_URL", "ECOGO_META_APP_SECRET", "ECOGO_META_WEBHOOK_VERIFY_TOKEN"); err != nil {
 		return err
 	}
 	d, err := db.Open(ctx, cfg.DatabaseURL)
@@ -103,7 +104,12 @@ func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 		return err
 	}
 	defer d.Close()
-	return serve(ctx, cfg.HTTPAddr, server.NewIngest(d, log), log)
+	rc, err := jobs.NewInsertOnly(d.Pool, log)
+	if err != nil {
+		return err
+	}
+	hooks := metaevents.NewHandler(cfg.Meta.AppSecret, cfg.Meta.VerifyToken, rc, log)
+	return serve(ctx, cfg.HTTPAddr, server.NewIngest(d, hooks, log), log)
 }
 
 func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
@@ -118,6 +124,7 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 
 	workers := river.NewWorkers()
 	river.AddWorker(workers, onboarding.NewWorker(d, keys, meta, log))
+	river.AddWorker(workers, metaevents.NewProcessor(d, log))
 	rc, err := jobs.NewWorkerClient(d.Pool, workers, log)
 	if err != nil {
 		return err
@@ -129,7 +136,7 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 
 	// The worker has no traffic port, but Kubernetes probes and metrics need one.
 	go func() {
-		if err := serve(ctx, cfg.HTTPAddr, server.NewIngest(d, log), log); err != nil {
+		if err := serve(ctx, cfg.HTTPAddr, server.NewHealth(d, log), log); err != nil {
 			log.Error("worker health server", "err", err)
 		}
 	}()
