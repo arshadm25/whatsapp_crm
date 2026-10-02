@@ -395,6 +395,15 @@ export interface WebhookHealth {
   errors: { id: number; received_at: string; field: string | null; waba_id: string | null; tenant_id: string | null; error: string | null }[];
 }
 
+export interface DeletionRequest {
+  id: string;
+  confirmation_code: string;
+  meta_user_id: string;
+  status: "received" | "in_progress" | "completed";
+  requested_at: string;
+  completed_at: string | null;
+}
+
 export interface MetaApiError {
   id: number;
   tenant_id: string | null;

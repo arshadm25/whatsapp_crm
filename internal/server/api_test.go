@@ -33,6 +33,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/deletion"
 	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/events"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
@@ -278,6 +279,7 @@ func newHarness(t *testing.T) *harness {
 		Admin:      admin.NewService(d, log),
 		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),
 		Events:     hub,
+		Deletion:   deletion.NewHandler(d, "app-secret", "https://app.example", log),
 	})
 	api := httptest.NewServer(h)
 	t.Cleanup(api.Close)

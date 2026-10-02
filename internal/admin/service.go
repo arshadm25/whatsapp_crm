@@ -55,6 +55,8 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/invoices.csv", httpx.Handler(s.log, s.exportInvoices))
 	r.Get("/invoices/{id}/view", httpx.Handler(s.log, s.viewInvoice))
 	r.Post("/tenants/{id}/extend-trial", httpx.Handler(s.log, s.extendTrial))
+	r.Get("/deletion-requests", httpx.Handler(s.log, s.listDeletionRequests))
+	r.Post("/deletion-requests/{id}/status", httpx.Handler(s.log, s.setDeletionStatus))
 }
 
 // RequireAdmin hides the console from everyone but platform admins, who must have two-step
@@ -711,6 +713,72 @@ func (s *Service) extendTrial(w http.ResponseWriter, r *http.Request) error {
 		out = billing.SubscriptionView(sub, s.now())
 		return s.record(r, q, &id, "subscription.extend_trial", "tenant", id.String(), &why)
 	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
+}
+
+// DeletionRequest is a Meta data deletion callback waiting for staff to act on it.
+type DeletionRequest struct {
+	ID               uuid.UUID  `json:"id"`
+	ConfirmationCode string     `json:"confirmation_code"`
+	MetaUserID       string     `json:"meta_user_id"`
+	Status           string     `json:"status"`
+	RequestedAt      time.Time  `json:"requested_at"`
+	CompletedAt      *time.Time `json:"completed_at"`
+}
+
+func deletionView(d dbq.DataDeletionRequest) DeletionRequest {
+	return DeletionRequest{ID: d.ID, ConfirmationCode: d.ConfirmationCode, MetaUserID: d.MetaUserID,
+		Status: d.Status, RequestedAt: d.RequestedAt, CompletedAt: d.CompletedAt}
+}
+
+func (s *Service) listDeletionRequests(w http.ResponseWriter, r *http.Request) error {
+	var rows []dbq.DataDeletionRequest
+	err := s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
+		var err error
+		rows, err = q.ListDeletionRequests(r.Context())
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	out := make([]DeletionRequest, len(rows))
+	for i, d := range rows {
+		out[i] = deletionView(d)
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"data": out})
+	return nil
+}
+
+func (s *Service) setDeletionStatus(w http.ResponseWriter, r *http.Request) error {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		return httpx.ErrNotFound
+	}
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	if req.Status != "in_progress" && req.Status != "completed" {
+		return httpx.BadRequest("status", "Status must be in_progress or completed.")
+	}
+	var out DeletionRequest
+	err = s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
+		d, err := q.SetDeletionRequestStatus(r.Context(), dbq.SetDeletionRequestStatusParams{ID: id, Status: req.Status})
+		if err != nil {
+			return err
+		}
+		out = deletionView(d)
+		return s.record(r, q, nil, "deletion_request."+req.Status, "data_deletion_request", id.String(), nil)
+	})
+	if db.IsNotFound(err) {
+		return httpx.ErrNotFound
+	}
 	if err != nil {
 		return err
 	}

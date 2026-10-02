@@ -32,6 +32,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/deletion"
 	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/events"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
@@ -128,7 +129,8 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Admin:      admin.NewService(d, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
 			cfg.Razorpay.WebhookSecret, cfg.Seller, rc, log),
-		Events: hub,
+		Events:   hub,
+		Deletion: deletion.NewHandler(d, cfg.Meta.AppSecret, cfg.PublicAppURL, log),
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
 }
@@ -147,7 +149,7 @@ func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 		return err
 	}
 	hooks := metaevents.NewHandler(cfg.Meta.AppSecret, cfg.Meta.VerifyToken, rc, log)
-	return serve(ctx, cfg.HTTPAddr, server.NewIngest(d, hooks, log), log)
+	return serve(ctx, cfg.HTTPAddr, server.NewIngest(d, hooks, deletion.NewHandler(d, cfg.Meta.AppSecret, cfg.PublicAppURL, log), log), log)
 }
 
 func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
