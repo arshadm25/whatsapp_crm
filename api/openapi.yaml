@@ -609,8 +609,9 @@ paths:
       summary: Create a template broadcast
       description: |
         Sends an approved template to an audience now or at `scheduled_at`. Contacts who are opted out,
-        blocked, or have no opt-in record are skipped and reported. Sending is throttled to stay within
-        the number's messaging limit.
+        blocked, or have no opt-in record are skipped and reported. Sending is throttled to
+        `send_rate_per_min` and to stay within the number's messaging limit (distinct customers sent
+        a template in the last 24 hours); when the limit is used up the campaign waits and resumes.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1326,8 +1327,17 @@ components:
             language: { type: string }
             variables:
               type: object
-              description: 'Map of template parameter to a contact field ("{{contact.name}}") or a literal.'
+              description: |
+                One value per template parameter. Keys: the body placeholder (`"1"`, or the name for
+                named templates), `"header.<placeholder>"` for a text header, `"header"` for a media
+                header (an https link to the file), and `"button.<index>"` for a URL button's dynamic
+                suffix. Values are text that may include contact fields: `{{contact.name}}`,
+                `{{contact.first_name}}`, `{{contact.wa_id}}`, `{{contact.language}}`, or any custom
+                field as `{{contact.<field>}}`. A fallback after `|` (`{{contact.first_name|there}}`)
+                fills an empty field; a contact whose field is empty with no fallback is skipped with
+                reason `missing_variable`.
               additionalProperties: { type: string }
+              example: { "1": "{{contact.first_name|there}}", "2": "20%" }
         audience:
           type: object
           minProperties: 1
@@ -1335,7 +1345,7 @@ components:
             tags: { type: array, items: { type: string } }
             contact_ids: { type: array, items: { type: string, format: uuid }, maxItems: 10000 }
         scheduled_at: { type: string, format: date-time }
-        send_rate_per_min: { type: integer, minimum: 1 }
+        send_rate_per_min: { type: integer, minimum: 1, maximum: 10000, default: 1000, description: Messages per minute. }
 
     Campaign:
       type: object
@@ -1343,17 +1353,42 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        status: { type: string, enum: [draft, scheduled, running, paused, completed, cancelled, failed] }
+        status:
+          type: string
+          enum: [draft, scheduled, running, paused, completed, cancelled, failed]
+          description: |
+            `completed` means every recipient was queued or skipped; delivery statuses keep arriving
+            afterwards. `failed` means the number was disconnected or the template stopped being
+            approved mid-campaign; recipients not yet queued are skipped.
         phone_number_id: { type: string, format: uuid }
         template_id: { type: string, format: uuid }
+        template:
+          type: object
+          properties:
+            name: { type: string }
+            language: { type: string }
+            variables: { type: object, additionalProperties: { type: string } }
+        audience:
+          type: object
+          properties:
+            tags: { type: array, items: { type: string } }
+            contact_ids: { type: array, items: { type: string, format: uuid } }
         scheduled_at: { type: [string, 'null'], format: date-time }
         started_at: { type: [string, 'null'], format: date-time }
         finished_at: { type: [string, 'null'], format: date-time }
+        send_rate_per_min: { type: integer }
+        created_at: { type: string, format: date-time }
         stats:
           type: object
+          description: |
+            Recipient counts. The audience is expanded when the campaign starts, so a scheduled
+            campaign reports zeros. sent, delivered and read are cumulative: a read message also
+            counts as delivered and sent.
           properties:
             total: { type: integer }
-            skipped: { type: integer }
+            pending: { type: integer }
+            skipped: { type: integer, description: 'Blocked, opted out, no opt-in record, missing variable, or cancelled.' }
+            queued: { type: integer }
             sent: { type: integer }
             delivered: { type: integer }
             read: { type: integer }

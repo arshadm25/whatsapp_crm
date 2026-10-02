@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type { Me, Media, Member, PhoneNumber, PublicConfig, QuickReply, Template } from "./types";
+import type { Me, Media, Member, PhoneNumber, PublicConfig, QuickReply, Tag, Template } from "./types";
 
 export function useMe() {
   return useQuery<Me | null>({
@@ -41,6 +41,13 @@ export function useTemplates(status?: string) {
       if (status) qs.set("status", status);
       return (await api<{ data: Template[] }>("GET", `/v1/templates?${qs}`)).data;
     },
+  });
+}
+
+export function useTags() {
+  return useQuery({
+    queryKey: ["tags"],
+    queryFn: async () => (await api<{ data: Tag[] }>("GET", "/internal/contacts/tags")).data,
   });
 }
 

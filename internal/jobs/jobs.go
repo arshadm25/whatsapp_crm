@@ -13,7 +13,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 )
 
-// Queue names. Onboarding, Meta webhooks, outbound messages and client webhook deliveries
+// Queue names. Onboarding, Meta webhooks, outbound messages, client webhook deliveries and campaigns
 // have their own queues, so a backlog in one never delays the others.
 const (
 	QueueDefault    = river.QueueDefault
@@ -21,6 +21,7 @@ const (
 	QueueMetaEvents = "meta_events"
 	QueueMessages   = "messages"
 	QueueWebhooks   = "webhooks"
+	QueueCampaigns  = "campaigns"
 )
 
 // Inserter is the part of the River client that request handlers need.
@@ -50,6 +51,7 @@ var Queues = map[string]river.QueueConfig{
 	QueueMetaEvents: {MaxWorkers: 50},
 	QueueMessages:   {MaxWorkers: 50},
 	QueueWebhooks:   {MaxWorkers: 50},
+	QueueCampaigns:  {MaxWorkers: 10},
 }
 
 // From returns ins, or when it is nil the River client working the current job. Workers use it

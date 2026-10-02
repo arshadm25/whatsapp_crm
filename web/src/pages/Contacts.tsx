@@ -2,8 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { useMe } from "../api/hooks";
-import type { ConsentEvent, Contact, ImportResult, Page, Tag } from "../api/types";
+import { useMe, useTags } from "../api/hooks";
+import type { ConsentEvent, Contact, ImportResult, Page } from "../api/types";
 
 const CONSENT_PILL: Record<Contact["opt_in_status"], string> = {
   unknown: "",
@@ -13,13 +13,6 @@ const CONSENT_PILL: Record<Contact["opt_in_status"], string> = {
 
 function displayName(c: Contact) {
   return c.name ?? c.profile_name ?? `+${c.wa_id}`;
-}
-
-function useTags() {
-  return useQuery({
-    queryKey: ["tags"],
-    queryFn: async () => (await api<{ data: Tag[] }>("GET", "/internal/contacts/tags")).data,
-  });
 }
 
 export default function Contacts() {

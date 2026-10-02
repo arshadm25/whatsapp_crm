@@ -22,6 +22,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
@@ -114,6 +115,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(60), log),
 		Webhooks:   webhooks.NewService(d, keys, rc, log),
 		Contacts:   contacts.NewService(d, log),
+		Campaigns:  campaigns.NewService(d, rc, log),
 		Events:     hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
@@ -156,6 +158,7 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, messaging.NewWorker(d, keys, meta, media.NewUploader(store, meta), log))
 	river.AddWorker(workers, media.NewDownloadWorker(d, keys, meta, store, log))
 	river.AddWorker(workers, webhooks.NewWorker(d, keys, nil, log))
+	river.AddWorker(workers, campaigns.NewWorker(d, log))
 	rc, err := jobs.NewWorkerClient(d.Pool, workers, log)
 	if err != nil {
 		return err

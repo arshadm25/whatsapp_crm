@@ -24,6 +24,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
@@ -176,6 +177,7 @@ type harness struct {
 	events *metaevents.Processor
 	// downloader copies inbound media from Meta.
 	downloader *media.DownloadWorker
+	campaigns  *campaigns.Worker
 	keys       *envelope.Keyring
 	log        *slog.Logger
 }
@@ -224,6 +226,7 @@ func newHarness(t *testing.T) *harness {
 		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(5), log),
 		Webhooks:   webhooks.NewService(d, keys, rc, log),
 		Contacts:   contacts.NewService(d, log),
+		Campaigns:  campaigns.NewService(d, rc, log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)
@@ -232,12 +235,15 @@ func newHarness(t *testing.T) *harness {
 	proc.Jobs = rc
 	sender := messaging.NewWorker(d, keys, meta, media.NewUploader(store, meta), log)
 	sender.Jobs = rc
+	runner := campaigns.NewWorker(d, log)
+	runner.Jobs = rc
 	return &harness{
 		t: t, db: d, meta: fm, api: api,
 		worker:     onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
 		sender:     sender,
 		events:     proc,
 		downloader: media.NewDownloadWorker(d, keys, meta, store, log),
+		campaigns:  runner,
 		keys:       keys,
 		log:        log,
 	}

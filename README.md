@@ -18,6 +18,7 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 | D8 API keys: create, list and revoke on the Developers screen; `Authorization: Bearer eco_live_…` on every `/v1` endpoint, optionally limited to one number; 60 requests per second per key with `X-RateLimit-*` headers and 429 | Done (sandbox keys later) |
 | D8 client webhooks: `/v1/webhook-endpoints` with a signing secret shown once, `message.received`, `message.status`, `template.status` and `number.quality` events signed with `Ecogo-Signature`, retries for about 24 hours, delivery log with retry on the Developers screen | Done |
 | D6 Contacts: `/v1/contacts` (upsert by number, filters by tag, consent and search, PATCH for tags, blocking and consent), append-only consent records, STOP and START replies, CSV import with number normalisation, Contacts screen | Done (export and erasure later) |
+| D7 Campaigns: `/v1/campaigns` (create with `Idempotency-Key`, list, report, cancel), audience by tags or contact IDs with blocked, opted-out and never-opted-in contacts skipped and reported, template values filled from contact fields with fallbacks, sending throttled to the campaign's rate and the number's messaging limit, live delivery counts, Campaigns screen with audience preview and per-recipient report | Done |
 | Media: `POST /v1/media` with WhatsApp's type and size limits, `GET /v1/media/{id}` with a 15-minute signed download link, sending uploaded files, copying inbound files from Meta into the MinIO bucket, attachments and previews in the inbox | Done |
 | D4 Templates: list, create and edit through Meta review, delete by name, sync from Meta (also at the end of onboarding) | Done |
 | Dashboard: Templates list and editor, Send a message test screen | Done |
@@ -39,6 +40,7 @@ internal/
   storage/            media files in MinIO (S3 API) or a local directory
   events/             live updates: Postgres LISTEN/NOTIFY to Server-Sent Events
   contacts/           D6: /v1/contacts, tags, consent records, CSV import
+  campaigns/          D7: /v1/campaigns and the campaign run worker
   devportal/          D8: API keys and their authentication and rate limits
   webhooks/           D8: client webhook endpoints, event outbox and signed deliveries
   metaclient/         the only package that calls Meta's Graph API
