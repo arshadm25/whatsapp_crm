@@ -51,6 +51,7 @@ tags:
   - name: Campaigns
   - name: Bots
   - name: Flows
+  - name: AI agent
   - name: Webhook endpoints
 
 paths:
@@ -685,7 +686,7 @@ paths:
       summary: Create a chatbot
       description: |
         A bot is a flow of nodes (`message`, `buttons`, `question`, `condition`, `set`, `tag`,
-        `template`, `handoff`, `end`) started by triggers (`keyword`, `first_message`,
+        `template`, `flow`, `ai`, `handoff`, `end`) started by triggers (`keyword`, `first_message`,
         `button_reply`, `any_message`). The flow is checked when saved: every node a `next` points to must
         exist, buttons are limited to three with titles of 20 characters, and a loop must wait for the customer.
         A new bot is a `draft` until activated.
@@ -1022,6 +1023,179 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/FlowSubmission' }
+
+  /knowledge/sources:
+    get:
+      tags: [AI agent]
+      operationId: listKnowledgeSources
+      summary: List knowledge sources (owners and admins)
+      responses:
+        '200':
+          description: Sources, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/KnowledgeSource' }
+    post:
+      tags: [AI agent]
+      operationId: createKnowledgeSource
+      summary: Add a FAQ, a text or a website page
+      description: |
+        `faq` takes `items` (question and answer pairs), `text` takes `text`, and `website` takes `url` of a single
+        page (https or http, ports 80 and 443, never an address inside a private network). A website source is
+        `pending` until it is downloaded, then `ready` or `failed` with an `error`. Upload documents to
+        `/knowledge/sources/upload`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [faq, text, website] }
+                title: { type: string, maxLength: 200 }
+                items:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: object
+                    required: [question, answer]
+                    properties:
+                      question: { type: string }
+                      answer: { type: string }
+                text: { type: string }
+                url: { type: string, format: uri }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeSource' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /knowledge/sources/upload:
+    post:
+      tags: [AI agent]
+      operationId: uploadKnowledgeDocument
+      summary: Add a document
+      description: A `.txt`, `.md`, `.csv` or `.html` file in the `file` field of a multipart form. PDFs are not read.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeSource' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /knowledge/sources/{source_id}:
+    delete:
+      tags: [AI agent]
+      operationId: deleteKnowledgeSource
+      summary: Delete a source and its passages
+      parameters:
+        - { name: source_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /knowledge/sources/{source_id}/refresh:
+    post:
+      tags: [AI agent]
+      operationId: refreshKnowledgeSource
+      summary: Download a website source again
+      parameters:
+        - { name: source_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Queued }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /ai/usage:
+    get:
+      tags: [AI agent]
+      operationId: getAIUsage
+      summary: AI replies used in the current billing period
+      description: The limit comes from the plan's `ai_replies_per_month` (0 means none; the free trial includes 50).
+      responses:
+        '200':
+          description: Usage
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIUsage' }
+
+  /ai/test:
+    post:
+      tags: [AI agent]
+      operationId: testAI
+      summary: Ask the AI a question as a customer would
+      description: Counts against the plan's AI reply limit and sends nothing to WhatsApp.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, maxLength: 1000 }
+                instructions: { type: string }
+                threshold: { type: number, minimum: 0, maximum: 1 }
+      responses:
+        '200':
+          description: The answer, or why there is none
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [answered, confidence]
+                properties:
+                  answered: { type: boolean }
+                  text: { type: string }
+                  confidence: { type: number }
+                  reason: { type: string, enum: [limit, no_knowledge, low_confidence, error, not_configured] }
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        source_id: { type: string, format: uuid }
+                        title: { type: string }
+                        content: { type: string }
+
+  /ai/logs:
+    get:
+      tags: [AI agent]
+      operationId: listAILogs
+      summary: Every question the AI was asked and what it did
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AILog' }
 
   /webhook-endpoints:
     get:
@@ -1800,13 +1974,13 @@ components:
             Nodes by id. `message` (text, next); `buttons` (text, up to three buttons each with id, title and next);
             `question` (text, var, kind text|number|email|phone, next); `condition` (var, op equals|not_equals|contains|exists|gt|lt,
             value, then, else); `set` (var, value, next); `tag` (tag, next); `template` (template name, language, params, next);
-            `handoff` (optional text, reason, assign_to a user id); `end` (optional text). Text may use `{{variable}}`,
+            `flow` (text, flow_id of a published Flow, cta, screen, var prefix, next); `ai` (optional greeting text, instructions, threshold 0 to 1, max_turns, next after the last turn, else when the AI cannot answer; without else a miss hands over to a person); `handoff` (optional text, reason, assign_to a user id); `end` (optional text). Text may use `{{variable}}`,
             `{{contact.name}}` and `{{contact.phone}}`.
           additionalProperties:
             type: object
             required: [type]
             properties:
-              type: { type: string, enum: [message, buttons, question, condition, set, tag, template, handoff, end] }
+              type: { type: string, enum: [message, buttons, question, condition, set, tag, template, flow, ai, handoff, end] }
 
     Bot:
       allOf:
@@ -1886,6 +2060,43 @@ components:
         conversation_id: { type: string, format: uuid }
         message_id: { type: string, format: uuid }
         response: { type: object, description: The answers, keyed by field name. }
+        created_at: { type: string, format: date-time }
+
+    KnowledgeSource:
+      type: object
+      required: [id, kind, title, status, chunk_count]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [faq, text, website, document] }
+        title: { type: string }
+        url: { type: [string, 'null'] }
+        status: { type: string, enum: [pending, ready, failed] }
+        error: { type: [string, 'null'] }
+        chunk_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AIUsage:
+      type: object
+      required: [configured, limit, used]
+      properties:
+        configured: { type: boolean, description: False until a language model is set up on the server. }
+        limit: { type: integer }
+        used: { type: integer }
+        period_start: { type: string, format: date-time }
+        period_end: { type: string, format: date-time }
+
+    AILog:
+      type: object
+      required: [id, question, outcome, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        bot_id: { type: [string, 'null'], format: uuid }
+        conversation_id: { type: [string, 'null'], format: uuid }
+        question: { type: string }
+        answer: { type: [string, 'null'] }
+        confidence: { type: [number, 'null'] }
+        outcome: { type: string, enum: [answered, low_confidence, no_knowledge, limit, error, test] }
         created_at: { type: string, format: date-time }
 
     Campaign:

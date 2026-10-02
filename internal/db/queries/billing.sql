@@ -11,15 +11,15 @@ SELECT * FROM plans WHERE razorpay_plan_id = $1;
 
 -- name: UpsertPlan :one
 INSERT INTO plans (code, name, price_minor, included_numbers, included_seats, extra_seat_minor,
-                   razorpay_plan_id, extra_seat_razorpay_plan_id, sort_order, is_active)
+                   razorpay_plan_id, extra_seat_razorpay_plan_id, sort_order, is_active, ai_replies_per_month)
 VALUES (@code, @name, @price_minor, @included_numbers, @included_seats, @extra_seat_minor,
-        sqlc.narg(razorpay_plan_id), sqlc.narg(extra_seat_razorpay_plan_id), @sort_order, @is_active)
+        sqlc.narg(razorpay_plan_id), sqlc.narg(extra_seat_razorpay_plan_id), @sort_order, @is_active, @ai_replies_per_month)
 ON CONFLICT (code) DO UPDATE
 SET name = EXCLUDED.name, price_minor = EXCLUDED.price_minor, included_numbers = EXCLUDED.included_numbers,
     included_seats = EXCLUDED.included_seats, extra_seat_minor = EXCLUDED.extra_seat_minor,
     razorpay_plan_id = EXCLUDED.razorpay_plan_id, extra_seat_razorpay_plan_id = EXCLUDED.extra_seat_razorpay_plan_id,
     sort_order = EXCLUDED.sort_order,
-    is_active = EXCLUDED.is_active, updated_at = now()
+    is_active = EXCLUDED.is_active, ai_replies_per_month = EXCLUDED.ai_replies_per_month, updated_at = now()
 RETURNING *;
 
 -- name: GetSubscription :one

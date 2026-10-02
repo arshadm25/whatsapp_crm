@@ -71,24 +71,24 @@ func TestRunBranchesAndRetries(t *testing.T) {
 		"minor":{"type":"message","text":"Sorry"},
 		"bye":{"type":"end","text":"Bye {{group}}"}}}`)
 	c := Contact{Name: "Ravi", Phone: "91"}
-	out := Start(f, c)
+	out := Start(f, Env{Contact: c})
 	if out.Status != StatusActive || out.State.NodeID != "age" || len(out.Actions) != 1 {
 		t.Fatalf("start = %+v", out)
 	}
 	// Two unusable answers re-ask, the third hands over.
 	st := out.State
 	for i := 0; i < maxRetries; i++ {
-		out = Resume(f, st, Input{Text: "old"}, c)
+		out = Resume(f, st, Input{Text: "old"}, Env{Contact: c})
 		if out.Status != StatusActive || out.State.NodeID != "age" {
 			t.Fatalf("retry %d = %+v", i, out)
 		}
 		st = out.State
 	}
-	out = Resume(f, st, Input{Text: "old"}, c)
+	out = Resume(f, st, Input{Text: "old"}, Env{Contact: c})
 	if out.Status != StatusHandedOff || out.Reason != "no_understood_reply" {
 		t.Fatalf("handoff = %+v", out)
 	}
-	adult := Resume(f, st, Input{Text: "30"}, c)
+	adult := Resume(f, st, Input{Text: "30"}, Env{Contact: c})
 	if adult.Status != StatusCompleted || adult.State.Vars["group"] != "Ravi-adult" {
 		t.Fatalf("adult = %+v", adult)
 	}
@@ -97,7 +97,7 @@ func TestRunBranchesAndRetries(t *testing.T) {
 	if !strings.Contains(string(body), "Bye Ravi-adult") {
 		t.Fatalf("last message = %s", body)
 	}
-	minor := Resume(f, State{NodeID: "age", Vars: map[string]string{}}, Input{Text: "9"}, c)
+	minor := Resume(f, State{NodeID: "age", Vars: map[string]string{}}, Input{Text: "9"}, Env{Contact: c})
 	if minor.Status != StatusCompleted || len(minor.Actions) != 1 {
 		t.Fatalf("minor = %+v", minor)
 	}
@@ -108,13 +108,13 @@ func TestButtonsMatchByIDOrTitle(t *testing.T) {
 		"b":{"type":"buttons","text":"Pick","buttons":[{"id":"y","title":"Yes","next":"ok"},{"id":"n","title":"No"}]},
 		"ok":{"type":"message","text":"Great"}}}`)
 	for _, in := range []Input{{ButtonID: "y", Text: "Yes"}, {Text: "yes"}} {
-		out := Resume(f, State{NodeID: "b"}, in, Contact{})
+		out := Resume(f, State{NodeID: "b"}, in, Env{})
 		if out.Status != StatusCompleted || len(out.Actions) != 1 {
 			t.Fatalf("%+v = %+v", in, out)
 		}
 	}
 	// A button with no next ends the flow without sending anything.
-	out := Resume(f, State{NodeID: "b"}, Input{ButtonID: "n"}, Contact{})
+	out := Resume(f, State{NodeID: "b"}, Input{ButtonID: "n"}, Env{})
 	if out.Status != StatusCompleted || len(out.Actions) != 0 {
 		t.Fatalf("no next = %+v", out)
 	}
@@ -128,16 +128,16 @@ func TestFlowNode(t *testing.T) {
 	f := mustFlow(t, `{"start":"f","nodes":{
 		"f":{"type":"flow","text":"Hi {{contact.name}}","flow_id":"`+id+`","var":"lead","next":"done"},
 		"done":{"type":"end","text":"Thanks {{lead_name}}"}}}`)
-	out := Start(f, Contact{Name: "Ravi"})
+	out := Start(f, Env{Contact: Contact{Name: "Ravi"}})
 	if out.Status != StatusActive || out.State.NodeID != "f" || len(out.Actions) != 1 || out.Actions[0].Kind != ActionFlow || out.Actions[0].FlowNode.Text != "Hi Ravi" {
 		t.Fatalf("start = %+v", out)
 	}
 	// Text does not satisfy a form; the submission does, and its answers are prefixed.
-	again := Resume(f, out.State, Input{Text: "hello"}, Contact{})
+	again := Resume(f, out.State, Input{Text: "hello"}, Env{})
 	if again.Status != StatusActive || len(again.Actions) != 1 || again.Actions[0].Kind != ActionFlow {
 		t.Fatalf("text = %+v", again)
 	}
-	done := Resume(f, again.State, Input{Flow: map[string]string{"name": "Ravi"}}, Contact{})
+	done := Resume(f, again.State, Input{Flow: map[string]string{"name": "Ravi"}}, Env{})
 	if done.Status != StatusCompleted || done.State.Vars["lead_name"] != "Ravi" {
 		t.Fatalf("submission = %+v", done)
 	}
@@ -145,5 +145,45 @@ func TestFlowNode(t *testing.T) {
 	any := mustFlow(t, `{"start":"a","nodes":{"a":{"type":"end"}},"triggers":[{"type":"any_message"}]}`)
 	if any.Matches(Input{Flow: map[string]string{"x": "y"}}, true) || !any.Matches(Input{Text: "hi"}, false) {
 		t.Error("any_message trigger and form replies")
+	}
+}
+
+func TestAINode(t *testing.T) {
+	if _, err := ParseFlow([]byte(`{"start":"a","nodes":{"a":{"type":"ai","threshold":2}}}`)); err == nil {
+		t.Error("ai node with threshold 2 accepted")
+	}
+	f := mustFlow(t, `{"start":"a","nodes":{
+		"a":{"type":"ai","text":"Ask away","max_turns":2,"next":"bye","else":"person"},
+		"bye":{"type":"end","text":"Bye"},
+		"person":{"type":"handoff","text":"A teammate will help"}}}`)
+	answer := func(ok bool) Env {
+		return Env{AI: func(q string, _ Node) AIResult {
+			if ok {
+				return AIResult{Answered: true, Text: "re: " + q}
+			}
+			return AIResult{Reason: "low_confidence"}
+		}}
+	}
+	out := Start(f, answer(true))
+	if out.Status != StatusActive || len(out.Actions) != 1 || out.Actions[0].Preview != "Ask away" {
+		t.Fatalf("start = %+v", out)
+	}
+	one := Resume(f, out.State, Input{Text: "hours?"}, answer(true))
+	if one.Status != StatusActive || len(one.Actions) != 1 || one.Actions[0].Preview != "re: hours?" {
+		t.Fatalf("first answer = %+v", one)
+	}
+	two := Resume(f, one.State, Input{Text: "price?"}, answer(true))
+	if two.Status != StatusCompleted || len(two.Actions) != 2 || two.Actions[1].Preview != "Bye" {
+		t.Fatalf("after max turns = %+v", two)
+	}
+	miss := Resume(f, out.State, Input{Text: "hours?"}, answer(false))
+	if miss.Status != StatusHandedOff {
+		t.Fatalf("miss = %+v", miss)
+	}
+	// Without an else path a miss hands over by itself, saying why.
+	g := mustFlow(t, `{"start":"a","nodes":{"a":{"type":"ai"}}}`)
+	none := Resume(g, State{NodeID: "a", Vars: map[string]string{}}, Input{Text: "hi"}, Env{})
+	if none.Status != StatusHandedOff || none.Reason != "ai_not_configured" {
+		t.Fatalf("no ai = %+v", none)
 	}
 }

@@ -1276,6 +1276,21 @@ func (e TenantStatus) Valid() bool {
 	return false
 }
 
+type AiLog struct {
+	ID             uuid.UUID
+	TenantID       uuid.UUID
+	BotID          *uuid.UUID
+	ConversationID *uuid.UUID
+	Question       string
+	Answer         *string
+	Confidence     *float32
+	Outcome        string
+	SourceIds      []uuid.UUID
+	InputTokens    int32
+	OutputTokens   int32
+	CreatedAt      time.Time
+}
+
 type ApiKey struct {
 	ID            uuid.UUID
 	TenantID      uuid.UUID
@@ -1516,6 +1531,29 @@ type InvoiceCounter struct {
 	Last int32
 }
 
+type KbChunk struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+	SourceID uuid.UUID
+	Ord      int32
+	Content  string
+	Tsv      interface{}
+}
+
+type KbSource struct {
+	ID         uuid.UUID
+	TenantID   uuid.UUID
+	Kind       string
+	Title      string
+	Url        *string
+	Status     string
+	Error      *string
+	ChunkCount int32
+	CreatedBy  *uuid.UUID
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
 type Medium struct {
 	ID             uuid.UUID
 	TenantID       uuid.UUID
@@ -1671,6 +1709,7 @@ type Plan struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	ExtraSeatRazorpayPlanID *string
+	AiRepliesPerMonth       int32
 }
 
 type QuickReply struct {

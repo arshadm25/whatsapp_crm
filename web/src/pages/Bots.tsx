@@ -449,9 +449,9 @@ function NodeCard(props: {
             </div>
           </div>
 
-          {(n.type === "message" || n.type === "buttons" || n.type === "question" || n.type === "flow" || n.type === "handoff" || n.type === "end") && (
+          {(n.type === "message" || n.type === "buttons" || n.type === "question" || n.type === "flow" || n.type === "ai" || n.type === "handoff" || n.type === "end") && (
             <label className="field">
-              {t("bots.text")}
+              {n.type === "ai" ? t("bots.aiGreeting") : t("bots.text")}
               <textarea rows={3} maxLength={n.type === "buttons" || n.type === "flow" ? MAX_BODY : 4096} value={n.text ?? ""} onChange={(e) => set({ text: e.target.value })} />
             </label>
           )}
@@ -621,6 +621,31 @@ function NodeCard(props: {
                 </label>
               </div>
               {next}
+            </>
+          )}
+
+          {n.type === "ai" && (
+            <>
+              <label className="field">
+                {t("bots.aiInstructions")}
+                <textarea rows={2} maxLength={1000} value={n.instructions ?? ""} onChange={(e) => set({ instructions: e.target.value || undefined })} />
+                <span className="muted small">{t("bots.aiInstructionsHelp")}</span>
+              </label>
+              <div className="row">
+                <label className="field">
+                  {t("bots.aiThreshold")}
+                  <input type="number" min={0} max={1} step={0.05} value={n.threshold ?? 0.6} onChange={(e) => set({ threshold: Number(e.target.value) })} />
+                  <span className="muted small">{t("bots.aiThresholdHelp")}</span>
+                </label>
+                <label className="field">
+                  {t("bots.aiTurns")}
+                  <input type="number" min={1} max={20} value={n.max_turns ?? 5} onChange={(e) => set({ max_turns: Number(e.target.value) })} />
+                </label>
+              </div>
+              <div className="row">
+                {next}
+                <NextSelect label={t("bots.aiElse")} value={n.else} ids={ids} self={id} none={t("bots.aiHandoffNone")} onChange={(v) => set({ else: v || undefined })} />
+              </div>
             </>
           )}
 

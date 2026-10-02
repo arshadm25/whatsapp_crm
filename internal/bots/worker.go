@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/ai"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
@@ -72,6 +73,8 @@ type Worker struct {
 	now func() time.Time
 	// Jobs enqueues sends and webhook deliveries; when nil, the River client working the job is used.
 	Jobs jobs.Inserter
+	// AI answers the questions of AI steps; when nil, an AI step hands over to a person.
+	AI *ai.Agent
 }
 
 func NewWorker(d *db.DB, log *slog.Logger) *Worker {
@@ -205,8 +208,9 @@ func (w *Worker) step(ctx context.Context, q *dbq.Queries, tx pgx.Tx, a StepArgs
 	}
 
 	var (
-		bot dbq.Bot
-		out Outcome
+		bot   dbq.Bot
+		out   Outcome
+		aiErr error
 	)
 	switch {
 	case active && in != nil:
@@ -220,7 +224,8 @@ func (w *Worker) step(ctx context.Context, q *dbq.Queries, tx pgx.Tx, a StepArgs
 		}
 		var vars map[string]string
 		_ = json.Unmarshal(sess.Vars, &vars)
-		out = Resume(f, State{NodeID: deref(sess.NodeID), Vars: vars}, *in, c)
+		env := w.env(ctx, q, a.TenantID, bot, conv, c, &aiErr)
+		out = Resume(f, State{NodeID: deref(sess.NodeID), Vars: vars}, *in, env)
 	case active:
 		return nil // a manual start while a session runs, or a replayed job
 	default:
@@ -236,7 +241,10 @@ func (w *Worker) step(ctx context.Context, q *dbq.Queries, tx pgx.Tx, a StepArgs
 		if err != nil {
 			return err
 		}
-		out = Start(f, c)
+		out = Start(f, w.env(ctx, q, a.TenantID, bot, conv, c, &aiErr))
+	}
+	if aiErr != nil {
+		return aiErr
 	}
 	return w.apply(ctx, q, tx, num, conv, contact, bot, sess, out, now)
 }
@@ -485,4 +493,29 @@ func (w *Worker) flowMessage(ctx context.Context, q *dbq.Queries, n *Node, sessi
 	return dbq.MessageTypeInteractive, map[string]any{"type": "interactive", "interactive": map[string]any{
 		"type": "flow", "body": map[string]any{"text": n.Text}, "action": map[string]any{"name": "flow", "parameters": params},
 	}}, nil, true, "", nil
+}
+
+// env gives a run the customer's details and, for AI steps, the knowledge base agent. A failure
+// in the agent (the database, not the model) is kept in aiErr so the step is retried.
+func (w *Worker) env(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, bot dbq.Bot, conv dbq.Conversation, c Contact, aiErr *error) Env {
+	env := Env{Contact: c}
+	if w.AI == nil {
+		return env
+	}
+	env.AI = func(question string, n Node) AIResult {
+		t, err := q.GetTenant(ctx, tenantID)
+		if err != nil {
+			*aiErr = err
+			return AIResult{Reason: ai.ReasonError}
+		}
+		res, err := w.AI.Answer(ctx, q, tenantID, t.Name, question, ai.Options{
+			Instructions: n.Instructions, Threshold: n.Threshold, BotID: &bot.ID, ConversationID: &conv.ID,
+		})
+		if err != nil {
+			*aiErr = err
+			return AIResult{Reason: ai.ReasonError}
+		}
+		return AIResult{Answered: res.Answered, Text: res.Text, Reason: res.Reason}
+	}
+	return env
 }

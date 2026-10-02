@@ -144,13 +144,15 @@ type Plan struct {
 	ExtraSeatsAvailable bool  `json:"extra_seats_available"`
 	SortOrder           int32 `json:"sort_order"`
 	Active              bool  `json:"is_active"`
+	// AIRepliesPerMonth is how many chatbot AI answers the plan includes each billing month; 0 for none.
+	AIRepliesPerMonth int32 `json:"ai_replies_per_month"`
 }
 
 func PlanView(p dbq.Plan) Plan {
 	return Plan{Code: p.Code, Name: p.Name, PriceMinor: p.PriceMinor, Currency: p.Currency,
 		IncludedNumbers: p.IncludedNumbers, IncludedSeats: p.IncludedSeats, ExtraSeatMinor: p.ExtraSeatMinor,
 		RazorpayPlanID: p.RazorpayPlanID, ExtraSeatRazorpayPlanID: p.ExtraSeatRazorpayPlanID,
-		ExtraSeatsAvailable: p.RazorpayPlanID != nil && p.ExtraSeatRazorpayPlanID != nil, SortOrder: p.SortOrder, Active: p.IsActive}
+		ExtraSeatsAvailable: p.RazorpayPlanID != nil && p.ExtraSeatRazorpayPlanID != nil, SortOrder: p.SortOrder, Active: p.IsActive, AIRepliesPerMonth: p.AiRepliesPerMonth}
 }
 
 // Subscription is the workspace's billing state.
@@ -561,4 +563,35 @@ func Transition(sub dbq.Subscription, event string, rs razorpay.Subscription) *d
 		return nil
 	}
 	return next
+}
+
+// TrialAIReplies is how many AI answers a workspace on a free trial (no plan chosen) can use.
+const TrialAIReplies = 50
+
+// AIAllowance is a workspace's AI replies for the current billing period.
+type AIAllowance struct {
+	Limit       int32     `json:"limit"`
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+}
+
+// AIAllowanceFor returns the AI replies the workspace's plan includes and the period they count
+// over. Run it inside the tenant.
+func AIAllowanceFor(ctx context.Context, q *dbq.Queries) (AIAllowance, error) {
+	sub, err := q.GetSubscription(ctx)
+	if db.IsNotFound(err) {
+		return AIAllowance{}, nil
+	}
+	if err != nil {
+		return AIAllowance{}, err
+	}
+	a := AIAllowance{Limit: TrialAIReplies, PeriodStart: sub.CurrentPeriodStart, PeriodEnd: sub.CurrentPeriodEnd}
+	if sub.PlanCode != nil {
+		plan, err := q.GetPlan(ctx, *sub.PlanCode)
+		if err != nil {
+			return AIAllowance{}, err
+		}
+		a.Limit = plan.AiRepliesPerMonth
+	}
+	return a, nil
 }

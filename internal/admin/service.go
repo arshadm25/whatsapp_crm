@@ -629,6 +629,8 @@ func (s *Service) savePlan(w http.ResponseWriter, r *http.Request) error {
 		return httpx.BadRequest("price_minor", "Prices cannot be negative.")
 	case req.IncludedNumbers < 1 || req.IncludedSeats < 1:
 		return httpx.BadRequest("included_numbers", "A plan includes at least one number and one seat.")
+	case req.AIRepliesPerMonth < 0 || req.AIRepliesPerMonth > 10_000_000:
+		return httpx.BadRequest("ai_replies_per_month", "AI replies per month must be between 0 and 10,000,000.")
 	}
 	if req.RazorpayPlanID != nil {
 		v := strings.TrimSpace(*req.RazorpayPlanID)
@@ -657,6 +659,7 @@ func (s *Service) savePlan(w http.ResponseWriter, r *http.Request) error {
 			Code: code, Name: req.Name, PriceMinor: req.PriceMinor, IncludedNumbers: req.IncludedNumbers,
 			IncludedSeats: req.IncludedSeats, ExtraSeatMinor: req.ExtraSeatMinor, RazorpayPlanID: req.RazorpayPlanID,
 			ExtraSeatRazorpayPlanID: req.ExtraSeatRazorpayPlanID, SortOrder: req.SortOrder, IsActive: req.Active,
+			AiRepliesPerMonth: req.AIRepliesPerMonth,
 		})
 		if db.IsUniqueViolation(err, "plans_razorpay_plan_id_key") {
 			return httpx.BadRequest("razorpay_plan_id", "Another plan already uses this Razorpay plan.")

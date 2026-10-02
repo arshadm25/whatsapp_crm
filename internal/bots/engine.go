@@ -85,23 +85,75 @@ func fill(s string, vars map[string]string, c Contact) string {
 	})
 }
 
+// AIResult is what the AI step got back for a customer's question.
+type AIResult struct {
+	Answered bool
+	Text     string
+	Reason   string // why there is no answer: low_confidence, no_knowledge, limit, error, not_configured
+}
+
+// Env is what a run needs from outside the flow: who the customer is, and the AI that answers
+// the AI step's questions.
+type Env struct {
+	Contact Contact
+	AI      func(question string, n Node) AIResult
+}
+
+const aiTurnsVar = "_ai_turns"
+const defaultAITurns = 5
+
 // Start resolves the first step of a session: it walks the flow from its start node.
-func Start(f Flow, c Contact) Outcome {
-	return run(f, State{Vars: map[string]string{}}, nil, c)
+func Start(f Flow, env Env) Outcome {
+	return run(f, State{Vars: map[string]string{}}, nil, env)
 }
 
 // Resume continues a session that was waiting for an answer at st.NodeID.
-func Resume(f Flow, st State, in Input, c Contact) Outcome {
+func Resume(f Flow, st State, in Input, env Env) Outcome {
 	if st.Vars == nil {
 		st.Vars = map[string]string{}
 	}
-	return run(f, st, &in, c)
+	return run(f, st, &in, env)
 }
 
-func run(f Flow, st State, in *Input, c Contact) Outcome {
+func run(f Flow, st State, in *Input, env Env) Outcome {
+	c := env.Contact
 	out := Outcome{State: st, Status: StatusActive}
 	cur := f.Start
-	if in != nil {
+	if in != nil && f.Nodes[st.NodeID].Type == NodeAI {
+		// The AI step keeps answering questions until it has no answer, or has answered enough.
+		n := f.Nodes[st.NodeID]
+		res := AIResult{Reason: "unsupported"}
+		if env.AI != nil && strings.TrimSpace(in.Text) != "" {
+			res = env.AI(in.Text, n)
+		} else if env.AI == nil {
+			res.Reason = "not_configured"
+		}
+		if !res.Answered {
+			st.Vars["_ai_miss"] = res.Reason
+			if n.Else == "" {
+				out.Actions = append(out.Actions, Action{Kind: ActionHandoff, Reason: "ai_" + res.Reason})
+				return finish(out, StatusHandedOff, "ai_"+res.Reason)
+			}
+			cur = n.Else
+		} else {
+			out.Actions = append(out.Actions, textAction(res.Text))
+			turns := atoi(st.Vars[aiTurnsVar]) + 1
+			limit := n.MaxTurns
+			if limit <= 0 {
+				limit = defaultAITurns
+			}
+			if turns < limit {
+				st.Vars[aiTurnsVar] = strconv.Itoa(turns)
+				out.State.NodeID = st.NodeID
+				return out
+			}
+			delete(st.Vars, aiTurnsVar)
+			cur = n.Next
+			if cur == "" {
+				return finish(out, StatusCompleted, "completed")
+			}
+		}
+	} else if in != nil {
 		n, ok := f.Nodes[st.NodeID]
 		if !ok {
 			return fail(out, "node_missing")
@@ -141,6 +193,13 @@ func run(f Flow, st State, in *Input, c Contact) Outcome {
 			return out
 		case NodeQuestion:
 			out.Actions = append(out.Actions, textAction(fill(n.Text, st.Vars, c)))
+			out.State.NodeID = cur
+			return out
+		case NodeAI:
+			if n.Text != "" {
+				out.Actions = append(out.Actions, textAction(fill(n.Text, st.Vars, c)))
+			}
+			st.Vars[aiTurnsVar] = "0"
 			out.State.NodeID = cur
 			return out
 		case NodeFlow:

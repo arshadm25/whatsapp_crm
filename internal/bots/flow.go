@@ -27,6 +27,7 @@ const (
 	NodeTemplate  = "template"
 	NodeHandoff   = "handoff"
 	NodeEnd       = "end"
+	NodeAI        = "ai"   // answers the customer's questions from the knowledge base
 	NodeFlow      = "flow" // sends a WhatsApp Flow and waits for the customer to submit it
 )
 
@@ -85,6 +86,10 @@ type Node struct {
 	Reason   string `json:"reason,omitempty"`    // handoff: shown to agents and sent in bot.handoff
 	AssignTo string `json:"assign_to,omitempty"` // handoff: user id of the agent to assign
 
+	Instructions string  `json:"instructions,omitempty"` // ai: extra guidance for the answers
+	Threshold    float64 `json:"threshold,omitempty"`    // ai: confidence below this hands over (default 0.6)
+	MaxTurns     int     `json:"max_turns,omitempty"`    // ai: questions answered before moving on (default 5)
+
 	FlowID string `json:"flow_id,omitempty"` // flow: id of one of the workspace's Flows
 	CTA    string `json:"cta,omitempty"`     // flow: button label, 20 characters at most
 	Screen string `json:"screen,omitempty"`  // flow: screen to open instead of the first
@@ -117,7 +122,9 @@ func bad(format string, a ...any) error {
 	return httpx.BadRequest("flow", fmt.Sprintf(format, a...))
 }
 
-func waits(n Node) bool { return n.Type == NodeButtons || n.Type == NodeQuestion || n.Type == NodeFlow }
+func waits(n Node) bool {
+	return n.Type == NodeButtons || n.Type == NodeQuestion || n.Type == NodeFlow || n.Type == NodeAI
+}
 
 // Validate checks the flow is complete and within WhatsApp's limits.
 func (f Flow) Validate() error {
@@ -277,6 +284,25 @@ func (f Flow) validateNode(id string, n Node) error {
 			return text(maxTextLength)
 		}
 		return nil
+	case NodeAI:
+		if n.Text != "" {
+			if err := text(maxBodyLength); err != nil {
+				return err
+			}
+		}
+		if utf8.RuneCountInString(n.Instructions) > 1000 {
+			return bad("Node %q: instructions can have at most 1000 characters.", id)
+		}
+		if n.Threshold < 0 || n.Threshold > 1 {
+			return bad("Node %q: threshold must be between 0 and 1.", id)
+		}
+		if n.MaxTurns < 0 || n.MaxTurns > 20 {
+			return bad("Node %q: max_turns must be between 1 and 20.", id)
+		}
+		if err := f.ref(id, "else", n.Else, false); err != nil {
+			return err
+		}
+		return f.ref(id, "next", n.Next, false)
 	case NodeFlow:
 		if err := text(maxBodyLength); err != nil {
 			return err

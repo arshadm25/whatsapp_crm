@@ -51,6 +51,9 @@ config:
   sellerAddress: ""
   sellerSac: ""                      # services accounting code printed on invoices; ask the accountant
   gstRateBp: "1800"                  # 18%; plan prices include it
+  # The language model behind chatbot answers. Without ai-api-key in the secret the AI step hands over to a person.
+  aiProvider: anthropic
+  aiModel: claude-haiku-4-5-20251001
 
 # Secret with these keys, created outside the chart:
 #   database-url            postgres URL for ecogo_app (no BYPASSRLS)
@@ -62,6 +65,7 @@ config:
 #   smtp-password
 #   s3-access-key, s3-secret-key  MinIO credentials for the media bucket
 #   razorpay-key-id, razorpay-key-secret, razorpay-webhook-secret  optional until billing takes payment
+#   ai-api-key              optional; API key of the AI provider for chatbot answers
 existingSecret: ecogo-whatsapp
 
 api:

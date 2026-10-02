@@ -79,6 +79,12 @@ app.kubernetes.io/component: {{ .component }}
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: razorpay-key-secret, optional: true } }
 - name: ECOGO_RAZORPAY_WEBHOOK_SECRET
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: razorpay-webhook-secret, optional: true } }
+- name: ECOGO_AI_PROVIDER
+  value: {{ .root.Values.config.aiProvider | quote }}
+- name: ECOGO_AI_MODEL
+  value: {{ .root.Values.config.aiModel | quote }}
+- name: ECOGO_AI_API_KEY
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: ai-api-key, optional: true } }
 {{- end }}
 {{- end -}}
 
