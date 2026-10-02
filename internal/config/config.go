@@ -49,6 +49,8 @@ type Config struct {
 	AI AI
 
 	Seller Seller
+	// MetaMarkupBP is Ecogo's service charge on Meta's fees for workspaces that pay Meta through Ecogo, in basis points.
+	MetaMarkupBP int
 }
 
 // Seller is Ecogo's side of every GST invoice. Invoices are issued only once GSTIN is set.
@@ -160,6 +162,9 @@ func Load() (*Config, error) {
 	var err error
 	if c.Seller.GSTRateBP, err = strconv.Atoi(env("ECOGO_GST_RATE_BP", "1800")); err != nil || c.Seller.GSTRateBP < 0 || c.Seller.GSTRateBP > 10000 {
 		return nil, fmt.Errorf("ECOGO_GST_RATE_BP must be a number of basis points such as 1800")
+	}
+	if c.MetaMarkupBP, err = strconv.Atoi(env("ECOGO_META_MARKUP_BP", "0")); err != nil || c.MetaMarkupBP < 0 || c.MetaMarkupBP > 10000 {
+		return nil, fmt.Errorf("ECOGO_META_MARKUP_BP must be a number of basis points such as 500")
 	}
 	if g := c.Seller.GSTIN; g != "" && !gstinPattern.MatchString(g) {
 		return nil, fmt.Errorf("ECOGO_SELLER_GSTIN is not a valid GSTIN")

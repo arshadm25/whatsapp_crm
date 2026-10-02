@@ -9,6 +9,7 @@ import type {
 } from "../api/types";
 import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
+import MetaFeesAdmin, { PaymentMode } from "./AdminMetaFees";
 
 function message(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
@@ -38,7 +39,7 @@ function More({ q }: { q: { hasNextPage: boolean; isFetchingNextPage: boolean; f
   );
 }
 
-type Tab = "tenants" | "plans" | "invoices" | "webhooks" | "metaErrors" | "deletions" | "audit";
+type Tab = "tenants" | "plans" | "invoices" | "metaFees" | "webhooks" | "metaErrors" | "deletions" | "audit";
 
 export default function Admin() {
   const { t } = useTranslation();
@@ -59,13 +60,14 @@ export default function Admin() {
     <section>
       <h1>{t("admin.title")}</h1>
       <div className="segmented tabs">
-        {(["tenants", "plans", "invoices", "webhooks", "metaErrors", "deletions", "audit"] as Tab[]).map((k) => (
+        {(["tenants", "plans", "invoices", "metaFees", "webhooks", "metaErrors", "deletions", "audit"] as Tab[]).map((k) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t(`admin.tab_${k}`)}</button>
         ))}
       </div>
       {tab === "tenants" && <Tenants />}
       {tab === "plans" && <Plans />}
       {tab === "invoices" && <Invoices />}
+      {tab === "metaFees" && <MetaFeesAdmin />}
       {tab === "webhooks" && <Webhooks />}
       {tab === "metaErrors" && <MetaErrors />}
       {tab === "deletions" && <Deletions />}
@@ -187,6 +189,8 @@ function TenantPanel({ id, onBack }: { id: string; onBack: () => void }) {
       </p>
 
       {d.subscription && <TenantPlan id={id} sub={d.subscription} />}
+
+      <PaymentMode key={d.meta_payment_mode} id={id} mode={d.meta_payment_mode} />
 
       {d.status !== "closed" && (
         <form className="card inline-form" onSubmit={act}>

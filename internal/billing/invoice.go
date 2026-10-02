@@ -327,3 +327,6 @@ func inr(minor int64) string {
 	}
 	return out
 }
+
+// INR formats paise as rupees with Indian digit grouping, for the other documents Ecogo issues.
+func INR(minor int64) string { return inr(minor) }

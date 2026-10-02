@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
+import MetaFees from "../components/MetaFees";
 import type { BillingOverview, BillingProfile, Invite, Invoice, Me, Role, TeamMember, Workspace } from "../api/types";
 import { daysLeft, formatPaise, graceEnd } from "../lib/billing";
 import { gstStates } from "../lib/gst";
@@ -584,7 +585,7 @@ function Billing() {
           </table>
         </div>
       )}
-      <p className="muted small">{t("billing.metaFees")}</p>
+      <MetaFees />
     </>
   );
 }

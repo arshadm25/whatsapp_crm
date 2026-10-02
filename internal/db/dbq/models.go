@@ -1643,6 +1643,40 @@ type MetaCredential struct {
 	CreatedAt         time.Time
 }
 
+type MetaFeeStatement struct {
+	ID               uuid.UUID
+	TenantID         uuid.UUID
+	Month            pgtype.Date
+	Number           string
+	Lines            []byte
+	Subscription     []byte
+	FeeMinor         int64
+	MarkupBp         int32
+	MarkupMinor      int64
+	TaxableMinor     int64
+	GstRateBp        int32
+	CgstMinor        int64
+	SgstMinor        int64
+	IgstMinor        int64
+	TotalMinor       int64
+	PlaceOfSupply    string
+	Seller           []byte
+	Buyer            []byte
+	Status           string
+	PaidAt           *time.Time
+	PaymentReference *string
+	IssuedAt         time.Time
+}
+
+type MetaRateCard struct {
+	ID             uuid.UUID
+	Category       string
+	Country        string
+	RateHundredths int64
+	EffectiveFrom  pgtype.Date
+	CreatedAt      time.Time
+}
+
 type MetaWebhookEvent struct {
 	ID                int64
 	PayloadHash       []byte
@@ -1797,6 +1831,8 @@ type Tenant struct {
 	MessageRetentionDays *int32
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	MetaPaymentMode      string
+	MetaPaymentModeSince *time.Time
 }
 
 type UsageDaily struct {

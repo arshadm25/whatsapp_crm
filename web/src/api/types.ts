@@ -361,6 +361,7 @@ export interface AdminTenant {
   suspended_reason: string | null;
   time_zone: string;
   created_at: string;
+  meta_payment_mode: "direct" | "through_us";
 }
 
 export interface AdminTenantDetail extends AdminTenant {
@@ -567,4 +568,47 @@ export interface AITestResult {
   confidence: number;
   reason?: "limit" | "no_knowledge" | "low_confidence" | "error" | "not_configured";
   sources?: { id: string; source_id: string; title: string; content: string }[];
+}
+
+// Solution Partner groundwork: Meta's fees re-billed to workspaces that pay through Ecogo.
+export interface MetaFeeLine {
+  category: string;
+  country: string;
+  messages: number;
+  rate_hundredths: number;
+  amount_minor: number;
+}
+
+export interface MetaFeeStatement {
+  id: string;
+  tenant_id: string;
+  tenant_name?: string;
+  month: string;
+  number: string;
+  fee_minor: number;
+  markup_minor: number;
+  taxable_minor: number;
+  gst_minor: number;
+  total_minor: number;
+  status: "due" | "paid" | "void";
+  paid_at: string | null;
+  payment_reference: string | null;
+  issued_at: string;
+  lines: MetaFeeLine[];
+}
+
+export interface MetaFeeOverview {
+  mode: "direct" | "through_us";
+  since: string | null;
+  invoicing: boolean;
+  month_to_date: { month: string; lines: MetaFeeLine[]; fee_minor: number; markup_minor: number; estimate_minor: number; unrated_messages: number } | null;
+  statements: MetaFeeStatement[];
+}
+
+export interface MetaRate {
+  id: string;
+  category: "marketing" | "utility" | "authentication";
+  country: string;
+  rate_hundredths: number;
+  effective_from: string;
 }

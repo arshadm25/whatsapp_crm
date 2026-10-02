@@ -73,6 +73,8 @@ app.kubernetes.io/component: {{ .component }}
   value: {{ .root.Values.config.sellerSac | quote }}
 - name: ECOGO_GST_RATE_BP
   value: {{ .root.Values.config.gstRateBp | quote }}
+- name: ECOGO_META_MARKUP_BP
+  value: {{ .root.Values.config.metaMarkupBp | quote }}
 - name: ECOGO_RAZORPAY_KEY_ID
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: razorpay-key-id, optional: true } }
 - name: ECOGO_RAZORPAY_KEY_SECRET

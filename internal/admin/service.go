@@ -54,6 +54,13 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/invoices", httpx.Handler(s.log, s.listInvoices))
 	r.Get("/invoices.csv", httpx.Handler(s.log, s.exportInvoices))
 	r.Get("/invoices/{id}/view", httpx.Handler(s.log, s.viewInvoice))
+	r.Get("/meta-rates", httpx.Handler(s.log, s.listMetaRates))
+	r.Put("/meta-rates", httpx.Handler(s.log, s.saveMetaRate))
+	r.Delete("/meta-rates/{id}", httpx.Handler(s.log, s.deleteMetaRate))
+	r.Post("/tenants/{id}/meta-payment-mode", httpx.Handler(s.log, s.setMetaPaymentMode))
+	r.Get("/meta-fee-statements", httpx.Handler(s.log, s.listMetaFeeStatements))
+	r.Get("/meta-fee-statements/{id}/view", httpx.Handler(s.log, s.viewMetaFeeStatement))
+	r.Post("/meta-fee-statements/{id}/status", httpx.Handler(s.log, s.setMetaFeeStatementStatus))
 	r.Post("/tenants/{id}/extend-trial", httpx.Handler(s.log, s.extendTrial))
 	r.Get("/deletion-requests", httpx.Handler(s.log, s.listDeletionRequests))
 	r.Post("/deletion-requests/{id}/status", httpx.Handler(s.log, s.setDeletionStatus))
@@ -95,11 +102,13 @@ type Tenant struct {
 	SuspendedReason *string   `json:"suspended_reason"`
 	TimeZone        string    `json:"time_zone"`
 	CreatedAt       time.Time `json:"created_at"`
+	// MetaPaymentMode is who pays Meta for the workspace's messages: direct or through_us.
+	MetaPaymentMode string `json:"meta_payment_mode"`
 }
 
 func tenantView(t dbq.Tenant) Tenant {
 	return Tenant{ID: t.ID, Name: t.Name, Slug: t.Slug, LegalName: t.LegalName, Status: string(t.Status),
-		SuspendedReason: t.SuspendedReason, TimeZone: t.Timezone, CreatedAt: t.CreatedAt}
+		SuspendedReason: t.SuspendedReason, TimeZone: t.Timezone, CreatedAt: t.CreatedAt, MetaPaymentMode: t.MetaPaymentMode}
 }
 
 func (s *Service) listTenants(w http.ResponseWriter, r *http.Request) error {

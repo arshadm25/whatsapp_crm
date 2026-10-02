@@ -27,6 +27,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
+	"github.com/arshadm25/whatsapp_crm/internal/metafees"
 	"github.com/arshadm25/whatsapp_crm/internal/metrics"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
@@ -56,6 +57,7 @@ type APIDeps struct {
 	Analytics  *analytics.Service
 	Admin      *admin.Service
 	Billing    *billing.Service
+	MetaFees   *metafees.Service
 	Events     http.Handler
 	Deletion   *deletion.Handler
 	Metrics    *metrics.Metrics // optional
@@ -88,6 +90,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/analytics", d.Analytics.InternalRoutes)
 			r.Route("/team", d.Auth.TeamRoutes)
 			r.Route("/billing", d.Billing.InternalRoutes)
+			r.Route("/billing/meta-fees", d.MetaFees.Routes)
 			r.Method(http.MethodGet, "/events", d.Events)
 		})
 		// The admin console spans workspaces, so it needs a session but no tenant.

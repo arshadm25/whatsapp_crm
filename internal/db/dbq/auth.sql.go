@@ -73,7 +73,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO tenants (id, name, slug)
 VALUES ($1, $2, $3)
-RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at
+RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since
 `
 
 type CreateTenantParams struct {
@@ -97,6 +97,8 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Ten
 		&i.MessageRetentionDays,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MetaPaymentMode,
+		&i.MetaPaymentModeSince,
 	)
 	return i, err
 }
@@ -170,7 +172,7 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 }
 
 const getTenant = `-- name: GetTenant :one
-SELECT id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at FROM tenants WHERE id = $1
+SELECT id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since FROM tenants WHERE id = $1
 `
 
 func (q *Queries) GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error) {
@@ -188,6 +190,8 @@ func (q *Queries) GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error) {
 		&i.MessageRetentionDays,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MetaPaymentMode,
+		&i.MetaPaymentModeSince,
 	)
 	return i, err
 }
