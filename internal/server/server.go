@@ -14,6 +14,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
+	"github.com/arshadm25/whatsapp_crm/internal/bots"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
@@ -47,6 +48,7 @@ type APIDeps struct {
 	Webhooks   *webhooks.Service
 	Contacts   *contacts.Service
 	Campaigns  *campaigns.Service
+	Bots       *bots.Service
 	Analytics  *analytics.Service
 	Admin      *admin.Service
 	Billing    *billing.Service
@@ -110,6 +112,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/webhook-endpoints", d.Webhooks.Routes)
 			r.Route("/contacts", d.Contacts.Routes)
 			r.Route("/campaigns", d.Campaigns.Routes)
+			r.Route("/bots", d.Bots.Routes)
 		})
 	})
 

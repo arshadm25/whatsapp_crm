@@ -300,7 +300,7 @@ const insertCampaignMessage = `-- name: InsertCampaignMessage :one
 INSERT INTO messages (id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin,
                       type, content, template_id, status, campaign_id)
 VALUES ($1, $2, $3, $4, $5, 'outbound', 'campaign', 'template', $6, $7, 'queued', $8)
-RETURNING id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at
+RETURNING id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at, bot_id
 `
 
 type InsertCampaignMessageParams struct {
@@ -353,6 +353,7 @@ func (q *Queries) InsertCampaignMessage(ctx context.Context, arg InsertCampaignM
 		&i.MetaTimestamp,
 		&i.StatusUpdatedAt,
 		&i.CreatedAt,
+		&i.BotID,
 	)
 	return i, err
 }

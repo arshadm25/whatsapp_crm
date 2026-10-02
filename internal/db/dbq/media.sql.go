@@ -36,7 +36,7 @@ func (q *Queries) GetMedia(ctx context.Context, id uuid.UUID) (Medium, error) {
 }
 
 const getMessageForMediaDownload = `-- name: GetMessageForMediaDownload :one
-SELECT m.id, m.tenant_id, m.conversation_id, m.phone_number_id, m.contact_id, m.direction, m.origin, m.wamid, m.type, m.content, m.media_id, m.template_id, m.reply_to_wamid, m.status, m.error_code, m.error_title, m.sent_by_user_id, m.api_key_id, m.campaign_id, m.idempotency_key, m.pricing_category, m.pricing_billable, m.recipient_country, m.meta_timestamp, m.status_updated_at, m.created_at, p.whatsapp_account_id
+SELECT m.id, m.tenant_id, m.conversation_id, m.phone_number_id, m.contact_id, m.direction, m.origin, m.wamid, m.type, m.content, m.media_id, m.template_id, m.reply_to_wamid, m.status, m.error_code, m.error_title, m.sent_by_user_id, m.api_key_id, m.campaign_id, m.idempotency_key, m.pricing_category, m.pricing_billable, m.recipient_country, m.meta_timestamp, m.status_updated_at, m.created_at, m.bot_id, p.whatsapp_account_id
 FROM messages m JOIN phone_numbers p ON p.id = m.phone_number_id
 WHERE m.id = $1
 `
@@ -76,6 +76,7 @@ func (q *Queries) GetMessageForMediaDownload(ctx context.Context, id uuid.UUID) 
 		&i.Message.MetaTimestamp,
 		&i.Message.StatusUpdatedAt,
 		&i.Message.CreatedAt,
+		&i.Message.BotID,
 		&i.WhatsappAccountID,
 	)
 	return i, err

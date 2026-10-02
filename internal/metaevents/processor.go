@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/bots"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
@@ -277,7 +278,10 @@ func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tx pgx.Tx,
 	if echo {
 		return q.TouchConversationOutbound(ctx, dbq.TouchConversationOutboundParams{ID: conv.ID, At: at, Preview: preview(h)})
 	}
-	return q.TouchConversationInbound(ctx, dbq.TouchConversationInboundParams{ID: conv.ID, At: at, Preview: preview(h)})
+	if err := q.TouchConversationInbound(ctx, dbq.TouchConversationInboundParams{ID: conv.ID, At: at, Preview: preview(h)}); err != nil {
+		return err
+	}
+	return bots.EnqueueInbound(ctx, q, tx, p.Jobs, tenantID, conv.ID, msgID)
 }
 
 // applyKeyword honours STOP and START replies: the customer opts out of (or back in to)

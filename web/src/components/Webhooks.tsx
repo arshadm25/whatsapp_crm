@@ -5,7 +5,7 @@ import { api, ApiError } from "../api/client";
 import { usePhoneNumbers } from "../api/hooks";
 import type { CreatedWebhookEndpoint, Page, WebhookDelivery, WebhookEndpoint, WebhookEventType } from "../api/types";
 
-const EVENTS: WebhookEventType[] = ["message.received", "message.status", "template.status", "number.quality"];
+const EVENTS: WebhookEventType[] = ["message.received", "message.status", "template.status", "number.quality", "bot.handoff"];
 
 const PILL: Record<WebhookDelivery["status"], string> = {
   pending: "t-pending",

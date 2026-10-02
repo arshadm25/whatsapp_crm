@@ -26,6 +26,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
+	"github.com/arshadm25/whatsapp_crm/internal/bots"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
@@ -126,6 +127,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Webhooks:   webhooks.NewService(d, keys, rc, log),
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
+		Bots:       bots.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
@@ -175,6 +177,7 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, media.NewDownloadWorker(d, keys, meta, store, log))
 	river.AddWorker(workers, webhooks.NewWorker(d, keys, nil, log))
 	river.AddWorker(workers, campaigns.NewWorker(d, log))
+	river.AddWorker(workers, bots.NewWorker(d, log))
 	river.AddWorker(workers, analytics.NewWorker(d, log))
 	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
 	river.AddWorker(workers, retention.NewWorker(d, store, log))

@@ -49,6 +49,7 @@ tags:
   - name: Phone numbers
   - name: Contacts
   - name: Campaigns
+  - name: Bots
   - name: Webhook endpoints
 
 paths:
@@ -659,6 +660,218 @@ paths:
               schema: { $ref: '#/components/schemas/Campaign' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /bots:
+    get:
+      tags: [Bots]
+      operationId: listBots
+      summary: List chatbots
+      description: Bots are managed by workspace owners and admins.
+      responses:
+        '200':
+          description: Bots, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Bot' }
+    post:
+      tags: [Bots]
+      operationId: createBot
+      summary: Create a chatbot
+      description: |
+        A bot is a flow of nodes (`message`, `buttons`, `question`, `condition`, `set`, `tag`,
+        `template`, `handoff`, `end`) started by triggers (`keyword`, `first_message`,
+        `button_reply`, `any_message`). The flow is checked when saved: every node a `next` points to must
+        exist, buttons are limited to three with titles of 20 characters, and a loop must wait for the customer.
+        A new bot is a `draft` until activated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BotRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bot' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /bots/{bot_id}:
+    parameters:
+      - $ref: '#/components/parameters/BotId'
+    get:
+      tags: [Bots]
+      operationId: getBot
+      summary: Get a chatbot
+      responses:
+        '200':
+          description: The bot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Bots]
+      operationId: updateBot
+      summary: Replace a chatbot's name, number and flow
+      description: Sessions already running continue on the new flow; one waiting at a node that no longer exists is failed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BotRequest' }
+      responses:
+        '200':
+          description: The updated bot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bot' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Bots]
+      operationId: deleteBot
+      summary: Delete a chatbot and its sessions
+      responses:
+        '204': { description: Deleted; messages it sent stay in the conversations }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /bots/{bot_id}/activate:
+    post:
+      tags: [Bots]
+      operationId: activateBot
+      summary: Let the bot answer
+      description: |
+        From now on an inbound message that matches a trigger starts the bot on its number (or on every
+        number when none is assigned). The bot never writes to a blocked or opted-out contact, outside the
+        24-hour window except with an approved template, in a conversation assigned to or replied to by a
+        person, or after a handoff.
+      parameters:
+        - $ref: '#/components/parameters/BotId'
+      responses:
+        '200':
+          description: The bot, now `active`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /bots/{bot_id}/pause:
+    post:
+      tags: [Bots]
+      operationId: pauseBot
+      summary: Stop the bot taking conversations
+      description: Ends the bot's open sessions; conversations stay as they are.
+      parameters:
+        - $ref: '#/components/parameters/BotId'
+      responses:
+        '200':
+          description: The bot, now `paused`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /bots/{bot_id}/assign:
+    post:
+      tags: [Bots]
+      operationId: assignBot
+      summary: Choose the number a bot answers on
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone_number_id]
+              properties:
+                phone_number_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: The number, or null for every number.
+      parameters:
+        - $ref: '#/components/parameters/BotId'
+      responses:
+        '200':
+          description: The bot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /bots/{bot_id}/start:
+    post:
+      tags: [Bots]
+      operationId: startBot
+      summary: Run the bot on a conversation now
+      description: The bot must be active. It starts at the flow's first node and sends its first message in a moment.
+      parameters:
+        - $ref: '#/components/parameters/BotId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conversation_id]
+              properties:
+                conversation_id: { type: string, format: uuid }
+      responses:
+        '202': { description: Queued }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /bots/{bot_id}/stop:
+    post:
+      tags: [Bots]
+      operationId: stopBot
+      summary: End the bot's session in a conversation
+      parameters:
+        - $ref: '#/components/parameters/BotId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conversation_id]
+              properties:
+                conversation_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The stopped session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BotSession' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /bots/{bot_id}/sessions:
+    get:
+      tags: [Bots]
+      operationId: listBotSessions
+      summary: Recent sessions of a bot
+      parameters:
+        - $ref: '#/components/parameters/BotId'
+      responses:
+        '200':
+          description: Up to 100 sessions, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/BotSession' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /webhook-endpoints:
     get:
       tags: [Webhook endpoints]
@@ -804,6 +1017,34 @@ webhooks:
                     data: { $ref: '#/components/schemas/Message' }
       responses:
         '2XX': { description: Acknowledged }
+  bot.handoff:
+    post:
+      summary: A bot handed a conversation to your team
+      parameters:
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EventEnvelope'
+                - type: object
+                  properties:
+                    type: { const: bot.handoff }
+                    data:
+                      type: object
+                      properties:
+                        bot_id: { type: string, format: uuid }
+                        bot_name: { type: string }
+                        session_id: { type: string, format: uuid }
+                        conversation_id: { type: string, format: uuid }
+                        contact_id: { type: string, format: uuid }
+                        contact_wa_id: { type: string }
+                        reason: { type: string }
+                        variables: { type: object, additionalProperties: { type: string } }
+      responses:
+        '2XX': { description: Acknowledged }
   template.status:
     post:
       summary: Meta approved, rejected, paused or disabled a template
@@ -889,6 +1130,11 @@ components:
       schema: { type: string, format: uuid }
     CampaignId:
       name: campaign_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BotId:
+      name: bot_id
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -1012,7 +1258,7 @@ components:
       enum: [queued, sent, delivered, read, failed, received, deleted]
     EventType:
       type: string
-      enum: [message.received, message.status, template.status, number.quality]
+      enum: [message.received, message.status, template.status, number.quality, bot.handoff]
 
     SendMessageRequest:
       type: object
@@ -1348,6 +1594,70 @@ components:
             contact_ids: { type: array, items: { type: string, format: uuid }, maxItems: 10000 }
         scheduled_at: { type: string, format: date-time }
         send_rate_per_min: { type: integer, minimum: 1, maximum: 10000, default: 1000, description: Messages per minute. }
+
+    BotRequest:
+      type: object
+      required: [name, flow]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        phone_number_id: { type: [string, 'null'], format: uuid, description: The number the bot answers on; null for every number. }
+        flow: { $ref: '#/components/schemas/BotFlow' }
+
+    BotFlow:
+      type: object
+      required: [start, nodes]
+      properties:
+        start: { type: string, description: Id of the first node. }
+        triggers:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [type]
+            properties:
+              type: { type: string, enum: [keyword, first_message, button_reply, any_message] }
+              keywords: { type: array, items: { type: string }, description: For `keyword`. }
+              match: { type: string, enum: [exact, contains], default: exact }
+              button_id: { type: string, description: For `button_reply`. }
+        nodes:
+          type: object
+          maxProperties: 100
+          description: |
+            Nodes by id. `message` (text, next); `buttons` (text, up to three buttons each with id, title and next);
+            `question` (text, var, kind text|number|email|phone, next); `condition` (var, op equals|not_equals|contains|exists|gt|lt,
+            value, then, else); `set` (var, value, next); `tag` (tag, next); `template` (template name, language, params, next);
+            `handoff` (optional text, reason, assign_to a user id); `end` (optional text). Text may use `{{variable}}`,
+            `{{contact.name}}` and `{{contact.phone}}`.
+          additionalProperties:
+            type: object
+            required: [type]
+            properties:
+              type: { type: string, enum: [message, buttons, question, condition, set, tag, template, handoff, end] }
+
+    Bot:
+      allOf:
+        - $ref: '#/components/schemas/BotRequest'
+        - type: object
+          required: [id, status, created_at, updated_at]
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [draft, active, paused] }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    BotSession:
+      type: object
+      required: [id, bot_id, conversation_id, contact_id, status, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        bot_id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        contact_id: { type: string, format: uuid }
+        status: { type: string, enum: [active, completed, handed_off, stopped, expired, failed] }
+        end_reason: { type: [string, 'null'], description: 'For example wants_agent, agent_took_over, agent_replied, contact_opted_out, window_closed, template_not_approved.' }
+        variables: { type: object, additionalProperties: { type: string }, description: Answers collected so far. }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time }
 
     Campaign:
       type: object

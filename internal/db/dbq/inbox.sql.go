@@ -179,7 +179,7 @@ func (q *Queries) ListContactTags(ctx context.Context, contactIds []uuid.UUID) (
 }
 
 const listConversationMessages = `-- name: ListConversationMessages :many
-SELECT id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at FROM messages
+SELECT id, tenant_id, conversation_id, phone_number_id, contact_id, direction, origin, wamid, type, content, media_id, template_id, reply_to_wamid, status, error_code, error_title, sent_by_user_id, api_key_id, campaign_id, idempotency_key, pricing_category, pricing_billable, recipient_country, meta_timestamp, status_updated_at, created_at, bot_id FROM messages
 WHERE conversation_id = $1 AND ($2::uuid IS NULL OR id < $2)
 ORDER BY id DESC
 LIMIT $3
@@ -227,6 +227,7 @@ func (q *Queries) ListConversationMessages(ctx context.Context, arg ListConversa
 			&i.MetaTimestamp,
 			&i.StatusUpdatedAt,
 			&i.CreatedAt,
+			&i.BotID,
 		); err != nil {
 			return nil, err
 		}
