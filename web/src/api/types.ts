@@ -90,3 +90,56 @@ export interface Message {
   created_at: string;
   status_updated_at: string;
 }
+
+export interface Contact {
+  id: string;
+  wa_id: string;
+  name: string | null;
+  profile_name: string | null;
+  language: string | null;
+  custom_fields: Record<string, unknown>;
+  tags: string[];
+  opt_in_status: "unknown" | "opted_in" | "opted_out";
+  opted_in_at: string | null;
+  opted_out_at: string | null;
+  blocked: boolean;
+  created_at: string;
+}
+
+export interface Conversation {
+  id: string;
+  phone_number_id: string;
+  contact: Contact;
+  status: "open" | "pending" | "closed";
+  assignee_id: string | null;
+  window: { open: boolean; expires_at: string | null };
+  unread_count: number;
+  last_message_at: string | null;
+  last_message_preview: string | null;
+}
+
+export interface Page<T> {
+  data: T[];
+  next_cursor: string | null;
+}
+
+export interface Member {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface Note {
+  id: string;
+  body: string;
+  author_id: string;
+  author_name: string;
+  created_at: string;
+}
+
+export interface QuickReply {
+  id: string;
+  shortcut: string;
+  body: string;
+}

@@ -163,6 +163,33 @@
     "status_read": "Read",
     "status_failed": "Failed",
     "status_received": "Received",
-    "status_deleted": "Deleted"
+    "status_deleted": "Deleted",
+    "sendTemplate": "Send template"
+  },
+  "inbox": {
+    "title": "Inbox",
+    "search": "Search name or number",
+    "empty": "No conversations here.",
+    "pick": "Pick a conversation.",
+    "filter_all": "Open",
+    "filter_mine": "Mine",
+    "filter_unassigned": "Unassigned",
+    "filter_closed": "Closed",
+    "via": "via {{number}}",
+    "windowOpen": "Window open · {{left}} left",
+    "windowClosed": "Window closed",
+    "assignee": "Assigned to",
+    "unassigned": "Unassigned",
+    "close": "Close",
+    "reopen": "Reopen",
+    "notes": "Notes",
+    "older": "Load older messages",
+    "fromPhone": "sent from the phone",
+    "closedHint": "The customer has not written in 24 hours. Only an approved template can be sent.",
+    "placeholder": "Type a message. Enter sends, Shift+Enter adds a line, / inserts a quick reply.",
+    "notesHint": "Only your team sees notes.",
+    "addNote": "Add note",
+    "quickReplies": "Quick replies",
+    "addQuickReply": "Add quick reply"
   }
 }

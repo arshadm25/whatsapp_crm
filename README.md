@@ -16,7 +16,8 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 | Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import, media download, client webhooks later) |
 | Sending messages (`POST /v1/messages`): opt-out and 24-hour window checks, `Idempotency-Key`, send worker with Meta error mapping, `GET /v1/messages/{id}`, mark as read | Done (media upload, inbox and API keys later) |
 | D4 Templates: list, create and edit through Meta review, delete by name, sync from Meta (also at the end of onboarding) | Done |
-| Dashboard: Templates list and editor, Send a message test screen | Done (the inbox replaces the test screen) |
+| Dashboard: Templates list and editor, Send a message test screen | Done |
+| D3 Inbox: conversations with filters and search, assignment, close and reopen, internal notes, quick replies, template picker when the 24-hour window is closed, live updates over SSE | Done |
 
 ## Layout
 
@@ -29,6 +30,9 @@ internal/
   messaging/          Flow 3: /v1/messages and the send worker
   templates/          D4: /v1/templates, template sync from Meta
   credentials/        opens the encrypted Meta tokens
+  inbox/              D3: /v1/conversations, notes, quick replies
+  events/             live updates: Postgres LISTEN/NOTIFY to Server-Sent Events
+  contacts/           D6: contact representation (more with the contacts slice)
   metaclient/         the only package that calls Meta's Graph API
   metaevents/         Meta webhooks: signature check and enqueue (ingest), processing (worker)
   crypto/envelope/    AES-256-GCM envelope encryption for Meta tokens and PINs
