@@ -31,11 +31,23 @@ export default function Templates() {
     }
   };
 
+  const submitDraft = async (tpl: Template) => {
+    setError("");
+    try {
+      await api("POST", `/v1/templates/${tpl.id}/submit`);
+      await qc.invalidateQueries({ queryKey: ["templates"] });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : t("common.error"));
+    }
+  };
+
   const remove = async (tpl: Template) => {
     if (!window.confirm(t("templates.confirmDelete", { name: tpl.name }))) return;
     setError("");
     try {
-      await api("DELETE", `/v1/templates/by-name/${tpl.name}?whatsapp_account_id=${tpl.whatsapp_account_id}`);
+      // A draft never reached Meta, so it is deleted here only.
+      if (tpl.status === "draft") await api("DELETE", `/v1/templates/${tpl.id}`);
+      else await api("DELETE", `/v1/templates/by-name/${tpl.name}?whatsapp_account_id=${tpl.whatsapp_account_id}`);
       await qc.invalidateQueries({ queryKey: ["templates"] });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t("common.error"));
@@ -83,6 +95,9 @@ export default function Templates() {
                   <td className="small">{tpl.components.find((c) => c.type.toUpperCase() === "BODY")?.text}</td>
                   {canManage && (
                     <td>
+                      {tpl.status === "draft" && (
+                        <button className="link" onClick={() => submitDraft(tpl)}>{t("templates.submitDraft")}</button>
+                      )}
                       <button className="link" onClick={() => remove(tpl)}>{t("templates.delete")}</button>
                     </td>
                   )}

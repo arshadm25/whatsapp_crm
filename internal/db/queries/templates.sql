@@ -54,3 +54,20 @@ RETURNING *;
 
 -- name: DeleteTemplatesByName :execrows
 DELETE FROM templates WHERE whatsapp_account_id = $1 AND name = $2;
+
+-- name: InsertTemplateDraft :one
+-- A template saved without submitting it to Meta.
+INSERT INTO templates (id, tenant_id, whatsapp_account_id, name, language, category, status, parameter_format,
+                       components, created_by)
+VALUES (@id, @tenant_id, @whatsapp_account_id, @name, @language, @category, 'draft', @parameter_format,
+        @components, @created_by)
+ON CONFLICT (whatsapp_account_id, name, language) DO NOTHING
+RETURNING *;
+
+-- name: UpdateTemplateDraft :one
+UPDATE templates SET category = $2, components = $3, updated_at = now()
+WHERE id = $1 AND status = 'draft'
+RETURNING *;
+
+-- name: DeleteTemplateDraft :execrows
+DELETE FROM templates WHERE id = $1 AND status = 'draft';

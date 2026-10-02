@@ -54,6 +54,12 @@ func (c *Client) UpdateBusinessProfile(ctx context.Context, token, phoneNumberID
 // UploadProfilePicture sends a picture through Meta's resumable upload API and returns the
 // handle that UpdateBusinessProfile takes as profile_picture_handle.
 func (c *Client) UploadProfilePicture(ctx context.Context, token, mimeType, filename string, data []byte) (string, error) {
+	return c.ResumableUpload(ctx, token, mimeType, filename, data)
+}
+
+// ResumableUpload sends a file through Meta's resumable upload API and returns its handle: a
+// profile picture, or the sample a template's image, video or document header needs.
+func (c *Client) ResumableUpload(ctx context.Context, token, mimeType, filename string, data []byte) (string, error) {
 	q := url.Values{"file_length": {strconv.Itoa(len(data))}, "file_type": {mimeType}, "file_name": {safeFilename(filename)}}
 	var session struct {
 		ID string `json:"id"`

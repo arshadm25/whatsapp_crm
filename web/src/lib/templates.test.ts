@@ -23,6 +23,13 @@ describe("template helpers", () => {
     expect(bodyVariables(comps)).toEqual(["1"]);
   });
 
+  it("builds a media header from an uploaded sample", () => {
+    const comps = buildComponents({
+      header: "ignored", headerMedia: { format: "IMAGE", handle: "4::abc" }, body: "New stock", footer: "", quickReplies: [], samples: {},
+    });
+    expect(comps[0]).toEqual({ type: "HEADER", format: "IMAGE", example: { header_handle: ["4::abc"] } });
+  });
+
   it("normalises names", () => {
     expect(toTemplateName("Order Shipped!")).toBe("order_shipped_");
   });

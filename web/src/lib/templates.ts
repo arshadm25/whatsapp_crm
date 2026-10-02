@@ -7,8 +7,13 @@ export function placeholders(text: string): string[] {
   return [...seen];
 }
 
+export type MediaFormat = "IMAGE" | "VIDEO" | "DOCUMENT";
+
 export interface TemplateDraft {
   header: string;
+  // An image, video or document header instead of a text one: the handle Meta returned for
+  // the uploaded sample.
+  headerMedia?: { format: MediaFormat; handle: string };
   body: string;
   footer: string;
   quickReplies: string[];
@@ -20,7 +25,9 @@ export interface TemplateDraft {
 export function buildComponents(d: TemplateDraft): TemplateComponent[] {
   const out: TemplateComponent[] = [];
   const header = d.header.trim();
-  if (header) {
+  if (d.headerMedia) {
+    out.push({ type: "HEADER", format: d.headerMedia.format, example: { header_handle: [d.headerMedia.handle] } });
+  } else if (header) {
     const vars = placeholders(header);
     const c: TemplateComponent = { type: "HEADER", format: "TEXT", text: header };
     if (vars.length) c.example = { header_text: vars.map((v) => d.samples[`h:${v}`] ?? "") };

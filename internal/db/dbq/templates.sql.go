@@ -12,6 +12,18 @@ import (
 	"github.com/google/uuid"
 )
 
+const deleteTemplateDraft = `-- name: DeleteTemplateDraft :execrows
+DELETE FROM templates WHERE id = $1 AND status = 'draft'
+`
+
+func (q *Queries) DeleteTemplateDraft(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTemplateDraft, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteTemplatesByName = `-- name: DeleteTemplatesByName :execrows
 DELETE FROM templates WHERE whatsapp_account_id = $1 AND name = $2
 `
@@ -141,6 +153,63 @@ func (q *Queries) GetWhatsAppAccount(ctx context.Context, id uuid.UUID) (Whatsap
 	return i, err
 }
 
+const insertTemplateDraft = `-- name: InsertTemplateDraft :one
+INSERT INTO templates (id, tenant_id, whatsapp_account_id, name, language, category, status, parameter_format,
+                       components, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7,
+        $8, $9)
+ON CONFLICT (whatsapp_account_id, name, language) DO NOTHING
+RETURNING id, tenant_id, whatsapp_account_id, meta_template_id, name, language, category, status, rejected_reason, quality_score, parameter_format, components, created_by, submitted_at, status_updated_at, created_at, updated_at
+`
+
+type InsertTemplateDraftParams struct {
+	ID                uuid.UUID
+	TenantID          uuid.UUID
+	WhatsappAccountID uuid.UUID
+	Name              string
+	Language          string
+	Category          TemplateCategory
+	ParameterFormat   string
+	Components        []byte
+	CreatedBy         *uuid.UUID
+}
+
+// A template saved without submitting it to Meta.
+func (q *Queries) InsertTemplateDraft(ctx context.Context, arg InsertTemplateDraftParams) (Template, error) {
+	row := q.db.QueryRow(ctx, insertTemplateDraft,
+		arg.ID,
+		arg.TenantID,
+		arg.WhatsappAccountID,
+		arg.Name,
+		arg.Language,
+		arg.Category,
+		arg.ParameterFormat,
+		arg.Components,
+		arg.CreatedBy,
+	)
+	var i Template
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.WhatsappAccountID,
+		&i.MetaTemplateID,
+		&i.Name,
+		&i.Language,
+		&i.Category,
+		&i.Status,
+		&i.RejectedReason,
+		&i.QualityScore,
+		&i.ParameterFormat,
+		&i.Components,
+		&i.CreatedBy,
+		&i.SubmittedAt,
+		&i.StatusUpdatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listTemplates = `-- name: ListTemplates :many
 SELECT id, tenant_id, whatsapp_account_id, meta_template_id, name, language, category, status, rejected_reason, quality_score, parameter_format, components, created_by, submitted_at, status_updated_at, created_at, updated_at FROM templates
 WHERE ($1::uuid IS NULL OR whatsapp_account_id = $1)
@@ -265,6 +334,43 @@ type UpdateTemplateAfterEditParams struct {
 
 func (q *Queries) UpdateTemplateAfterEdit(ctx context.Context, arg UpdateTemplateAfterEditParams) (Template, error) {
 	row := q.db.QueryRow(ctx, updateTemplateAfterEdit, arg.ID, arg.Category, arg.Components)
+	var i Template
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.WhatsappAccountID,
+		&i.MetaTemplateID,
+		&i.Name,
+		&i.Language,
+		&i.Category,
+		&i.Status,
+		&i.RejectedReason,
+		&i.QualityScore,
+		&i.ParameterFormat,
+		&i.Components,
+		&i.CreatedBy,
+		&i.SubmittedAt,
+		&i.StatusUpdatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateTemplateDraft = `-- name: UpdateTemplateDraft :one
+UPDATE templates SET category = $2, components = $3, updated_at = now()
+WHERE id = $1 AND status = 'draft'
+RETURNING id, tenant_id, whatsapp_account_id, meta_template_id, name, language, category, status, rejected_reason, quality_score, parameter_format, components, created_by, submitted_at, status_updated_at, created_at, updated_at
+`
+
+type UpdateTemplateDraftParams struct {
+	ID         uuid.UUID
+	Category   TemplateCategory
+	Components []byte
+}
+
+func (q *Queries) UpdateTemplateDraft(ctx context.Context, arg UpdateTemplateDraftParams) (Template, error) {
+	row := q.db.QueryRow(ctx, updateTemplateDraft, arg.ID, arg.Category, arg.Components)
 	var i Template
 	err := row.Scan(
 		&i.ID,
