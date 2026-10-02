@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/arshadm25/whatsapp_crm/internal/admin"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
@@ -44,6 +45,7 @@ type APIDeps struct {
 	Contacts   *contacts.Service
 	Campaigns  *campaigns.Service
 	Analytics  *analytics.Service
+	Admin      *admin.Service
 	Events     http.Handler
 }
 
@@ -71,6 +73,11 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/analytics", d.Analytics.InternalRoutes)
 			r.Route("/team", d.Auth.TeamRoutes)
 			r.Method(http.MethodGet, "/events", d.Events)
+		})
+		// The admin console spans workspaces, so it needs a session but no tenant.
+		r.Group(func(r chi.Router) {
+			r.Use(d.Auth.RequireSession)
+			r.Route("/admin", d.Admin.Routes)
 		})
 	})
 

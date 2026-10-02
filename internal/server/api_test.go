@@ -23,6 +23,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/arshadm25/whatsapp_crm/internal/admin"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
@@ -216,7 +217,7 @@ func newHarness(t *testing.T) *harness {
 	go hub.Run(hubCtx)
 	h := server.NewAPI(server.APIDeps{
 		Config: cfg, DB: d, Log: log,
-		Auth:       auth.NewService(d, cfg, mailer.Log{Logger: log}, log),
+		Auth:       auth.NewService(d, keys, cfg, mailer.Log{Logger: log}, log),
 		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
 		Numbers:    numbers.NewService(d, log),
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
@@ -229,6 +230,7 @@ func newHarness(t *testing.T) *harness {
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
+		Admin:      admin.NewService(d, log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)

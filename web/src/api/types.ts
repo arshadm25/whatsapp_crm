@@ -6,9 +6,18 @@ export interface TenantInfo {
 }
 
 export interface Me {
-  user: { id: string; email: string; name: string; email_verified: boolean };
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    email_verified: boolean;
+    two_factor_enabled: boolean;
+    is_platform_admin: boolean;
+  };
   tenant: TenantInfo | null;
   memberships: TenantInfo[];
+  // Set, alone, while a login still needs its two-step code.
+  mfa_required?: boolean;
 }
 
 export interface PublicConfig {
@@ -328,4 +337,74 @@ export interface Workspace {
   name: string;
   legal_name: string | null;
   time_zone: string;
+}
+
+// Platform admin console (A1).
+export interface AdminTenant {
+  id: string;
+  name: string;
+  slug: string;
+  legal_name: string | null;
+  status: "active" | "suspended" | "closed";
+  suspended_reason: string | null;
+  time_zone: string;
+  created_at: string;
+}
+
+export interface AdminTenantDetail extends AdminTenant {
+  members: number;
+  numbers: {
+    id: string;
+    display_phone_number: string;
+    verified_name: string | null;
+    status: string;
+    quality_rating: string;
+    messaging_limit_tier: string | null;
+    coexistence: boolean;
+    waba_id: string;
+  }[];
+  sent_30d: number;
+  received_30d: number;
+  last_message_at: string | null;
+  webhook_deliveries_24h: Record<string, number>;
+}
+
+export interface AdminConversation {
+  id: string;
+  phone_number_id: string;
+  contact_wa_id: string;
+  status: string;
+  last_message_at: string | null;
+}
+
+export interface WebhookHealth {
+  hours: { hour: string; received: number; processed: number; failed: number; pending: number; p95_lag_seconds: number }[];
+  errors: { id: number; received_at: string; field: string | null; waba_id: string | null; tenant_id: string | null; error: string | null }[];
+}
+
+export interface MetaApiError {
+  id: number;
+  tenant_id: string | null;
+  method: string;
+  path: string;
+  http_status: number;
+  code: number | null;
+  subcode: number | null;
+  message: string | null;
+  fbtrace_id: string | null;
+  occurred_at: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  tenant_id: string | null;
+  actor_type: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  reason: string | null;
+  ip: string | null;
+  occurred_at: string;
 }

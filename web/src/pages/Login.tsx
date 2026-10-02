@@ -23,7 +23,8 @@ export default function Login() {
     try {
       const me = await api<Me>("POST", "/internal/auth/login", { email, password });
       qc.setQueryData(["me"], me);
-      navigate((location.state as { from?: string } | null)?.from ?? "/");
+      const from = (location.state as { from?: string } | null)?.from ?? "/";
+      navigate(me.mfa_required ? "/2fa" : from, { state: { from } });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t("common.error"));
     } finally {

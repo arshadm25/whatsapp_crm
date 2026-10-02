@@ -19,6 +19,8 @@ import Campaigns from "./pages/Campaigns";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 import AcceptInvite from "./pages/AcceptInvite";
+import TwoStep from "./pages/TwoStep";
+import Admin from "./pages/Admin";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -26,6 +28,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
   if (me.isLoading) return <div className="center muted">{t("common.loading")}</div>;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (me.data.mfa_required) return <Navigate to="/2fa" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 }
 
@@ -36,6 +39,7 @@ export default function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/invite" element={<AcceptInvite />} />
+      <Route path="/2fa" element={<TwoStep />} />
       <Route
         element={
           <RequireAuth>
@@ -56,6 +60,7 @@ export default function App() {
         <Route path="campaigns" element={<Campaigns />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="admin" element={<Admin />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -75,9 +75,12 @@ func (s *Service) acceptInvite(w http.ResponseWriter, r *http.Request) error {
 	var sess *dbq.Session
 	if c, err := r.Cookie(SessionCookie); err == nil && c.Value != "" {
 		err := s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
-			got, err := q.GetSessionByTokenHash(r.Context(), hashToken(c.Value))
+			got, err := q.GetSessionAuth(r.Context(), hashToken(c.Value))
+			if err == nil && got.TotpEnabled && !got.Session.MfaPassed {
+				return httpx.NewError(http.StatusForbidden, "mfa_required", "Enter the code from your authenticator app first.")
+			}
 			if err == nil {
-				sess = &got
+				sess = &got.Session
 			}
 			if db.IsNotFound(err) {
 				return nil

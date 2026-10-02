@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/config"
+	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -32,14 +33,15 @@ const verifyEmailPurpose = "verify_email"
 
 type Service struct {
 	db     *db.DB
+	keys   *envelope.Keyring
 	cfg    *config.Config
 	mailer mailer.Mailer
 	log    *slog.Logger
 	now    func() time.Time
 }
 
-func NewService(d *db.DB, cfg *config.Config, m mailer.Mailer, log *slog.Logger) *Service {
-	return &Service{db: d, cfg: cfg, mailer: m, log: log, now: time.Now}
+func NewService(d *db.DB, keys *envelope.Keyring, cfg *config.Config, m mailer.Mailer, log *slog.Logger) *Service {
+	return &Service{db: d, keys: keys, cfg: cfg, mailer: m, log: log, now: time.Now}
 }
 
 // Routes mounts the /internal/auth endpoints. CSRF is applied by the caller.
@@ -57,6 +59,10 @@ func (s *Service) Routes(r chi.Router) {
 		r.Post("/switch-tenant", httpx.Handler(s.log, s.switchTenant))
 		r.Patch("/profile", httpx.Handler(s.log, s.updateProfile))
 		r.Post("/password", httpx.Handler(s.log, s.changePassword))
+		r.Post("/2fa/setup", httpx.Handler(s.log, s.setupTOTP))
+		r.Post("/2fa/enable", httpx.Handler(s.log, s.enableTOTP))
+		r.Post("/2fa/disable", httpx.Handler(s.log, s.disableTOTP))
+		r.Post("/2fa/verify", httpx.Handler(s.log, s.verifyTOTP))
 	})
 }
 
@@ -148,6 +154,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	token := randomToken()
 	ip, ua := clientInfo(r)
 	var userID, tenantID uuid.UUID
+	var needsCode bool
 	err = s.db.Global(r.Context(), func(q *dbq.Queries, tx pgx.Tx) error {
 		u, err := q.GetUserByEmail(r.Context(), email)
 		if db.IsNotFound(err) {
@@ -165,6 +172,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 			return errBadLogin
 		}
 		userID = u.ID
+		needsCode = u.TotpSecretEnc != nil
 		ms, err := q.UserMemberships(r.Context(), u.ID)
 		if err != nil {
 			return err
@@ -192,6 +200,10 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.setSessionCookie(w, token)
+	if needsCode {
+		httpx.JSON(w, http.StatusOK, map[string]any{"mfa_required": true})
+		return nil
+	}
 	return s.writeMe(w, r, userID, tenantID, http.StatusOK)
 }
 
@@ -212,6 +224,11 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Service) me(w http.ResponseWriter, r *http.Request) error {
 	p, _ := PrincipalFrom(r.Context())
+	if p.MFAPending {
+		// Until the code is entered, say only that it is needed.
+		httpx.JSON(w, http.StatusOK, map[string]any{"mfa_required": true})
+		return nil
+	}
 	return s.writeMe(w, r, p.UserID, p.TenantID, http.StatusOK)
 }
 
@@ -303,10 +320,12 @@ func (s *Service) sendVerification(ctx context.Context, userID uuid.UUID, email,
 // MeResponse is what the dashboard needs to render its shell.
 type MeResponse struct {
 	User struct {
-		ID            uuid.UUID `json:"id"`
-		Email         string    `json:"email"`
-		Name          string    `json:"name"`
-		EmailVerified bool      `json:"email_verified"`
+		ID               uuid.UUID `json:"id"`
+		Email            string    `json:"email"`
+		Name             string    `json:"name"`
+		EmailVerified    bool      `json:"email_verified"`
+		TwoFactorEnabled bool      `json:"two_factor_enabled"`
+		PlatformAdmin    bool      `json:"is_platform_admin"`
 	} `json:"user"`
 	Tenant      *TenantInfo  `json:"tenant"`
 	Memberships []TenantInfo `json:"memberships"`
@@ -329,6 +348,8 @@ func (s *Service) writeMe(w http.ResponseWriter, r *http.Request, userID, tenant
 		}
 		resp.User.ID, resp.User.Email, resp.User.Name = u.ID, u.Email, u.Name
 		resp.User.EmailVerified = u.EmailVerifiedAt != nil
+		resp.User.TwoFactorEnabled = u.TotpSecretEnc != nil
+		resp.User.PlatformAdmin = u.IsPlatformAdmin
 		ms, err := q.UserMemberships(r.Context(), userID)
 		if err != nil {
 			return err
@@ -399,4 +420,10 @@ func clientInfo(r *http.Request) (*netip.Addr, *string) {
 		ua = ua[:512]
 	}
 	return ip, &ua
+}
+
+// ClientIP is the caller's address, for audit entries written outside this package.
+func ClientIP(r *http.Request) *netip.Addr {
+	ip, _ := clientInfo(r)
+	return ip
 }
