@@ -45,6 +45,12 @@ config:
   s3Endpoint: minio.minio.svc:9000   # host:port, no scheme
   s3Bucket: ""                       # defaults to <release name>-media
   s3UseSSL: false
+  # GST invoices (issued when Razorpay confirms a charge). None are issued until sellerGstin is set.
+  sellerName: Ecogo Software Solutions Pvt Ltd
+  sellerGstin: ""
+  sellerAddress: ""
+  sellerSac: ""                      # services accounting code printed on invoices; ask the accountant
+  gstRateBp: "1800"                  # 18%; plan prices include it
 
 # Secret with these keys, created outside the chart:
 #   database-url            postgres URL for ecogo_app (no BYPASSRLS)

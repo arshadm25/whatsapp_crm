@@ -437,6 +437,21 @@ export interface Subscription {
   extra_seats: number;
 }
 
+export interface Invoice {
+  id: string;
+  number: string;
+  description: string;
+  total_minor: number;
+  issued_at: string;
+}
+
+export interface BillingProfile {
+  legal_name: string;
+  gstin: string;
+  state_code: string;
+  address: string;
+}
+
 export interface BillingOverview {
   subscription: Subscription;
   plan: Plan | null;

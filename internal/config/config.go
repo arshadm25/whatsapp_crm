@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,19 @@ type Config struct {
 	Storage Storage
 
 	Razorpay Razorpay
+
+	Seller Seller
+}
+
+// Seller is Ecogo's side of every GST invoice. Invoices are issued only once GSTIN is set.
+type Seller struct {
+	Name    string
+	GSTIN   string // 15 characters; the first two digits are the state code
+	Address string
+	// SAC is the services accounting code printed on invoices; the company's accountant decides it.
+	SAC string
+	// GSTRateBP is the GST rate in basis points (1800 = 18%). Plan prices include it.
+	GSTRateBP int
 }
 
 // Razorpay takes payment for our plans (D9). Billing works without it, but nobody can pay.
@@ -111,6 +125,12 @@ func Load() (*Config, error) {
 			WebhookSecret: os.Getenv("ECOGO_RAZORPAY_WEBHOOK_SECRET"),
 			BaseURL:       strings.TrimRight(env("ECOGO_RAZORPAY_BASE_URL", "https://api.razorpay.com"), "/"),
 		},
+		Seller: Seller{
+			Name:    env("ECOGO_SELLER_NAME", "Ecogo Software Solutions Pvt Ltd"),
+			GSTIN:   strings.ToUpper(strings.TrimSpace(os.Getenv("ECOGO_SELLER_GSTIN"))),
+			Address: os.Getenv("ECOGO_SELLER_ADDRESS"),
+			SAC:     os.Getenv("ECOGO_SELLER_SAC"),
+		},
 		Storage: Storage{
 			Endpoint:  os.Getenv("ECOGO_S3_ENDPOINT"),
 			AccessKey: os.Getenv("ECOGO_S3_ACCESS_KEY"),
@@ -121,6 +141,12 @@ func Load() (*Config, error) {
 	}
 
 	var err error
+	if c.Seller.GSTRateBP, err = strconv.Atoi(env("ECOGO_GST_RATE_BP", "1800")); err != nil || c.Seller.GSTRateBP < 0 || c.Seller.GSTRateBP > 10000 {
+		return nil, fmt.Errorf("ECOGO_GST_RATE_BP must be a number of basis points such as 1800")
+	}
+	if g := c.Seller.GSTIN; g != "" && !gstinPattern.MatchString(g) {
+		return nil, fmt.Errorf("ECOGO_SELLER_GSTIN is not a valid GSTIN")
+	}
 	if c.CookieSecure, err = strconv.ParseBool(env("ECOGO_COOKIE_SECURE", "true")); err != nil {
 		return nil, fmt.Errorf("ECOGO_COOKIE_SECURE: %w", err)
 	}
@@ -193,6 +219,8 @@ func parseMasterKeys(s string) (map[int][]byte, int, error) {
 	}
 	return keys, current, nil
 }
+
+var gstinPattern = regexp.MustCompile(`^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$`)
 
 func env(name, def string) string {
 	if v := os.Getenv(name); v != "" {

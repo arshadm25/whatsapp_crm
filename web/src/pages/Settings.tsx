@@ -3,8 +3,9 @@ import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
-import type { BillingOverview, Invite, Me, Role, TeamMember, Workspace } from "../api/types";
+import type { BillingOverview, BillingProfile, Invite, Invoice, Me, Role, TeamMember, Workspace } from "../api/types";
 import { daysLeft, formatPaise, graceEnd } from "../lib/billing";
+import { gstStates } from "../lib/gst";
 import { assignable } from "../lib/team";
 
 function message(e: unknown, fallback: string) {
@@ -388,6 +389,18 @@ function Billing() {
   const [extra, setExtra] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const details = useQuery({
+    queryKey: ["billing", "profile"],
+    queryFn: () => api<{ profile: BillingProfile | null; invoicing: boolean }>("GET", "/internal/billing/profile"),
+  });
+  const invoices = useQuery({
+    queryKey: ["billing", "invoices"],
+    queryFn: async () => (await api<{ data: Invoice[] }>("GET", "/internal/billing/invoices")).data,
+  });
+  const [draft, setDraft] = useState<BillingProfile | null>(null);
+  const form: BillingProfile = draft ?? details.data?.profile ?? { legal_name: "", gstin: "", state_code: "", address: "" };
+  const setField = (k: keyof BillingProfile) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setDraft({ ...form, [k]: e.target.value });
   const b = billing.data;
   if (!b) return <div className="card muted">{t("common.loading")}</div>;
   const sub = b.subscription;
@@ -409,6 +422,19 @@ function Billing() {
       setError(message(err, t("common.error")));
     } finally {
       setBusy("");
+    }
+  };
+  const saveDetails = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setNote("");
+    try {
+      await api("PUT", "/internal/billing/profile", form);
+      setDraft(null);
+      setNote(t("billing.detailsSaved"));
+      await qc.invalidateQueries({ queryKey: ["billing", "profile"] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
     }
   };
   const saveSeats = async (e: FormEvent) => {
@@ -507,6 +533,41 @@ function Billing() {
               </div>
             );
           })}
+        </div>
+      )}
+      <form className="card form" onSubmit={saveDetails}>
+        <h3>{t("billing.details")}</h3>
+        <p className="muted small">{t("billing.detailsLead")}</p>
+        <label className="field">{t("billing.legalName")}<input value={form.legal_name} onChange={setField("legal_name")} required maxLength={200} /></label>
+        <label className="field">{t("billing.gstin")}<input value={form.gstin} onChange={setField("gstin")} maxLength={15} placeholder="27AAPFU0939F1ZV" /></label>
+        <label className="field">
+          {t("billing.state")}
+          <select value={form.gstin ? form.gstin.slice(0, 2) : form.state_code} onChange={setField("state_code")} required disabled={form.gstin.length === 15}>
+            <option value="">{t("billing.chooseState")}</option>
+            {gstStates.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          </select>
+        </label>
+        <label className="field">{t("billing.address")}<textarea value={form.address} onChange={setField("address")} required maxLength={500} rows={3} /></label>
+        <div className="actions"><button className="primary">{t("billing.saveDetails")}</button></div>
+      </form>
+      <h2>{t("billing.invoices")}</h2>
+      {details.data && !details.data.invoicing && <div className="card muted small">{t("billing.invoicingOff")}</div>}
+      {invoices.data?.length === 0 ? (
+        <div className="card muted">{t("billing.noInvoices")}</div>
+      ) : (
+        <div className="card">
+          <table>
+            <tbody>
+              {invoices.data?.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.number}<div className="muted small">{i.description}</div></td>
+                  <td>{new Date(i.issued_at).toLocaleDateString()}</td>
+                  <td>{formatPaise(i.total_minor)}</td>
+                  <td><a href={`/internal/billing/invoices/${i.id}/view`} target="_blank" rel="noreferrer">{t("billing.viewInvoice")}</a></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       <p className="muted small">{t("billing.metaFees")}</p>

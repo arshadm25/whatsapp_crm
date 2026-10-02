@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -38,12 +39,13 @@ type Service struct {
 	db            *db.DB
 	rp            *razorpay.Client
 	webhookSecret string
+	seller        config.Seller
 	log           *slog.Logger
 	now           func() time.Time
 }
 
-func NewService(d *db.DB, rp *razorpay.Client, webhookSecret string, log *slog.Logger) *Service {
-	return &Service{db: d, rp: rp, webhookSecret: webhookSecret, log: log, now: time.Now}
+func NewService(d *db.DB, rp *razorpay.Client, webhookSecret string, seller config.Seller, log *slog.Logger) *Service {
+	return &Service{db: d, rp: rp, webhookSecret: webhookSecret, seller: seller, log: log, now: time.Now}
 }
 
 // InternalRoutes mounts /internal/billing for the dashboard. Only owners manage billing.
@@ -53,6 +55,10 @@ func (s *Service) InternalRoutes(r chi.Router) {
 	r.Post("/subscribe", httpx.Handler(s.log, s.subscribe))
 	r.Post("/cancel", httpx.Handler(s.log, s.cancel))
 	r.Post("/seats", httpx.Handler(s.log, s.seats))
+	r.Get("/profile", httpx.Handler(s.log, s.getProfile))
+	r.Put("/profile", httpx.Handler(s.log, s.saveProfile))
+	r.Get("/invoices", httpx.Handler(s.log, s.listInvoices))
+	r.Get("/invoices/{id}/view", httpx.Handler(s.log, s.view))
 }
 
 // Usable reports whether a workspace on this subscription may send.
@@ -462,6 +468,12 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 			if err := q.SetExtraSeats(ctx, dbq.SetExtraSeatsParams{TenantID: tenantID, ExtraSeats: extra, Ended: ended}); err != nil {
 				return err
 			}
+			if ev.Event == "subscription.charged" {
+				desc := fmt.Sprintf("Ecogo WhatsApp: %d extra team seat%s", extra, plural(extra))
+				if err := s.issueInvoice(ctx, q, tenantID, payment(ev), desc, unix(rs.CurrentStart), unix(rs.CurrentEnd)); err != nil {
+					return err
+				}
+			}
 			target, meta := "subscription", json.RawMessage(`{"event":"`+ev.Event+`","seats":true}`)
 			return q.InsertAuditLog(ctx, dbq.InsertAuditLogParams{
 				TenantID: &tenantID, ActorType: dbq.ActorTypeSystem, Action: "subscription.seats",
@@ -472,17 +484,26 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 		if next == nil {
 			return nil
 		}
+		planName := "Ecogo WhatsApp plan"
 		if rs.PlanID != "" {
 			pl, err := q.GetPlanByRazorpayID(ctx, &rs.PlanID)
 			if err == nil {
 				next.PlanCode = &pl.Code
+				planName = pl.Name + " plan"
 			} else if !db.IsNotFound(err) {
 				return err
 			}
 		}
 		next.TenantID = tenantID
-		if _, err := q.ApplySubscriptionState(ctx, *next); err != nil {
+		applied, err := q.ApplySubscriptionState(ctx, *next)
+		if err != nil {
 			return err
+		}
+		if ev.Event == "subscription.charged" {
+			desc := "Ecogo WhatsApp: " + planName
+			if err := s.issueInvoice(ctx, q, tenantID, payment(ev), desc, &applied.CurrentPeriodStart, &applied.CurrentPeriodEnd); err != nil {
+				return err
+			}
 		}
 		target, meta := "subscription", json.RawMessage(`{"event":"`+ev.Event+`"}`)
 		return q.InsertAuditLog(ctx, dbq.InsertAuditLogParams{
@@ -490,6 +511,14 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 			TargetType: &target, TargetID: &rs.ID, Metadata: meta,
 		})
 	})
+}
+
+// payment is the charge a subscription.charged event reports, if it carries one.
+func payment(ev razorpay.Event) *razorpay.Payment {
+	if ev.Payload.Payment == nil {
+		return nil
+	}
+	return &ev.Payload.Payment.Entity
 }
 
 func unix(v *int64) *time.Time {

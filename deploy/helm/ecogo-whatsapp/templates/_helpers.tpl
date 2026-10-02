@@ -63,6 +63,16 @@ app.kubernetes.io/component: {{ .component }}
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: s3-access-key } }
 - name: ECOGO_S3_SECRET_KEY
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: s3-secret-key } }
+- name: ECOGO_SELLER_NAME
+  value: {{ .root.Values.config.sellerName | quote }}
+- name: ECOGO_SELLER_GSTIN
+  value: {{ .root.Values.config.sellerGstin | quote }}
+- name: ECOGO_SELLER_ADDRESS
+  value: {{ .root.Values.config.sellerAddress | quote }}
+- name: ECOGO_SELLER_SAC
+  value: {{ .root.Values.config.sellerSac | quote }}
+- name: ECOGO_GST_RATE_BP
+  value: {{ .root.Values.config.gstRateBp | quote }}
 - name: ECOGO_RAZORPAY_KEY_ID
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: razorpay-key-id, optional: true } }
 - name: ECOGO_RAZORPAY_KEY_SECRET

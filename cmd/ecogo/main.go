@@ -126,7 +126,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
-			cfg.Razorpay.WebhookSecret, log),
+			cfg.Razorpay.WebhookSecret, cfg.Seller, log),
 		Events: hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)

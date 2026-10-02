@@ -237,7 +237,7 @@ func newHarness(t *testing.T) *harness {
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
-		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", log),
+		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)
@@ -561,3 +561,7 @@ func TestRowLevelSecurity(t *testing.T) {
 }
 
 func errorsAs(err error, target any) bool { return errors.As(err, target) }
+
+// sellerCfg is Ecogo's side of the GST invoices the tests issue.
+var sellerCfg = config.Seller{Name: "Ecogo Software Solutions Pvt Ltd", GSTIN: "32AABCE1234F1Z5",
+	Address: "Kochi, Kerala", SAC: "998439", GSTRateBP: 1800}
