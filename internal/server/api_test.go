@@ -64,6 +64,7 @@ type fakeMeta struct {
 	calls       []string
 	registerErr string            // JSON error body for /register, if set
 	numbers     map[string]string // phone number ID -> display number, per WABA listing
+	listQuality string            // quality_rating the WABA listing reports, if set
 	sendErr     string            // JSON error body for sends, if set
 	sent        []map[string]any  // bodies of message sends
 	wamids      int
@@ -132,6 +133,10 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 2 && parts[1] == "phone_numbers":
 		var data []string
 		for id, display := range f.numbers {
+			if f.listQuality != "" {
+				data = append(data, fmt.Sprintf(`{"id":%q,"display_phone_number":%q,"verified_name":"Sharma Sweets","quality_rating":%q,"messaging_limit_tier":"TIER_1K"}`, id, display, f.listQuality))
+				continue
+			}
 			data = append(data, fmt.Sprintf(`{"id":%q,"display_phone_number":%q,"is_on_biz_app":true}`, id, display))
 		}
 		fmt.Fprintf(w, `{"data":[%s]}`, strings.Join(data, ","))

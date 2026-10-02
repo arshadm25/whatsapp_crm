@@ -9,6 +9,7 @@ package onboarding
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -351,6 +352,8 @@ type SessionView struct {
 	Attempts      int32      `json:"attempts"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+	// StepTimes is when the session first reached each step.
+	StepTimes map[string]time.Time `json:"step_times"`
 }
 
 type ViewError struct {
@@ -361,8 +364,9 @@ type ViewError struct {
 func toView(s dbq.OnboardingSession) SessionView {
 	v := SessionView{
 		ID: s.ID, Flow: string(s.Flow), Step: string(s.Step), WabaID: s.WabaID, PhoneNumberID: s.PhoneNumberID,
-		Attempts: s.Attempts, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
+		Attempts: s.Attempts, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, StepTimes: map[string]time.Time{},
 	}
+	_ = json.Unmarshal(s.StepTimes, &v.StepTimes)
 	if s.ErrorMessage != nil {
 		v.Error = &ViewError{Message: *s.ErrorMessage}
 		if s.ErrorCode != nil {

@@ -31,7 +31,7 @@ func (q *Queries) CancelOnboardingSession(ctx context.Context, arg CancelOnboard
 const createOnboardingSession = `-- name: CreateOnboardingSession :one
 INSERT INTO onboarding_sessions (id, tenant_id, user_id, flow)
 VALUES ($1, $2, $3, $4)
-RETURNING id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at
+RETURNING id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at, step_times
 `
 
 type CreateOnboardingSessionParams struct {
@@ -63,6 +63,7 @@ func (q *Queries) CreateOnboardingSession(ctx context.Context, arg CreateOnboard
 		&i.Attempts,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StepTimes,
 	)
 	return i, err
 }
@@ -118,7 +119,7 @@ func (q *Queries) GetActiveCredential(ctx context.Context, whatsappAccountID uui
 }
 
 const getOnboardingSession = `-- name: GetOnboardingSession :one
-SELECT id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at FROM onboarding_sessions WHERE id = $1
+SELECT id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at, step_times FROM onboarding_sessions WHERE id = $1
 `
 
 func (q *Queries) GetOnboardingSession(ctx context.Context, id uuid.UUID) (OnboardingSession, error) {
@@ -138,12 +139,13 @@ func (q *Queries) GetOnboardingSession(ctx context.Context, id uuid.UUID) (Onboa
 		&i.Attempts,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StepTimes,
 	)
 	return i, err
 }
 
 const getOnboardingSessionForUpdate = `-- name: GetOnboardingSessionForUpdate :one
-SELECT id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at FROM onboarding_sessions WHERE id = $1 FOR UPDATE
+SELECT id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at, step_times FROM onboarding_sessions WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetOnboardingSessionForUpdate(ctx context.Context, id uuid.UUID) (OnboardingSession, error) {
@@ -163,12 +165,13 @@ func (q *Queries) GetOnboardingSessionForUpdate(ctx context.Context, id uuid.UUI
 		&i.Attempts,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StepTimes,
 	)
 	return i, err
 }
 
 const getPhoneNumberByMetaID = `-- name: GetPhoneNumberByMetaID :one
-SELECT id, tenant_id, whatsapp_account_id, phone_number_id, display_phone_number, verified_name, name_status, quality_rating, messaging_limit_tier, code_verification_status, is_coexistence, registered_at, two_step_pin_enc, status, business_profile, last_synced_at, created_at, updated_at FROM phone_numbers WHERE phone_number_id = $1
+SELECT id, tenant_id, whatsapp_account_id, phone_number_id, display_phone_number, verified_name, name_status, quality_rating, messaging_limit_tier, code_verification_status, is_coexistence, registered_at, two_step_pin_enc, status, business_profile, last_synced_at, created_at, updated_at, previous_quality_rating, quality_changed_at FROM phone_numbers WHERE phone_number_id = $1
 `
 
 func (q *Queries) GetPhoneNumberByMetaID(ctx context.Context, phoneNumberID string) (PhoneNumber, error) {
@@ -193,6 +196,8 @@ func (q *Queries) GetPhoneNumberByMetaID(ctx context.Context, phoneNumberID stri
 		&i.LastSyncedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreviousQualityRating,
+		&i.QualityChangedAt,
 	)
 	return i, err
 }
@@ -285,7 +290,7 @@ func (q *Queries) InsertMetaAPIError(ctx context.Context, arg InsertMetaAPIError
 }
 
 const listOnboardingSessions = `-- name: ListOnboardingSessions :many
-SELECT id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at FROM onboarding_sessions ORDER BY created_at DESC LIMIT $1
+SELECT id, tenant_id, user_id, flow, step, waba_id, phone_number_id, business_id, error_code, error_message, attempts, created_at, updated_at, step_times FROM onboarding_sessions ORDER BY created_at DESC LIMIT $1
 `
 
 func (q *Queries) ListOnboardingSessions(ctx context.Context, limit int32) ([]OnboardingSession, error) {
@@ -311,6 +316,7 @@ func (q *Queries) ListOnboardingSessions(ctx context.Context, limit int32) ([]On
 			&i.Attempts,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.StepTimes,
 		); err != nil {
 			return nil, err
 		}
@@ -497,7 +503,7 @@ SET display_phone_number = EXCLUDED.display_phone_number, verified_name = EXCLUD
     messaging_limit_tier = EXCLUDED.messaging_limit_tier,
     code_verification_status = EXCLUDED.code_verification_status,
     is_coexistence = EXCLUDED.is_coexistence, last_synced_at = now(), updated_at = now()
-RETURNING id, tenant_id, whatsapp_account_id, phone_number_id, display_phone_number, verified_name, name_status, quality_rating, messaging_limit_tier, code_verification_status, is_coexistence, registered_at, two_step_pin_enc, status, business_profile, last_synced_at, created_at, updated_at
+RETURNING id, tenant_id, whatsapp_account_id, phone_number_id, display_phone_number, verified_name, name_status, quality_rating, messaging_limit_tier, code_verification_status, is_coexistence, registered_at, two_step_pin_enc, status, business_profile, last_synced_at, created_at, updated_at, previous_quality_rating, quality_changed_at
 `
 
 type UpsertPhoneNumberParams struct {
@@ -548,6 +554,8 @@ func (q *Queries) UpsertPhoneNumber(ctx context.Context, arg UpsertPhoneNumberPa
 		&i.LastSyncedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreviousQualityRating,
+		&i.QualityChangedAt,
 	)
 	return i, err
 }

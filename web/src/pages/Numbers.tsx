@@ -23,6 +23,16 @@ export default function Numbers() {
   const manager = role === "owner" || role === "admin";
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const sync = useMutation({
+    mutationFn: () => api<{ synced: number }>("POST", "/internal/numbers/sync"),
+    onSuccess: (r) => {
+      setError(null);
+      setNote(t("numbers.synced", { count: r.synced }));
+      void qc.invalidateQueries({ queryKey: ["phone-numbers"] });
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : t("common.error")),
+  });
   const disconnect = useMutation({
     mutationFn: (id: string) => api("POST", `/internal/numbers/${id}/disconnect`),
     onSuccess: () => {
@@ -38,7 +48,7 @@ export default function Numbers() {
   const pending = templates.data?.filter((tp) => tp.status === "pending").length ?? 0;
   const lastSync = (q.data ?? []).map((n) => n.last_synced_at).filter((x): x is string => !!x).sort().pop();
   const topTier = highestTier(live.map((n) => n.messaging_limit_tier));
-  const lowQuality = live.filter((n) => n.quality_rating === "yellow" || n.quality_rating === "red");
+  const lowQuality = live.filter((n) => n.quality_dropped || n.quality_rating === "yellow" || n.quality_rating === "red");
 
   return (
     <section>
@@ -47,8 +57,16 @@ export default function Numbers() {
           <h1>{t("numbers.title")}</h1>
           <p className="sub">{t("numbers.intro")}</p>
         </div>
-        <Link className="button primary" to="/numbers/connect"><Icon name="plus" size="s" />{t("numbers.connect")}</Link>
+        <div className="actions">
+          {manager && !!q.data?.length && (
+            <button onClick={() => sync.mutate()} disabled={sync.isPending}>
+              <Icon name="refresh" size="s" />{sync.isPending ? t("numbers.syncing") : t("numbers.sync")}
+            </button>
+          )}
+          <Link className="button primary" to="/numbers/connect"><Icon name="plus" size="s" />{t("numbers.connect")}</Link>
+        </div>
       </div>
+      {note && <div className="banner ok"><Icon name="check" size="s" /><div><span>{note}</span></div></div>}
       {!!q.data?.length && (
         <div className="grid g4" style={{ marginBottom: 16 }}>
           <div className="card stat">
@@ -92,6 +110,8 @@ export default function Numbers() {
                 <th>{t("numbers.status")}</th>
                 <th>{t("numbers.quality")}</th>
                 <th>{t("numbers.limit")}</th>
+                <th>{t("numbers.limitUsed")}</th>
+                <th>{t("numbers.registration")}</th>
                 <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
               </tr>
             </thead>
@@ -118,6 +138,18 @@ export default function Numbers() {
                   <td><span className={`pill ${STATUS_PILL[n.status]}`}>{t(`numbers.status_${n.status}`)}</span></td>
                   <td>{n.quality_rating === "unknown" && n.status !== "connected" ? <span className="muted">—</span> : <span className={`pill ${QUALITY_PILL[n.quality_rating]}`}>{t(`numbers.quality_${n.quality_rating}`)}</span>}</td>
                   <td className="num-t">{n.messaging_limit_tier ? tierLabel(n.messaging_limit_tier, t("numbers.unlimited")) : <span className="muted">—</span>}</td>
+                  <td className="num-t">
+                    {n.limit_used_today === undefined || n.daily_limit === undefined
+                      ? <span className="muted">—</span>
+                      : n.daily_limit < 0
+                        ? t("numbers.usedUnlimited", { used: n.limit_used_today.toLocaleString() })
+                        : `${n.limit_used_today.toLocaleString()} / ${n.daily_limit.toLocaleString()}`}
+                  </td>
+                  <td>
+                    {n.registered_at
+                      ? <span className="pill ok" title={new Date(n.registered_at).toLocaleString()}>{t("numbers.registered")}</span>
+                      : <span className="pill wa">{t("numbers.notRegistered")}</span>}
+                  </td>
                   <td className="r">
                     {manager && n.status === "connected" && (
                       <span className="actions" style={{ justifyContent: "flex-end" }}>
@@ -168,7 +200,15 @@ export default function Numbers() {
               <div key={n.id} className="banner" style={{ margin: 0 }}>
                 <Icon name="alert" size="s" />
                 <div>
-                  <b>{t("numbers.qualityAlert", { number: n.display_phone_number, rating: t(`numbers.quality_${n.quality_rating}`) })}</b>
+                  <b>
+                    {n.quality_dropped && n.previous_quality_rating
+                      ? t("numbers.qualityDropped", {
+                          number: n.display_phone_number,
+                          from: t(`numbers.quality_${n.previous_quality_rating}`),
+                          to: t(`numbers.quality_${n.quality_rating}`),
+                        })
+                      : t("numbers.qualityAlert", { number: n.display_phone_number, rating: t(`numbers.quality_${n.quality_rating}`) })}
+                  </b>
                   <span>{t("numbers.qualityAlertHint")}</span>
                 </div>
               </div>
