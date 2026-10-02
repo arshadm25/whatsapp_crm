@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monthly statement {{.Number}}</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; color: #111; max-width: 780px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 28px 0 0; }
+  .muted { color: #555; }
+  .row { display: flex; gap: 24px; flex-wrap: wrap; margin: 20px 0; }
+  .row > div { flex: 1 1 280px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
+  th.n, td.n { text-align: right; white-space: nowrap; }
+  tfoot td { border-bottom: 0; }
+  tfoot tr.total td { font-weight: 700; border-top: 2px solid #111; }
+  .print { margin-top: 24px; }
+  @media print { .print { display: none; } body { margin: 0; } }
+</style>
+</head>
+<body>
+<h1>Monthly statement</h1>
+<div class="muted">No. {{.Number}} &middot; {{month .Month.Time}} &middot; issued {{date .IssuedAt}}</div>
+
+<div class="row">
+  <div>
+    <strong>{{.Seller.Name}}</strong><br>
+    {{if .Seller.Address}}{{.Seller.Address}}<br>{{end}}
+    GSTIN {{.Seller.GSTIN}}
+  </div>
+  <div>
+    <div class="muted">Billed to</div>
+    <strong>{{.Buyer.Name}}</strong><br>
+    {{if .Buyer.Address}}{{.Buyer.Address}}<br>{{end}}
+    {{if .Buyer.GSTIN}}GSTIN {{.Buyer.GSTIN}}{{else}}<span class="muted">GSTIN not provided</span>{{end}}<br>
+    <span class="muted">Place of supply: state code {{.PlaceOfSupply}}</span>
+  </div>
+</div>
+
+<h2>WhatsApp messaging fees</h2>
+<p class="muted">Meta's charges for the messages sent from your workspace in {{month .Month.Time}}, paid through Ecogo.</p>
+<table>
+  <thead><tr><th>Category</th><th>Country</th><th class="n">Messages</th><th class="n">Rate (₹)</th><th class="n">Amount (₹)</th></tr></thead>
+  <tbody>
+    {{range .Lines}}<tr><td>{{label .Category}}</td><td>{{.Country}}</td><td class="n">{{.Messages}}</td><td class="n">{{perMsg .RateHundredths}}</td><td class="n">{{inr .AmountMinor}}</td></tr>
+    {{end}}
+  </tbody>
+  <tfoot>
+    <tr><td colspan="4">Meta fees</td><td class="n">{{inr .FeeMinor}}</td></tr>
+    {{if .MarkupMinor}}<tr><td colspan="4">Service charge @ {{rate .MarkupBp}}%</td><td class="n">{{inr .MarkupMinor}}</td></tr>{{end}}
+    <tr><td colspan="4">Taxable value</td><td class="n">{{inr .TaxableMinor}}</td></tr>
+    {{if .Intra}}
+    <tr><td colspan="4">CGST @ {{halfrate .GstRateBp}}%</td><td class="n">{{inr .CgstMinor}}</td></tr>
+    <tr><td colspan="4">SGST @ {{halfrate .GstRateBp}}%</td><td class="n">{{inr .SgstMinor}}</td></tr>
+    {{else}}
+    <tr><td colspan="4">IGST @ {{rate .GstRateBp}}%</td><td class="n">{{inr .IgstMinor}}</td></tr>
+    {{end}}
+    <tr class="total"><td colspan="4">Amount due{{if eq .Status "paid"}} (paid){{end}}</td><td class="n">{{inr .TotalMinor}}</td></tr>
+  </tfoot>
+</table>
+
+{{if .Subscription}}
+<h2>Ecogo subscription</h2>
+<p class="muted">Charged separately by card, UPI or netbanking; each has its own tax invoice.</p>
+<table>
+  <tbody>
+    {{range .Subscription}}<tr><td>Tax invoice {{.Number}}</td><td class="n">{{inr .TotalMinor}}</td></tr>
+    {{end}}
+  </tbody>
+  <tfoot><tr class="total"><td>Already paid</td><td class="n">{{inr .SubscriptionTotal}}</td></tr></tfoot>
+</table>
+{{end}}
+
+<p class="muted">Computer-generated statement.{{if .PaymentReference}} Payment reference {{.PaymentReference}}.{{end}}</p>
+<button class="print" onclick="window.print()">Print or save as PDF</button>
+</body>
+</html>

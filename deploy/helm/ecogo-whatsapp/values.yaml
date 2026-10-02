@@ -51,6 +51,7 @@ config:
   sellerAddress: ""
   sellerSac: ""                      # services accounting code printed on invoices; ask the accountant
   gstRateBp: "1800"                  # 18%; plan prices include it
+  metaMarkupBp: "0"                  # service charge on Meta fees for workspaces that pay through Ecogo (500 = 5%)
   # The language model behind chatbot answers. Without ai-api-key in the secret the AI step hands over to a person.
   aiProvider: anthropic
   aiModel: claude-haiku-4-5-20251001

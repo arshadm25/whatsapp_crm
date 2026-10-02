@@ -46,6 +46,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
+	"github.com/arshadm25/whatsapp_crm/internal/metafees"
 	"github.com/arshadm25/whatsapp_crm/internal/metrics"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
@@ -267,6 +268,7 @@ type harness struct {
 	campaigns  *campaigns.Worker
 	bots       *bots.Worker
 	ingest     *ai.IngestWorker
+	metaFees   *metafees.Worker
 	ai         *fakeAI
 	razorpay   *fakeRazorpay
 	keys       *envelope.Keyring
@@ -325,6 +327,7 @@ func newHarness(t *testing.T) *harness {
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Bots:       bots.NewService(d, rc, log),
 		Flows:      flows.NewService(d, keys, meta, log),
+		MetaFees:   metafees.NewService(d, sellerCfg, 500, log),
 		AI:         ai.NewService(d, agent, rc, log).AllowPrivateURLs(),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
@@ -353,6 +356,7 @@ func newHarness(t *testing.T) *harness {
 		campaigns:  runner,
 		bots:       botRunner,
 		ingest:     ai.NewIngestWorker(d, ai.Fetcher{AllowPrivate: true}, log),
+		metaFees:   metafees.NewWorker(d, sellerCfg, 500, log),
 		ai:         fai,
 		razorpay:   rp,
 		keys:       keys,

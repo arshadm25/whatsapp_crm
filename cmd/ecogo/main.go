@@ -45,6 +45,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
+	"github.com/arshadm25/whatsapp_crm/internal/metafees"
 	"github.com/arshadm25/whatsapp_crm/internal/metrics"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
@@ -133,6 +134,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		AI:         ai.NewService(d, ai.NewAgent(ai.New(cfg.AI, nil), log), rc, log),
 		Flows:      flows.NewService(d, keys, meta, log),
 		Analytics:  analytics.NewService(d, log),
+		MetaFees:   metafees.NewService(d, cfg.Seller, cfg.MetaMarkupBP, log),
 		Admin:      admin.NewService(d, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
 			cfg.Razorpay.WebhookSecret, cfg.Seller, rc, log),
@@ -186,9 +188,10 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, botWorker)
 	river.AddWorker(workers, ai.NewIngestWorker(d, ai.Fetcher{}, log))
 	river.AddWorker(workers, analytics.NewWorker(d, log))
+	river.AddWorker(workers, metafees.NewWorker(d, cfg.Seller, cfg.MetaMarkupBP, log))
 	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
 	river.AddWorker(workers, retention.NewWorker(d, store, log))
-	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), retention.Periodic()}, log)
+	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), metafees.Periodic(), retention.Periodic()}, log)
 	if err != nil {
 		return err
 	}
