@@ -320,15 +320,16 @@ func (q *Queries) SetPassword(ctx context.Context, arg SetPasswordParams) error 
 }
 
 const updateTenantSettings = `-- name: UpdateTenantSettings :one
-UPDATE tenants SET name = $2, legal_name = $3, timezone = $4, updated_at = now() WHERE id = $1
+UPDATE tenants SET name = $2, legal_name = $3, timezone = $4, message_retention_days = $5, updated_at = now() WHERE id = $1
 RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at
 `
 
 type UpdateTenantSettingsParams struct {
-	ID        uuid.UUID
-	Name      string
-	LegalName *string
-	Timezone  string
+	ID                   uuid.UUID
+	Name                 string
+	LegalName            *string
+	Timezone             string
+	MessageRetentionDays *int32
 }
 
 func (q *Queries) UpdateTenantSettings(ctx context.Context, arg UpdateTenantSettingsParams) (Tenant, error) {
@@ -337,6 +338,7 @@ func (q *Queries) UpdateTenantSettings(ctx context.Context, arg UpdateTenantSett
 		arg.Name,
 		arg.LegalName,
 		arg.Timezone,
+		arg.MessageRetentionDays,
 	)
 	var i Tenant
 	err := row.Scan(

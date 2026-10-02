@@ -509,7 +509,11 @@
     "twoStepEnabled": "Two-step verification is on.",
     "twoStepDisabled": "Two-step verification is off.",
     "twoStepAdmin": "Platform admins must keep it on.",
-    "billing": "Billing"
+    "billing": "Billing",
+    "retention": "Keep messages for",
+    "retentionForever": "Forever",
+    "retentionDays": "{{count}} days",
+    "retentionHint": "Older messages and their media files are deleted every day and cannot be recovered. Reports keep their totals."
   },
   "invite": {
     "title": "Join {{tenant}}",

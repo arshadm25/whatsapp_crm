@@ -225,6 +225,20 @@ function WorkspaceForm({ canEdit }: { canEdit: boolean }) {
           </select>
           <span className="muted small">{t("settings.timeZoneHint")}</span>
         </label>
+        <label className="field">
+          {t("settings.retention")}
+          <select
+            value={form.message_retention_days ?? ""}
+            onChange={(e) => setDraft({ ...form, message_retention_days: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">{t("settings.retentionForever")}</option>
+            {[30, 90, 180, 365, 730].map((d) => <option key={d} value={d}>{t("settings.retentionDays", { count: d })}</option>)}
+            {form.message_retention_days != null && ![30, 90, 180, 365, 730].includes(form.message_retention_days) && (
+              <option value={form.message_retention_days}>{t("settings.retentionDays", { count: form.message_retention_days })}</option>
+            )}
+          </select>
+          <span className="muted small">{t("settings.retentionHint")}</span>
+        </label>
       </fieldset>
       {!canEdit && <p className="muted small">{t("settings.ownerOnly")}</p>}
       {error && <div className="error">{error}</div>}

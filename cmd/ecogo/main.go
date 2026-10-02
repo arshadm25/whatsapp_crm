@@ -44,6 +44,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/razorpay"
+	"github.com/arshadm25/whatsapp_crm/internal/retention"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
 	"github.com/arshadm25/whatsapp_crm/internal/storage"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
@@ -172,7 +173,8 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, campaigns.NewWorker(d, log))
 	river.AddWorker(workers, analytics.NewWorker(d, log))
 	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
-	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic()}, log)
+	river.AddWorker(workers, retention.NewWorker(d, store, log))
+	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), retention.Periodic()}, log)
 	if err != nil {
 		return err
 	}
