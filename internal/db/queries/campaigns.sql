@@ -1,8 +1,31 @@
 -- name: InsertCampaign :one
 INSERT INTO campaigns (id, tenant_id, phone_number_id, template_id, name, audience, variables, status,
                        scheduled_at, send_rate_per_min, created_by, api_key_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled', $8, $9, $10, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING *;
+
+-- name: UpdateCampaign :one
+-- Replaces a draft or scheduled campaign's settings and invalidates its queued run job.
+UPDATE campaigns
+SET phone_number_id = @phone_number_id, template_id = @template_id, name = @name, audience = @audience,
+    variables = @variables, status = @status, scheduled_at = sqlc.narg(scheduled_at),
+    send_rate_per_min = sqlc.narg(send_rate_per_min), run_generation = run_generation + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: SetCampaignStatus :one
+-- Pauses or resumes a campaign. The generation changes so only the job queued now runs.
+UPDATE campaigns SET status = @status, run_generation = run_generation + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: DeleteDraftCampaign :execrows
+DELETE FROM campaigns WHERE id = $1 AND status = 'draft';
+
+-- name: CampaignCounts :many
+SELECT status, count(*)::int AS n FROM campaigns
+WHERE sqlc.narg(phone_number_id)::uuid IS NULL OR phone_number_id = sqlc.narg(phone_number_id)
+GROUP BY status;
 
 -- name: GetCampaign :one
 SELECT * FROM campaigns WHERE id = $1;
@@ -13,6 +36,7 @@ SELECT * FROM campaigns WHERE id = $1 FOR UPDATE;
 -- name: ListCampaigns :many
 SELECT * FROM campaigns
 WHERE (sqlc.narg(phone_number_id)::uuid IS NULL OR phone_number_id = sqlc.narg(phone_number_id))
+  AND (sqlc.narg(statuses)::text[] IS NULL OR status::text = ANY(sqlc.narg(statuses)::text[]))
   AND (sqlc.narg(before_at)::timestamptz IS NULL OR (created_at, id) < (sqlc.narg(before_at), sqlc.narg(before_id)::uuid))
 ORDER BY created_at DESC, id DESC
 LIMIT @lim;

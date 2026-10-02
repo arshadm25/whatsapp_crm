@@ -21,6 +21,9 @@ import (
 type RunArgs struct {
 	CampaignID uuid.UUID `json:"campaign_id"`
 	TenantID   uuid.UUID `json:"tenant_id"`
+	// Generation is the campaign's run_generation when the job was queued. An edit, pause or
+	// resume changes it, which retires jobs queued before.
+	Generation int32 `json:"generation,omitempty"`
 }
 
 func (RunArgs) Kind() string { return "run_campaign" }
@@ -91,6 +94,9 @@ func (w *Worker) Run(ctx context.Context, a RunArgs) (time.Time, error) {
 		}
 		if err != nil {
 			return err
+		}
+		if c.RunGeneration != a.Generation {
+			return nil
 		}
 		switch c.Status {
 		case dbq.CampaignStatusScheduled:

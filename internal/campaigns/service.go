@@ -59,7 +59,11 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/", httpx.Handler(s.log, s.list))
 	r.Post("/", httpx.Handler(s.log, s.create))
 	r.Get("/{id}", httpx.Handler(s.log, s.get))
+	r.Put("/{id}", httpx.Handler(s.log, s.update))
+	r.Delete("/{id}", httpx.Handler(s.log, s.deleteDraft))
 	r.Post("/{id}/cancel", httpx.Handler(s.log, s.cancel))
+	r.Post("/{id}/pause", httpx.Handler(s.log, s.pause))
+	r.Post("/{id}/resume", httpx.Handler(s.log, s.resume))
 }
 
 // InternalRoutes mounts the dashboard's /internal/campaigns: an audience preview and the
@@ -67,6 +71,7 @@ func (s *Service) Routes(r chi.Router) {
 func (s *Service) InternalRoutes(r chi.Router) {
 	r.Use(manage)
 	r.Post("/audience", httpx.Handler(s.log, s.audience))
+	r.Get("/counts", httpx.Handler(s.log, s.counts))
 	r.Get("/{id}/recipients", httpx.Handler(s.log, s.recipients))
 }
 
@@ -88,6 +93,9 @@ type CreateRequest struct {
 	Audience       Audience      `json:"audience"`
 	ScheduledAt    *time.Time    `json:"scheduled_at"`
 	SendRatePerMin *int32        `json:"send_rate_per_min"`
+	// Draft saves the campaign without sending it. A draft's template need not be approved yet
+	// and its audience may be empty; both are checked when it is sent.
+	Draft bool `json:"draft"`
 }
 
 type TemplateRef struct {
@@ -150,7 +158,7 @@ func notFound() error {
 	return &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Message: "Campaign not found."}
 }
 
-func (a *Audience) clean() error {
+func (a *Audience) clean(allowEmpty bool) error {
 	if len(a.ContactIDs) > maxContactIDs {
 		return httpx.BadRequest("audience.contact_ids", "Send at most 10000 contact_ids; use tags for larger audiences.")
 	}
@@ -167,7 +175,7 @@ func (a *Audience) clean() error {
 		return httpx.BadRequest("audience.tags", "Send at most 50 tags.")
 	}
 	a.Tags = tags
-	if len(a.Tags) == 0 && len(a.ContactIDs) == 0 {
+	if len(a.Tags) == 0 && len(a.ContactIDs) == 0 && !allowEmpty {
 		return httpx.BadRequest("audience", "audience needs tags or contact_ids.")
 	}
 	return nil
@@ -199,7 +207,7 @@ func (req *CreateRequest) check(now time.Time) error {
 	if req.Template.Variables == nil {
 		req.Template.Variables = map[string]string{}
 	}
-	if err := req.Audience.clean(); err != nil {
+	if err := req.Audience.clean(req.Draft); err != nil {
 		return err
 	}
 	if req.ScheduledAt != nil {
@@ -274,39 +282,79 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (s *Service) insert(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.Principal, req *CreateRequest, now time.Time) (Campaign, error) {
+// resolve checks a campaign's number, template, variables and audience. A draft only needs the
+// number and the template to exist.
+func (s *Service) resolve(ctx context.Context, q *dbq.Queries, p auth.Principal, req *CreateRequest) (dbq.Template, error) {
 	num, err := q.GetSendingNumber(ctx, req.PhoneNumberID)
 	if db.IsNotFound(err) || (err == nil && !p.AllowsNumber(num.PhoneNumber.ID)) {
-		return Campaign{}, &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Param: "phone_number_id", Message: "Phone number not found."}
+		return dbq.Template{}, &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Param: "phone_number_id", Message: "Phone number not found."}
 	}
 	if err != nil {
-		return Campaign{}, err
+		return dbq.Template{}, err
 	}
-	if num.PhoneNumber.Status != dbq.ConnectionStatusConnected || num.WhatsappAccount.Status != dbq.ConnectionStatusConnected {
-		return Campaign{}, unprocessable("number_not_connected", "phone_number_id", "This number is not connected. Reconnect it from Numbers.")
+	if !req.Draft && (num.PhoneNumber.Status != dbq.ConnectionStatusConnected || num.WhatsappAccount.Status != dbq.ConnectionStatusConnected) {
+		return dbq.Template{}, unprocessable("number_not_connected", "phone_number_id", "This number is not connected. Reconnect it from Numbers.")
 	}
 	t, err := q.GetTemplateByName(ctx, dbq.GetTemplateByNameParams{
 		WhatsappAccountID: num.WhatsappAccount.ID, Name: req.Template.Name, Language: req.Template.Language,
 	})
-	if db.IsNotFound(err) || (err == nil && t.Status != dbq.TemplateStatusApproved) {
-		return Campaign{}, unprocessable("template_not_approved", "template.name",
+	if db.IsNotFound(err) && req.Draft {
+		return dbq.Template{}, unprocessable("template_not_found", "template.name",
+			"There is no template with this name and language on this number's account.")
+	}
+	if db.IsNotFound(err) || (err == nil && !req.Draft && t.Status != dbq.TemplateStatusApproved) {
+		return dbq.Template{}, unprocessable("template_not_approved", "template.name",
 			"There is no approved template with this name and language on this number's account.")
 	}
 	if err != nil {
-		return Campaign{}, err
+		return dbq.Template{}, err
+	}
+	if req.Draft {
+		return t, nil
 	}
 	if err := checkVariables(t, req.Template.Variables); err != nil {
-		return Campaign{}, err
+		return dbq.Template{}, err
 	}
 	ids, tags := req.Audience.params()
 	counts, err := q.AudienceCounts(ctx, dbq.AudienceCountsParams{ContactIds: ids, Tags: tags})
 	if err != nil {
-		return Campaign{}, err
+		return dbq.Template{}, err
 	}
 	if counts.Total == 0 {
-		return Campaign{}, unprocessable("audience_empty", "audience", "No contacts match this audience.")
+		return dbq.Template{}, unprocessable("audience_empty", "audience", "No contacts match this audience.")
 	}
+	return t, nil
+}
 
+func status(req *CreateRequest) dbq.CampaignStatus {
+	if req.Draft {
+		return dbq.CampaignStatusDraft
+	}
+	return dbq.CampaignStatusScheduled
+}
+
+// schedule queues the campaign's first run for its current generation.
+func (s *Service) schedule(ctx context.Context, tx pgx.Tx, c dbq.Campaign, at time.Time) error {
+	opts := &river.InsertOpts{}
+	if at.After(s.now()) {
+		opts.ScheduledAt = at
+	}
+	_, err := s.inserter.InsertTx(ctx, tx, RunArgs{CampaignID: c.ID, TenantID: c.TenantID, Generation: c.RunGeneration}, opts)
+	return err
+}
+
+func scheduledAt(c dbq.Campaign) time.Time {
+	if c.ScheduledAt != nil {
+		return *c.ScheduledAt
+	}
+	return time.Time{}
+}
+
+func (s *Service) insert(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.Principal, req *CreateRequest, now time.Time) (Campaign, error) {
+	t, err := s.resolve(ctx, q, p, req)
+	if err != nil {
+		return Campaign{}, err
+	}
 	audience, _ := json.Marshal(req.Audience)
 	vars, _ := json.Marshal(req.Template.Variables)
 	var keyID *uuid.UUID
@@ -314,21 +362,175 @@ func (s *Service) insert(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.
 		keyID = &p.APIKeyID
 	}
 	c, err := q.InsertCampaign(ctx, dbq.InsertCampaignParams{
-		ID: db.NewID(), TenantID: p.TenantID, PhoneNumberID: num.PhoneNumber.ID, TemplateID: t.ID, Name: req.Name,
-		Audience: audience, Variables: vars, ScheduledAt: req.ScheduledAt, SendRatePerMin: req.SendRatePerMin,
-		CreatedBy: p.User(), ApiKeyID: keyID,
+		ID: db.NewID(), TenantID: p.TenantID, PhoneNumberID: req.PhoneNumberID, TemplateID: t.ID, Name: req.Name,
+		Audience: audience, Variables: vars, Status: status(req), ScheduledAt: req.ScheduledAt,
+		SendRatePerMin: req.SendRatePerMin, CreatedBy: p.User(), ApiKeyID: keyID,
 	})
 	if err != nil {
 		return Campaign{}, err
 	}
-	opts := &river.InsertOpts{}
-	if req.ScheduledAt != nil && req.ScheduledAt.After(now) {
-		opts.ScheduledAt = *req.ScheduledAt
-	}
-	if _, err := s.inserter.InsertTx(ctx, tx, RunArgs{CampaignID: c.ID, TenantID: p.TenantID}, opts); err != nil {
-		return Campaign{}, err
+	if !req.Draft {
+		if err := s.schedule(ctx, tx, c, scheduledAt(c)); err != nil {
+			return Campaign{}, err
+		}
 	}
 	return view(c, t, Stats{}), nil
+}
+
+// update replaces a draft or scheduled campaign. Sending it (draft false) runs every check
+// create does; a job queued for the old schedule no longer runs.
+func (s *Service) update(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	ctx := r.Context()
+	id, err := campaignID(r)
+	if err != nil {
+		return err
+	}
+	var req CreateRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	now := s.now()
+	if err := req.check(now); err != nil {
+		return err
+	}
+	var out Campaign
+	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
+		c, err := s.one(ctx, q, p, id, true)
+		if err != nil {
+			return err
+		}
+		if c.Status != dbq.CampaignStatusDraft && c.Status != dbq.CampaignStatusScheduled {
+			return httpx.NewError(http.StatusConflict, "conflict", "Only draft and scheduled campaigns can be edited; this one is "+string(c.Status)+".")
+		}
+		if !req.Draft {
+			if err := billing.Check(ctx, q, now); err != nil {
+				return err
+			}
+		}
+		t, err := s.resolve(ctx, q, p, &req)
+		if err != nil {
+			return err
+		}
+		audience, _ := json.Marshal(req.Audience)
+		vars, _ := json.Marshal(req.Template.Variables)
+		c, err = q.UpdateCampaign(ctx, dbq.UpdateCampaignParams{
+			ID: id, PhoneNumberID: req.PhoneNumberID, TemplateID: t.ID, Name: req.Name, Audience: audience,
+			Variables: vars, Status: status(&req), ScheduledAt: req.ScheduledAt, SendRatePerMin: req.SendRatePerMin,
+		})
+		if err != nil {
+			return err
+		}
+		if !req.Draft {
+			if err := s.schedule(ctx, tx, c, scheduledAt(c)); err != nil {
+				return err
+			}
+		}
+		out = view(c, t, Stats{})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
+}
+
+// deleteDraft removes a campaign that was never sent.
+func (s *Service) deleteDraft(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	id, err := campaignID(r)
+	if err != nil {
+		return err
+	}
+	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		c, err := s.one(r.Context(), q, p, id, true)
+		if err != nil {
+			return err
+		}
+		if c.Status != dbq.CampaignStatusDraft {
+			return httpx.NewError(http.StatusConflict, "conflict", "Only drafts can be deleted; cancel a campaign instead.")
+		}
+		_, err = q.DeleteDraftCampaign(r.Context(), id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// pause stops a running campaign after the batch in progress; resume carries on with the
+// recipients not yet sent to.
+func (s *Service) pause(w http.ResponseWriter, r *http.Request) error {
+	return s.setStatus(w, r, dbq.CampaignStatusRunning, dbq.CampaignStatusPaused)
+}
+
+func (s *Service) resume(w http.ResponseWriter, r *http.Request) error {
+	return s.setStatus(w, r, dbq.CampaignStatusPaused, dbq.CampaignStatusRunning)
+}
+
+func (s *Service) setStatus(w http.ResponseWriter, r *http.Request, from, to dbq.CampaignStatus) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	ctx := r.Context()
+	id, err := campaignID(r)
+	if err != nil {
+		return err
+	}
+	var out []Campaign
+	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
+		c, err := s.one(ctx, q, p, id, true)
+		if err != nil {
+			return err
+		}
+		if c.Status != from {
+			return httpx.NewError(http.StatusConflict, "conflict", "Only "+string(from)+" campaigns can be "+map[dbq.CampaignStatus]string{
+				dbq.CampaignStatusPaused: "paused", dbq.CampaignStatusRunning: "resumed"}[to]+"; this one is "+string(c.Status)+".")
+		}
+		if to == dbq.CampaignStatusRunning {
+			if err := billing.Check(ctx, q, s.now()); err != nil {
+				return err
+			}
+		}
+		if c, err = q.SetCampaignStatus(ctx, dbq.SetCampaignStatusParams{ID: id, Status: to}); err != nil {
+			return err
+		}
+		if to == dbq.CampaignStatusRunning {
+			if err := s.schedule(ctx, tx, c, time.Time{}); err != nil {
+				return err
+			}
+		}
+		out, err = views(ctx, q, []dbq.Campaign{c})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out[0])
+	return nil
+}
+
+// counts returns how many campaigns have each status, for the dashboard's status tabs.
+func (s *Service) counts(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	out := map[string]int32{"all": 0}
+	for _, st := range []string{"draft", "scheduled", "running", "paused", "completed", "cancelled", "failed"} {
+		out[st] = 0
+	}
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		rows, err := q.CampaignCounts(r.Context(), p.KeyPhoneNumberID)
+		for _, row := range rows {
+			out[string(row.Status)] = row.N
+			out["all"] += row.N
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
@@ -340,6 +542,15 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	}
 	// A key limited to one number sees only that number's campaigns.
 	params := dbq.ListCampaignsParams{Lim: lim + 1, PhoneNumberID: p.KeyPhoneNumberID}
+	if v := qs.Get("status"); v != "" {
+		for _, part := range strings.Split(v, ",") {
+			st := dbq.CampaignStatus(strings.TrimSpace(part))
+			if !st.Valid() {
+				return httpx.BadRequest("status", "status must be draft, scheduled, running, paused, completed, cancelled or failed, or several separated by commas.")
+			}
+			params.Statuses = append(params.Statuses, string(st))
+		}
+	}
 	if v := qs.Get("cursor"); v != "" {
 		at, id, ok := httpx.DecodeCursor(v)
 		if !ok {
@@ -495,7 +706,7 @@ func (s *Service) audience(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(r, &a); err != nil {
 		return err
 	}
-	if err := a.clean(); err != nil {
+	if err := a.clean(false); err != nil {
 		return err
 	}
 	ids, tags := a.params()
