@@ -25,18 +25,23 @@ import (
 )
 
 const (
-	livePrefix = "eco_live_"
+	livePrefix    = "eco_live_"
+	sandboxPrefix = "eco_test_"
 	// prefixLen is how much of a key the dashboard shows to tell keys apart.
 	prefixLen = len(livePrefix) + 4
 )
 
-// newKey returns a new live API key, its display prefix and its SHA-256 hash.
-func newKey() (key, prefix string, hash []byte) {
+// newKey returns a new API key of the given mode, its display prefix and its SHA-256 hash.
+func newKey(mode dbq.ApiKeyMode) (key, prefix string, hash []byte) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
 	}
-	key = livePrefix + base64.RawURLEncoding.EncodeToString(b)
+	lead := livePrefix
+	if mode == dbq.ApiKeyModeSandbox {
+		lead = sandboxPrefix
+	}
+	key = lead + base64.RawURLEncoding.EncodeToString(b)
 	sum := sha256.Sum256([]byte(key))
 	return key, key[:prefixLen], sum[:]
 }
@@ -48,7 +53,7 @@ func hashKey(key string) []byte {
 
 var (
 	errBadAuth = httpx.NewError(http.StatusUnauthorized, "unauthorized",
-		"Send your API key as Authorization: Bearer eco_live_....")
+		"Send your API key as Authorization: Bearer eco_live_... (or eco_test_... for a sandbox key).")
 	errBadKey = httpx.NewError(http.StatusUnauthorized, "unauthorized", "This API key is invalid or has been revoked.")
 )
 
@@ -75,13 +80,18 @@ func (a *Authenticator) Middleware(session func(http.Handler) http.Handler) func
 				return
 			}
 			key, ok := strings.CutPrefix(h, "Bearer ")
-			if !ok || !strings.HasPrefix(key, livePrefix) {
+			if !ok || !(strings.HasPrefix(key, livePrefix) || strings.HasPrefix(key, sandboxPrefix)) {
 				httpx.WriteError(w, r, a.log, errBadAuth)
 				return
 			}
 			p, err := a.resolve(r, key)
 			if err != nil {
 				httpx.WriteError(w, r, a.log, err)
+				return
+			}
+			if p.Sandbox && !sandboxAllows(r) {
+				httpx.WriteError(w, r, a.log, httpx.NewError(http.StatusForbidden, "sandbox_key",
+					"Sandbox keys can only send test messages and list numbers and templates. Use a live key for this."))
 				return
 			}
 			allowed, remaining, wait := a.limiter.Take(p.APIKeyID)
@@ -116,9 +126,11 @@ func (a *Authenticator) resolve(r *http.Request, key string) (auth.Principal, er
 	if err != nil {
 		return p, err
 	}
-	if mode != dbq.ApiKeyModeLive {
+	// The prefix must match the stored mode, so a test key can never pass for a live one.
+	if (mode == dbq.ApiKeyModeLive) != strings.HasPrefix(key, livePrefix) {
 		return p, errBadKey
 	}
+	p.Sandbox = mode == dbq.ApiKeyModeSandbox
 	// API keys act with admin rights in their workspace.
 	p.Role = dbq.MemberRoleAdmin
 	err = a.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error { return q.TouchAPIKey(ctx, p.APIKeyID) })
@@ -173,4 +185,17 @@ func (l *Limiter) Take(key uuid.UUID) (allowed bool, remaining int, wait time.Du
 	}
 	b.tokens--
 	return true, int(b.tokens), time.Duration((l.rate - b.tokens) / l.rate * float64(time.Second))
+}
+
+// sandboxAllows lists what a sandbox key may call: it builds and validates message sends
+// against real numbers and templates, and reads nothing else.
+func sandboxAllows(r *http.Request) bool {
+	path := strings.TrimRight(r.URL.Path, "/")
+	switch {
+	case r.Method == http.MethodPost && path == "/v1/messages":
+		return true
+	case r.Method == http.MethodGet && (path == "/v1/phone-numbers" || path == "/v1/templates"):
+		return true
+	}
+	return false
 }

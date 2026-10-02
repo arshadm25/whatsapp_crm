@@ -10,7 +10,9 @@ info:
     client's Business Integration System User token and calls Meta on the client's behalf.
 
     **Authentication.** Send an API key as `Authorization: Bearer <key>`. Keys start with `eco_live_`
-    or `eco_test_` (sandbox). A sandbox key returns realistic responses but never calls Meta.
+    or `eco_test_` (sandbox). A sandbox key validates and answers `POST /v1/messages` like a live key but never calls Meta and stores
+    nothing (the response carries `Ecogo-Sandbox: true`); it may also list phone numbers and templates, and
+    every other endpoint returns 403 `sandbox_key`.
     A key may be scoped to one phone number; requests for other numbers then return 403.
 
     **Idempotency.** Every POST that sends a message or starts a campaign accepts an `Idempotency-Key`

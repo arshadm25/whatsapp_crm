@@ -132,3 +132,61 @@ func TestAPIKeys(t *testing.T) {
 	other.do("POST", "/internal/developers/api-keys", map[string]any{"name": "x", "phone_number_id": phone.ID}, http.StatusBadRequest, nil)
 	other.do("POST", "/internal/developers/api-keys", map[string]any{"name": " "}, http.StatusBadRequest, nil)
 }
+
+func TestSandboxKey(t *testing.T) {
+	h := newHarness(t)
+	c, me, phone := h.connected()
+	h.inbound(customer, "wamid.IN1", "Hi")
+
+	var created devportal.CreatedKey
+	c.do("POST", "/internal/developers/api-keys", map[string]any{"name": "Test", "mode": "sandbox"}, http.StatusCreated, &created)
+	if !strings.HasPrefix(created.Key, "eco_test_") || created.Mode != "sandbox" {
+		t.Fatalf("created = %+v", created)
+	}
+	c.do("POST", "/internal/developers/api-keys", map[string]any{"name": "Bad", "mode": "other"}, http.StatusBadRequest, nil)
+	key := "Bearer " + created.Key
+
+	count := func() (n int) {
+		_ = h.db.InTenant(context.Background(), me.Tenant.ID, func(_ *dbq.Queries, tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), "SELECT count(*) FROM messages WHERE direction = 'outbound'").Scan(&n)
+		})
+		return n
+	}
+	before := count()
+
+	// A sandbox send answers like a live one but stores and sends nothing.
+	resp, raw := h.bearer(key, "POST", "/v1/messages", text(phone.ID, "Test message"))
+	var msg messaging.Message
+	_ = json.Unmarshal(raw, &msg)
+	if resp.StatusCode != http.StatusAccepted || resp.Header.Get("Ecogo-Sandbox") != "true" || msg.Status != "sent" ||
+		msg.Wamid == nil || !strings.HasPrefix(*msg.Wamid, "wamid.SANDBOX") {
+		t.Fatalf("sandbox send = %d %v %s", resp.StatusCode, resp.Header, raw)
+	}
+	if count() != before || h.meta.called("POST /555001/messages") != 0 {
+		t.Fatalf("sandbox send stored %d messages and called Meta %d times", count()-before, h.meta.called("POST /555001/messages"))
+	}
+
+	// It still validates like a live send.
+	if resp, _ := h.bearer(key, "POST", "/v1/messages", map[string]any{"phone_number_id": phone.ID, "to": customer, "type": "text"}); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid sandbox send = %d, want 400", resp.StatusCode)
+	}
+
+	// Reads for building requests work; everything else is closed.
+	if resp, _ := h.bearer(key, "GET", "/v1/phone-numbers", nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("sandbox list numbers = %d", resp.StatusCode)
+	}
+	for _, path := range []string{"/v1/contacts", "/v1/conversations", "/v1/campaigns"} {
+		resp, raw := h.bearer(key, "GET", path, nil)
+		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(raw), "sandbox_key") {
+			t.Errorf("sandbox GET %s = %d %s", path, resp.StatusCode, raw)
+		}
+	}
+
+	// The docs are public.
+	if resp, raw := h.bearer("", "GET", "/v1/openapi.yaml", nil); resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "openapi:") {
+		t.Errorf("openapi = %d", resp.StatusCode)
+	}
+	if resp, _ := h.bearer("", "GET", "/v1/docs", nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("docs = %d", resp.StatusCode)
+	}
+}

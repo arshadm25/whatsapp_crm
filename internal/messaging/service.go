@@ -196,6 +196,9 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) error {
 		out    Message
 		cached *Replay
 	)
+	if p.Sandbox {
+		return s.sendSandbox(w, r, p, &req, content)
+	}
 	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
 		if err := billing.Check(ctx, q, s.now()); err != nil {
 			return err
@@ -228,6 +231,30 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) error {
 		WriteReplay(w, cached)
 		return nil
 	}
+	httpx.JSON(w, http.StatusAccepted, out)
+	return nil
+}
+
+var errSandboxRollback = errors.New("sandbox send is not stored")
+
+// sendSandbox runs a send through every check a live send faces, then rolls the work back, so
+// a sandbox key gets a realistic response while nothing is stored, queued or sent to Meta.
+func (s *Service) sendSandbox(w http.ResponseWriter, r *http.Request, p auth.Principal, req *SendRequest, content map[string]any) error {
+	var out Message
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
+		msg, err := s.queue(r.Context(), q, tx, p, req, content, "")
+		if err != nil {
+			return err
+		}
+		out = msg
+		return errSandboxRollback
+	})
+	if !errors.Is(err, errSandboxRollback) {
+		return err
+	}
+	wamid := "wamid.SANDBOX" + strings.ReplaceAll(out.ID.String(), "-", "")
+	out.Wamid, out.Status = &wamid, "sent"
+	w.Header().Set("Ecogo-Sandbox", "true")
 	httpx.JSON(w, http.StatusAccepted, out)
 	return nil
 }
