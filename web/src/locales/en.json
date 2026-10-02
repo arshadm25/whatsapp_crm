@@ -27,7 +27,9 @@
     "group_manage": "Manage",
     "connected": "WhatsApp connected",
     "notConnected": "WhatsApp not connected",
-    "connectHint": "Connect a number to start messaging"
+    "connectHint": "Connect a number to start messaging",
+    "unread_one": "{{count}} unread message",
+    "unread_other": "{{count}} unread messages"
   },
   "auth": {
     "loginTitle": "Log in",
@@ -61,7 +63,7 @@
   },
   "getStarted": {
     "title": "Welcome, {{name}}",
-    "intro": "Three steps to start messaging your customers on WhatsApp.",
+    "intro": "A few steps to start messaging your customers on WhatsApp.",
     "stepAccount": "Create your account",
     "stepVerify": "Verify your email",
     "stepConnect": "Connect a WhatsApp number",
@@ -87,7 +89,12 @@
     "linkApi": "API keys and webhooks",
     "linkApiText": "Send messages from your systems",
     "linkTeam": "Invite your team",
-    "linkTeamText": "Admins, agents and developers"
+    "linkTeamText": "Admins, agents and developers",
+    "stepMessage": "Send your first message",
+    "stepMessageHint": "Reply in the inbox or send an approved template.",
+    "openInbox": "Open inbox",
+    "afterConnect": "After you connect",
+    "invite": "Invite team"
   },
   "numbers": {
     "title": "Numbers",
@@ -151,7 +158,25 @@
     "statQuality": "Lowest quality",
     "statLimit": "Highest daily limit",
     "statLimitHint": "unique users per 24 hours",
-    "statOf": "of {{count}} added"
+    "statOf": "of {{count}} added",
+    "statTemplates": "Approved templates",
+    "statPending": "{{count}} pending review",
+    "tableTitle": "Phone numbers",
+    "syncedAgo": "Synced from Meta {{ago}}",
+    "justNow": "just now",
+    "minutesAgo_one": "{{count}} minute ago",
+    "minutesAgo_other": "{{count}} minutes ago",
+    "hoursAgo_one": "{{count}} hour ago",
+    "hoursAgo_other": "{{count}} hours ago",
+    "name_APPROVED": "Approved",
+    "name_PENDING_REVIEW": "In review",
+    "name_DECLINED": "Declined",
+    "qualityAlert": "{{number}} quality is {{rating}}.",
+    "qualityAlertHint": "Customers blocked or reported recent messages. Pause marketing sends from this number until it recovers.",
+    "tiersTitle": "Messaging limit tiers",
+    "tiersHint": "Meta raises your limit automatically while quality stays good.",
+    "unlimited": "Unlimited",
+    "current": "Current"
   },
   "connect": {
     "title": "Connect WhatsApp",
@@ -287,7 +312,14 @@
     "captionPlaceholder": "Add a caption (optional)",
     "fileTooLarge": "{{name}} is larger than WhatsApp allows ({{limit}}).",
     "fileType": "WhatsApp does not accept this file type.",
-    "download": "Download"
+    "download": "Download",
+    "details": "Details",
+    "leftShort": "{{left}} left",
+    "noteBy": "Note by {{name}}",
+    "templateTag": "Template",
+    "optInSource": "Opt-in source",
+    "optedIn": "Opted in",
+    "firstSeen": "First seen"
   },
   "developers": {
     "title": "Developers",
@@ -344,7 +376,17 @@
     "modeLive": "Live (sends real messages)",
     "modeSandbox": "Sandbox (test only, sends nothing)",
     "sandbox": "Sandbox",
-    "apiDocs": "API documentation"
+    "apiDocs": "API documentation",
+    "filter_all": "All",
+    "filter_dead": "Failed",
+    "filter_retrying": "Retrying",
+    "successRate": "{{pct}}% delivered in the last 24 hours ({{count}} shown)",
+    "nextAttempt": "Next try {{time}}",
+    "quickstart": "Send a template",
+    "resources": "Resources",
+    "docsLink": "API reference",
+    "openapiLink": "OpenAPI file",
+    "quickstartHint": "Replace the key, number and template with your own."
   },
   "contacts": {
     "title": "Contacts",
@@ -397,7 +439,16 @@
     "importing": "Importing…",
     "importResult": "{{rows}} rows: {{created}} added, {{updated}} updated, {{skipped}} skipped. {{opted_in}} opt-ins and {{opted_out}} opt-outs recorded.",
     "line": "Line {{line}}: {{message}}",
-    "consent": "Consent"
+    "consent": "Consent",
+    "intro": "People who can message you, with their tags and WhatsApp opt-in.",
+    "allContacts": "All",
+    "pickedCount_one": "{{count}} selected",
+    "pickedCount_other": "{{count}} selected",
+    "tagPlaceholder": "Tag name",
+    "startCampaign": "Start campaign",
+    "clearPicked": "Clear selection",
+    "pickAll": "Select all shown",
+    "optedInAt": "Opted in on"
   },
   "campaigns": {
     "title": "Campaigns",
@@ -470,7 +521,31 @@
     "skip_missing_variable": "a template value was empty",
     "skip_cancelled": "campaign cancelled",
     "skip_number_disconnected": "number disconnected",
-    "skip_template_unavailable": "template no longer approved"
+    "skip_template_unavailable": "template no longer approved",
+    "intro": "Send approved templates to opted-in contacts, paced within your messaging limit.",
+    "kpiSent": "Messages sent",
+    "kpiAcross_one": "Across {{count}} campaign",
+    "kpiAcross_other": "Across {{count}} campaigns",
+    "kpiDelivery": "Delivery rate",
+    "kpiDeliveryHint": "Delivered or read, of messages sent",
+    "kpiRead": "Read rate",
+    "kpiReadHint": "Read, of messages sent",
+    "kpiScheduled": "Scheduled",
+    "kpiNext": "Next: {{name}}, {{when}}",
+    "kpiNone": "Nothing scheduled",
+    "tab_all": "All",
+    "tab_scheduled": "Scheduled",
+    "tab_sending": "Sending",
+    "tab_completed": "Completed",
+    "pickedContacts": "Selected contacts",
+    "contactsCount_one": "{{count}} contact",
+    "contactsCount_other": "{{count}} contacts",
+    "pickedCount_one": "{{count}} selected contact",
+    "pickedCount_other": "{{count}} selected contacts",
+    "useTags": "Choose by tag instead",
+    "delivered": "Delivered",
+    "read": "Read",
+    "audienceCol": "Audience"
   },
   "analytics": {
     "title": "Analytics",
@@ -562,7 +637,19 @@
     "retention": "Keep messages for",
     "retentionForever": "Forever",
     "retentionDays": "{{count}} days",
-    "retentionHint": "Older messages and their media files are deleted every day and cannot be recovered. Reports keep their totals."
+    "retentionHint": "Older messages and their media files are deleted every day and cannot be recovered. Reports keep their totals.",
+    "intro": "Manage your workspace, team, billing and security.",
+    "teamAndRoles": "Team and roles",
+    "security": "Security",
+    "active": "Active",
+    "invited": "Invited",
+    "rolesTitle": "Roles",
+    "rolesSub": "What each role can do",
+    "roleDesc_owner": "Connects WhatsApp, invites the team, and manages billing and API keys",
+    "roleDesc_admin": "Manages the team, numbers, templates, contacts and campaigns",
+    "roleDesc_agent": "Replies in the inbox and adds notes to conversations",
+    "roleDesc_developer": "Manages API keys and webhooks",
+    "status": "Status"
   },
   "invite": {
     "title": "Join {{tenant}}",
@@ -735,7 +822,15 @@
     "deletion_completed": "Completed",
     "deletionStart": "Start",
     "deletionDone": "Mark done",
-    "noDeletions": "No deletion requests."
+    "noDeletions": "No deletion requests.",
+    "perMinute": "Events per minute",
+    "peakPerMinute": "Peak per minute",
+    "errorRate": "Error rate",
+    "throughput": "Webhook throughput",
+    "errorsByCode": "Errors by code",
+    "errorsByCodeHint": "Across the {{count}} most recent errors loaded below",
+    "errorCount_one": "{{count}} time",
+    "errorCount_other": "{{count}} times"
   },
   "billing": {
     "onPlan": "{{plan}} plan",

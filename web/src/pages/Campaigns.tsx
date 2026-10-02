@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers, useTags, useTemplates } from "../api/hooks";
@@ -20,12 +21,34 @@ const RECIPIENT_STATUSES: RecipientStatus[] = ["pending", "skipped", "queued", "
 
 const active = (s: CampaignStatus) => s === "scheduled" || s === "running" || s === "paused";
 
+type Tab = "all" | "scheduled" | "sending" | "completed";
+const IN_TAB: Record<Tab, (s: CampaignStatus) => boolean> = {
+  all: () => true,
+  scheduled: (s) => s === "scheduled",
+  sending: (s) => s === "running" || s === "paused",
+  completed: (s) => s === "completed",
+};
+
+// Recipients a message went out to: sent, delivered, read, or failed after sending.
+const attempted = (c: Campaign) => c.stats.sent + c.stats.delivered + c.stats.read + c.stats.failed;
+const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n * 100) / of)}%` : "—");
+
 export default function Campaigns() {
   const { t } = useTranslation();
   const role = useMe().data?.tenant?.role;
   const canManage = role === "owner" || role === "admin";
-  const [creating, setCreating] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Contacts picked on the Contacts page arrive here as the new campaign's audience.
+  const [pickedIds, setPickedIds] = useState<string[] | null>(
+    () => (location.state as { contactIds?: string[] } | null)?.contactIds ?? null,
+  );
+  const [creating, setCreating] = useState(() => pickedIds !== null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("all");
+  useEffect(() => {
+    if (location.state) navigate(location.pathname, { replace: true, state: null });
+  }, [location, navigate]);
 
   const list = useInfiniteQuery({
     queryKey: ["campaigns"],
@@ -37,7 +60,12 @@ export default function Campaigns() {
     // Running campaigns' counts change as messages go out.
     refetchInterval: (q) => (q.state.data?.pages.some((p) => p.data.some((c) => active(c.status))) ? 5000 : false),
   });
-  const campaigns = list.data?.pages.flatMap((p) => p.data) ?? [];
+  const all = list.data?.pages.flatMap((p) => p.data) ?? [];
+  const campaigns = all.filter((c) => IN_TAB[tab](c.status));
+  const sent = all.reduce((n, c) => n + attempted(c), 0);
+  const delivered = all.reduce((n, c) => n + c.stats.delivered + c.stats.read, 0);
+  const read = all.reduce((n, c) => n + c.stats.read, 0);
+  const scheduled = all.filter((c) => c.status === "scheduled" && c.scheduled_at).sort((a, b) => a.scheduled_at!.localeCompare(b.scheduled_at!));
 
   if (role && !canManage) {
     return (
@@ -51,12 +79,56 @@ export default function Campaigns() {
   return (
     <section>
       <div className="page-head">
-        <h1>{t("campaigns.title")}</h1>
+        <div>
+          <h1>{t("campaigns.title")}</h1>
+          <p className="sub">{t("campaigns.intro")}</p>
+        </div>
         <div className="actions">
-          <button className="primary" onClick={() => setCreating(!creating)}>{t("campaigns.new")}</button>
+          <button className="primary" onClick={() => { setPickedIds(null); setCreating(!creating); }}>{t("campaigns.new")}</button>
         </div>
       </div>
-      {creating && <NewCampaign onDone={(id) => { setCreating(false); setSelected(id); }} />}
+      {creating && (
+        <NewCampaign
+          contactIds={pickedIds}
+          onClearContacts={() => setPickedIds(null)}
+          onDone={(id) => { setCreating(false); setPickedIds(null); setSelected(id); }}
+        />
+      )}
+
+      {all.length > 0 && (
+        <div className="kpis">
+          <div className="card">
+            <span className="sl">{t("campaigns.kpiSent")}</span>
+            <span className="kpi-value">{sent.toLocaleString()}</span>
+            <span className="muted small">{t("campaigns.kpiAcross", { count: all.length })}</span>
+          </div>
+          <div className="card">
+            <span className="sl">{t("campaigns.kpiDelivery")}</span>
+            <span className="kpi-value">{pct(delivered, sent)}</span>
+            <span className="muted small">{t("campaigns.kpiDeliveryHint")}</span>
+          </div>
+          <div className="card">
+            <span className="sl">{t("campaigns.kpiRead")}</span>
+            <span className="kpi-value">{pct(read, sent)}</span>
+            <span className="muted small">{t("campaigns.kpiReadHint")}</span>
+          </div>
+          <div className="card">
+            <span className="sl">{t("campaigns.kpiScheduled")}</span>
+            <span className="kpi-value">{scheduled.length}</span>
+            <span className="muted small">
+              {scheduled[0] ? t("campaigns.kpiNext", { name: scheduled[0].name, when: new Date(scheduled[0].scheduled_at!).toLocaleString() }) : t("campaigns.kpiNone")}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="tabs" role="tablist" style={{ marginBottom: 16 }}>
+        {(Object.keys(IN_TAB) as Tab[]).map((k) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
+            {t(`campaigns.tab_${k}`)} <span className="cnt">{all.filter((c) => IN_TAB[k](c.status)).length}</span>
+          </button>
+        ))}
+      </div>
 
       <div className={`contacts-layout ${selected ? "has-detail" : ""}`}>
         <div className="card table-wrap">
@@ -68,18 +140,29 @@ export default function Campaigns() {
                 <tr>
                   <th>{t("campaigns.name")}</th>
                   <th>{t("campaigns.status")}</th>
-                  <th>{t("campaigns.template")}</th>
+                  <th>{t("campaigns.audienceCol")}</th>
                   <th>{t("campaigns.progress")}</th>
+                  <th>{t("campaigns.delivered")}</th>
+                  <th>{t("campaigns.read")}</th>
                   <th>{t("campaigns.when")}</th>
                 </tr>
               </thead>
               <tbody>
                 {campaigns.map((c) => (
                   <tr key={c.id} className={selected === c.id ? "selected" : ""} onClick={() => setSelected(c.id)}>
-                    <td>{c.name}</td>
+                    <td>
+                      <div className="who"><span><b>{c.name}</b><small>{c.template.name} · {c.template.language}</small></span></div>
+                    </td>
                     <td><span className={`pill ${STATUS_PILL[c.status]}`}>{t(`campaigns.status_${c.status}`)}</span></td>
-                    <td>{c.template.name} <span className="muted small">{c.template.language}</span></td>
+                    <td>
+                      <div className="who"><span>
+                        <b>{c.audience.tags?.length ? c.audience.tags.map((tg) => `#${tg}`).join(" ") : t("campaigns.pickedContacts")}</b>
+                        <small>{t("campaigns.contactsCount", { count: c.stats.total })}</small>
+                      </span></div>
+                    </td>
                     <td className="nowrap">{c.stats.total ? t("campaigns.progressCell", { ...c.stats }) : "—"}</td>
+                    <td>{pct(c.stats.delivered + c.stats.read, attempted(c))}</td>
+                    <td>{pct(c.stats.read, attempted(c))}</td>
                     <td className="small">{new Date(c.scheduled_at ?? c.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -96,7 +179,11 @@ export default function Campaigns() {
   );
 }
 
-function NewCampaign({ onDone }: { onDone: (id: string) => void }) {
+function NewCampaign({ onDone, contactIds, onClearContacts }: {
+  onDone: (id: string) => void;
+  contactIds: string[] | null;
+  onClearContacts: () => void;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const numbers = usePhoneNumbers();
@@ -127,9 +214,10 @@ function NewCampaign({ onDone }: { onDone: (id: string) => void }) {
   const slots = useMemo(() => (template ? templateSlots(template.components) : []), [template]);
 
   const audience = useQuery({
-    queryKey: ["campaign-audience", chosenTags],
-    queryFn: () => api<AudienceCounts>("POST", "/internal/campaigns/audience", { tags: chosenTags }),
-    enabled: chosenTags.length > 0,
+    queryKey: ["campaign-audience", chosenTags, contactIds],
+    queryFn: () =>
+      api<AudienceCounts>("POST", "/internal/campaigns/audience", contactIds ? { contact_ids: contactIds } : { tags: chosenTags }),
+    enabled: chosenTags.length > 0 || !!contactIds?.length,
   });
 
   const toggleTag = (name: string) =>
@@ -150,7 +238,7 @@ function NewCampaign({ onDone }: { onDone: (id: string) => void }) {
             language: template.language,
             variables: Object.fromEntries(slots.map((s) => [s.key, vars[s.key] ?? ""])),
           },
-          audience: { tags: chosenTags },
+          audience: contactIds ? { contact_ids: contactIds } : { tags: chosenTags },
           scheduled_at: when === "later" && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
           send_rate_per_min: rate ? Number(rate) : undefined,
         },
@@ -236,6 +324,12 @@ function NewCampaign({ onDone }: { onDone: (id: string) => void }) {
 
       <div className="field">
         {t("campaigns.audience")}
+        {contactIds ? (
+          <div>
+            <span className="chip">{t("campaigns.pickedCount", { count: contactIds.length })}</span>
+            <button type="button" className="link" onClick={onClearContacts}>{t("campaigns.useTags")}</button>
+          </div>
+        ) : (
         <div>
           {(tags.data ?? []).map((tg) => (
             <label key={tg.id} className={`chip selectable ${chosenTags.includes(tg.name) ? "on" : ""}`}>
@@ -245,6 +339,7 @@ function NewCampaign({ onDone }: { onDone: (id: string) => void }) {
           ))}
           {tags.data?.length === 0 && <span className="muted small">{t("campaigns.noTags")}</span>}
         </div>
+        )}
         {audience.data && (
           <span className="muted small">{t("campaigns.audienceCounts", { ...audience.data })}</span>
         )}
@@ -272,7 +367,7 @@ function NewCampaign({ onDone }: { onDone: (id: string) => void }) {
 
       {error && <div className="error">{error}</div>}
       <div className="actions">
-        <button className="primary" disabled={busy || !template || chosenTags.length === 0 || audience.data?.eligible === 0}>
+        <button className="primary" disabled={busy || !template || (chosenTags.length === 0 && !contactIds?.length) || audience.data?.eligible === 0}>
           {when === "later" ? t("campaigns.schedule") : t("campaigns.start")}
         </button>
       </div>

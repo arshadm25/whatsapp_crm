@@ -70,12 +70,14 @@ export default function Developers() {
   return (
     <section>
       <div className="page-head">
-        <h1>{t("developers.title")}</h1>
+        <div>
+          <h1>{t("developers.title")}</h1>
+          <p className="sub">{t("developers.intro")}</p>
+        </div>
       </div>
-      <p className="muted">{t("developers.intro")}</p>
-      <p><a href="/v1/docs" target="_blank" rel="noreferrer">{t("developers.apiDocs")}</a></p>
-
-      <h2>{t("developers.keys")}</h2>
+      <div className="split">
+      <div className="stack">
+      <h2 style={{ margin: 0 }}>{t("developers.keys")}</h2>
       {created && (
         <div className="card new-key">
           <strong>{t("developers.copyNow")}</strong>
@@ -148,6 +150,33 @@ export default function Developers() {
         </div>
       )}
       <Webhooks />
+      </div>
+      <aside className="stack">
+        <div className="card flush">
+          <div className="chd"><div><h2>{t("developers.quickstart")}</h2><p>{t("developers.quickstartHint")}</p></div></div>
+          <div className="cb">
+            <pre className="code">{`curl ${window.location.origin}/v1/messages \
+  -H "Authorization: Bearer $ECOGO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "phone_number_id": "${numbers.data?.[0]?.id ?? "PHONE_NUMBER_ID"}",
+    "to": "919876500011",
+    "type": "template",
+    "template": { "name": "hello_world", "language": "en_US" }
+  }'`}</pre>
+          </div>
+        </div>
+        <div className="card flush">
+          <div className="chd"><h2>{t("developers.resources")}</h2></div>
+          <a className="ql" href="/v1/docs" target="_blank" rel="noreferrer">
+            <span className="t"><b>{t("developers.docsLink")}</b><small>/v1/docs</small></span>
+          </a>
+          <a className="ql" href="/v1/openapi.yaml" target="_blank" rel="noreferrer">
+            <span className="t"><b>{t("developers.openapiLink")}</b><small>/v1/openapi.yaml</small></span>
+          </a>
+        </div>
+      </aside>
+      </div>
     </section>
   );
 }
