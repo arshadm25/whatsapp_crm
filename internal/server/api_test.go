@@ -25,6 +25,7 @@ import (
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
+	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
@@ -222,6 +223,7 @@ func newHarness(t *testing.T) *harness {
 		Developers: devportal.NewService(d, log),
 		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(5), log),
 		Webhooks:   webhooks.NewService(d, keys, rc, log),
+		Contacts:   contacts.NewService(d, log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)

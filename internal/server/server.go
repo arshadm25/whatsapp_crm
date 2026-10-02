@@ -12,6 +12,7 @@ import (
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
+	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -38,6 +39,7 @@ type APIDeps struct {
 	Developers *devportal.Service
 	Keys       *devportal.Authenticator
 	Webhooks   *webhooks.Service
+	Contacts   *contacts.Service
 	Events     http.Handler
 }
 
@@ -60,6 +62,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/templates", d.Templates.InternalRoutes)
 			r.Route("/inbox", d.Inbox.InternalRoutes)
 			r.Route("/developers", d.Developers.InternalRoutes)
+			r.Route("/contacts", d.Contacts.InternalRoutes)
 			r.Method(http.MethodGet, "/events", d.Events)
 		})
 	})
@@ -78,6 +81,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/conversations", d.Inbox.Routes)
 			r.Route("/media", d.Media.Routes)
 			r.Route("/webhook-endpoints", d.Webhooks.Routes)
+			r.Route("/contacts", d.Contacts.Routes)
 		})
 	})
 

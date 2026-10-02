@@ -23,6 +23,7 @@ import (
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
+	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
@@ -112,6 +113,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Developers: devportal.NewService(d, log),
 		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(60), log),
 		Webhooks:   webhooks.NewService(d, keys, rc, log),
+		Contacts:   contacts.NewService(d, log),
 		Events:     hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
