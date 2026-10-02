@@ -294,7 +294,81 @@ function Account() {
         </label>
         <div className="actions"><button className="primary">{t("settings.changePassword")}</button></div>
       </form>
+      <TwoFactor />
       {(note || error) && <div className={error ? "error" : "muted"}>{error || note}</div>}
     </div>
+  );
+}
+
+// TwoFactor turns authenticator-app codes on or off for the signed-in user.
+function TwoFactor() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const me = useMe().data!;
+  const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const on = me.user.two_factor_enabled;
+
+  const start = async () => {
+    setError("");
+    setNote("");
+    try {
+      setSetup(await api<{ secret: string; uri: string }>("POST", "/internal/auth/2fa/setup"));
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    try {
+      const next = on
+        ? await api<Me>("POST", "/internal/auth/2fa/disable", { code })
+        : await api<Me>("POST", "/internal/auth/2fa/enable", { secret: setup?.secret, code });
+      qc.setQueryData(["me"], next);
+      setSetup(null);
+      setCode("");
+      setNote(on ? t("settings.twoStepDisabled") : t("settings.twoStepEnabled"));
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  const codeField = (label: string) => (
+    <label className="field">
+      {label}
+      <input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" maxLength={7} value={code} onChange={(e) => setCode(e.target.value)} required />
+    </label>
+  );
+
+  return (
+    <form className="card form" onSubmit={submit}>
+      <h2>{t("settings.twoStep")}</h2>
+      <p className="muted small">{on ? t("settings.twoStepOn") : t("settings.twoStepOff")}</p>
+      {on && !me.user.is_platform_admin && (
+        <>
+          {codeField(t("settings.twoStepDisableHint"))}
+          <div className="actions"><button className="danger">{t("settings.twoStepDisable")}</button></div>
+        </>
+      )}
+      {on && me.user.is_platform_admin && <p className="muted small">{t("settings.twoStepAdmin")}</p>}
+      {!on && !setup && (
+        <div className="actions"><button type="button" className="primary" onClick={start}>{t("settings.twoStepStart")}</button></div>
+      )}
+      {!on && setup && (
+        <>
+          <p className="small">{t("settings.twoStepScan")}</p>
+          <div className="field">
+            {t("settings.twoStepKey")}
+            <div className="secret">{setup.secret.replace(/(.{4})/g, "$1 ").trim()}</div>
+            <a href={setup.uri} className="small">{t("settings.twoStepLink")}</a>
+          </div>
+          {codeField(t("settings.twoStepCode"))}
+          <div className="actions"><button className="primary">{t("settings.twoStepEnable")}</button></div>
+        </>
+      )}
+      {(note || error) && <div className={error ? "error" : "muted small"}>{error || note}</div>}
+    </form>
   );
 }

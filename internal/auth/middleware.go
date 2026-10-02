@@ -33,6 +33,13 @@ type Principal struct {
 	APIKeyID uuid.UUID // set when the request used an API key
 	// KeyPhoneNumberID limits an API key to one phone number.
 	KeyPhoneNumberID *uuid.UUID
+
+	// TOTPEnabled is set when the user has two-step verification on; MFAPending while this
+	// session has not passed it yet.
+	TOTPEnabled bool
+	MFAPending  bool
+	// PlatformAdmin marks Ecogo staff (A1).
+	PlatformAdmin bool
 }
 
 // IsAPIKey reports a request authenticated with an API key rather than a dashboard session.
@@ -64,7 +71,11 @@ func WithPrincipal(ctx context.Context, p Principal) context.Context {
 	return context.WithValue(ctx, principalKey{}, p)
 }
 
-// RequireSession resolves the session cookie, slides its idle expiry, and rejects anonymous requests.
+// mfaOpen lists what a session waiting for its two-step code may still call.
+var mfaOpen = map[string]bool{"/internal/auth/me": true, "/internal/auth/logout": true, "/internal/auth/2fa/verify": true}
+
+// RequireSession resolves the session cookie, slides its idle expiry, and rejects anonymous
+// requests. A user with two-step verification on can do nothing else until the session passes it.
 func (s *Service) RequireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(SessionCookie)
@@ -74,11 +85,13 @@ func (s *Service) RequireSession(next http.Handler) http.Handler {
 		}
 		var p Principal
 		err = s.db.Global(r.Context(), func(q *dbq.Queries, tx pgx.Tx) error {
-			sess, err := q.GetSessionByTokenHash(r.Context(), hashToken(c.Value))
+			row, err := q.GetSessionAuth(r.Context(), hashToken(c.Value))
 			if err != nil {
 				return err
 			}
-			p = Principal{SessionID: sess.ID, UserID: sess.UserID}
+			sess := row.Session
+			p = Principal{SessionID: sess.ID, UserID: sess.UserID, TOTPEnabled: row.TotpEnabled,
+				MFAPending: row.TotpEnabled && !sess.MfaPassed, PlatformAdmin: row.IsPlatformAdmin}
 			if sess.TenantID != nil {
 				// The role is read through user_memberships so a removed member loses access at once.
 				ms, err := q.UserMemberships(r.Context(), sess.UserID)
@@ -103,6 +116,11 @@ func (s *Service) RequireSession(next http.Handler) http.Handler {
 		}
 		if err != nil {
 			httpx.WriteError(w, r, s.log, err)
+			return
+		}
+		if p.MFAPending && !mfaOpen[r.URL.Path] {
+			httpx.JSON(w, http.StatusForbidden, map[string]any{"error": httpx.Error{
+				Code: "mfa_required", Message: "Enter the code from your authenticator app first.", RequestID: httpx.GetRequestID(r.Context())}})
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/admin"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
@@ -48,7 +50,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: ecogo api|ingest|worker|migrate")
+		fmt.Fprintln(os.Stderr, "usage: ecogo api|ingest|worker|migrate|grant-admin <email>|revoke-admin <email>")
 		os.Exit(2)
 	}
 	cfg, err := config.Load()
@@ -72,6 +74,8 @@ func main() {
 		if err = cfg.Require("ECOGO_MIGRATION_DATABASE_URL"); err == nil {
 			err = db.Migrate(ctx, cfg.MigrationDatabaseURL, log)
 		}
+	case "grant-admin", "revoke-admin":
+		err = setPlatformAdmin(ctx, cfg, os.Args[1:], log)
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -105,7 +109,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Config:     cfg,
 		DB:         d,
 		Log:        log,
-		Auth:       auth.NewService(d, cfg, mailer.NewSMTP(cfg.Mail), log),
+		Auth:       auth.NewService(d, keys, cfg, mailer.NewSMTP(cfg.Mail), log),
 		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
 		Numbers:    numbers.NewService(d, log),
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
@@ -118,6 +122,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Contacts:   contacts.NewService(d, log),
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
+		Admin:      admin.NewService(d, log),
 		Events:     hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
@@ -181,6 +186,35 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return rc.Stop(stopCtx)
+}
+
+// setPlatformAdmin gives or takes away access to the admin console (A1). The user signs in
+// as usual and must turn on two-step verification before the console opens.
+func setPlatformAdmin(ctx context.Context, cfg *config.Config, args []string, log *slog.Logger) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: ecogo %s <email>", args[0])
+	}
+	if err := cfg.Require("ECOGO_DATABASE_URL"); err != nil {
+		return err
+	}
+	d, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	email := strings.ToLower(strings.TrimSpace(args[1]))
+	grant := args[0] == "grant-admin"
+	return d.Global(ctx, func(q *dbq.Queries, _ pgx.Tx) error {
+		n, err := q.SetPlatformAdmin(ctx, dbq.SetPlatformAdminParams{Email: email, IsPlatformAdmin: grant})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("no user with email %s; they need to sign up first", email)
+		}
+		log.Info("platform admin updated", "email", email, "platform_admin", grant)
+		return nil
+	})
 }
 
 // common opens the database and builds the keyring and Meta client.

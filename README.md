@@ -10,7 +10,7 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 
 | Area | Status |
 | --- | --- |
-| D1 Sign-up, login, sessions, email verification; Settings with team members and roles (owners manage everyone, admins manage agents and developers), email invites with a shareable 7-day link, workspace name, legal name and time zone, own name and password change; workspace switcher for people in several workspaces | Done (2FA with the admin console) |
+| D1 Sign-up, login, sessions, email verification; Settings with team members and roles (owners manage everyone, admins manage agents and developers), email invites with a shareable 7-day link, workspace name, legal name and time zone, own name and password change; workspace switcher for people in several workspaces; two-step verification with an authenticator app, asked at every login once on, 5 wrong codes per 15 minutes | Done |
 | D2 Connect WhatsApp with Embedded Signup v4, standard and coexistence | Done |
 | D5 Phone numbers list (`GET /v1/phone-numbers`) | Done (profile and health sync later) |
 | Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import later) |
@@ -23,14 +23,16 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 | Media: `POST /v1/media` with WhatsApp's type and size limits, `GET /v1/media/{id}` with a 15-minute signed download link, sending uploaded files, copying inbound files from Meta into the MinIO bucket, attachments and previews in the inbox | Done |
 | D4 Templates: list, create and edit through Meta review, delete by name, sync from Meta (also at the end of onboarding) | Done |
 | Dashboard: Templates list and editor, Send a message test screen | Done |
+| A1 Admin console for Ecogo staff (`/admin`, two-step verification required): every workspace with members, numbers, quality, tier and 30-day volume; suspend and reactivate with a reason; Meta webhook health per hour with failures and p95 lag; Meta API errors; the audit log; reading a conversation only with a stated reason, recorded as `message_content.view`. Grant access with `ecogo grant-admin <email>` | Done |
 | D3 Inbox: conversations with filters and search, assignment, close and reopen, internal notes, quick replies, template picker when the 24-hour window is closed, live updates over SSE | Done |
 
 ## Layout
 
 ```
-cmd/ecogo/            one binary: `ecogo api | ingest | worker | migrate`
+cmd/ecogo/            one binary: `ecogo api | ingest | worker | migrate | grant-admin | revoke-admin`
 internal/
-  auth/               D1: sign-up, login, sessions, CSRF, email verification, team, invites
+  auth/               D1: sign-up, login, sessions, CSRF, email verification, team, invites, 2FA
+  admin/              A1: the platform admin console API
   onboarding/         D2: Embedded Signup code exchange (api) and onboarding steps (River worker)
   numbers/            D5: /v1/phone-numbers
   messaging/          Flow 3: /v1/messages and the send worker

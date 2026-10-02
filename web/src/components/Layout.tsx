@@ -60,6 +60,9 @@ export default function Layout() {
               {!n.ready && <span className="soon">{t("nav.comingSoon")}</span>}
             </NavLink>
           ))}
+          {me.user.is_platform_admin && (
+            <NavLink to="/admin" className={({ isActive }) => (isActive ? "active" : "")}>{t("nav.admin")}</NavLink>
+          )}
         </nav>
         <div className="sidebar-foot">
           <div className="muted small">{me.user.email}</div>
