@@ -237,7 +237,7 @@ func newHarness(t *testing.T) *harness {
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
-		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, log),
+		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)

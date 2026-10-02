@@ -51,6 +51,9 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/audit-log", httpx.Handler(s.log, s.auditLog))
 	r.Get("/plans", httpx.Handler(s.log, s.listPlans))
 	r.Put("/plans/{code}", httpx.Handler(s.log, s.savePlan))
+	r.Get("/invoices", httpx.Handler(s.log, s.listInvoices))
+	r.Get("/invoices.csv", httpx.Handler(s.log, s.exportInvoices))
+	r.Get("/invoices/{id}/view", httpx.Handler(s.log, s.viewInvoice))
 	r.Post("/tenants/{id}/extend-trial", httpx.Handler(s.log, s.extendTrial))
 }
 

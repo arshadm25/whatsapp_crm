@@ -12,6 +12,120 @@ import (
 	"github.com/google/uuid"
 )
 
+const adminGetInvoice = `-- name: AdminGetInvoice :one
+SELECT id, tenant_id, number, razorpay_payment_id, description, period_start, period_end, sac, total_minor, taxable_minor, gst_rate_bp, cgst_minor, sgst_minor, igst_minor, place_of_supply, seller, buyer, issued_at, emailed_at FROM admin_invoice($1::uuid)
+`
+
+func (q *Queries) AdminGetInvoice(ctx context.Context, id uuid.UUID) (Invoice, error) {
+	row := q.db.QueryRow(ctx, adminGetInvoice, id)
+	var i Invoice
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Number,
+		&i.RazorpayPaymentID,
+		&i.Description,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.Sac,
+		&i.TotalMinor,
+		&i.TaxableMinor,
+		&i.GstRateBp,
+		&i.CgstMinor,
+		&i.SgstMinor,
+		&i.IgstMinor,
+		&i.PlaceOfSupply,
+		&i.Seller,
+		&i.Buyer,
+		&i.IssuedAt,
+		&i.EmailedAt,
+	)
+	return i, err
+}
+
+const adminListInvoices = `-- name: AdminListInvoices :many
+SELECT i.id, i.tenant_id, i.number, i.razorpay_payment_id, i.description, i.period_start, i.period_end, i.sac, i.total_minor, i.taxable_minor, i.gst_rate_bp, i.cgst_minor, i.sgst_minor, i.igst_minor, i.place_of_supply, i.seller, i.buyer, i.issued_at, i.emailed_at, t.name AS tenant_name
+FROM admin_invoices($1::timestamptz, $2::timestamptz, $3::uuid) i
+JOIN tenants t ON t.id = i.tenant_id
+LIMIT $4
+`
+
+type AdminListInvoicesParams struct {
+	FromAt   *time.Time
+	ToAt     *time.Time
+	TenantID *uuid.UUID
+	Lim      int32
+}
+
+type AdminListInvoicesRow struct {
+	ID                uuid.UUID
+	TenantID          uuid.UUID
+	Number            string
+	RazorpayPaymentID string
+	Description       string
+	PeriodStart       *time.Time
+	PeriodEnd         *time.Time
+	Sac               *string
+	TotalMinor        int64
+	TaxableMinor      int64
+	GstRateBp         int32
+	CgstMinor         int64
+	SgstMinor         int64
+	IgstMinor         int64
+	PlaceOfSupply     string
+	Seller            []byte
+	Buyer             []byte
+	IssuedAt          time.Time
+	EmailedAt         *time.Time
+	TenantName        string
+}
+
+func (q *Queries) AdminListInvoices(ctx context.Context, arg AdminListInvoicesParams) ([]AdminListInvoicesRow, error) {
+	rows, err := q.db.Query(ctx, adminListInvoices,
+		arg.FromAt,
+		arg.ToAt,
+		arg.TenantID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminListInvoicesRow
+	for rows.Next() {
+		var i AdminListInvoicesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Number,
+			&i.RazorpayPaymentID,
+			&i.Description,
+			&i.PeriodStart,
+			&i.PeriodEnd,
+			&i.Sac,
+			&i.TotalMinor,
+			&i.TaxableMinor,
+			&i.GstRateBp,
+			&i.CgstMinor,
+			&i.SgstMinor,
+			&i.IgstMinor,
+			&i.PlaceOfSupply,
+			&i.Seller,
+			&i.Buyer,
+			&i.IssuedAt,
+			&i.EmailedAt,
+			&i.TenantName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getBillingProfile = `-- name: GetBillingProfile :one
 SELECT tenant_id, legal_name, gstin, state_code, address, updated_at FROM billing_profiles LIMIT 1
 `
@@ -31,7 +145,7 @@ func (q *Queries) GetBillingProfile(ctx context.Context) (BillingProfile, error)
 }
 
 const getInvoice = `-- name: GetInvoice :one
-SELECT id, tenant_id, number, razorpay_payment_id, description, period_start, period_end, sac, total_minor, taxable_minor, gst_rate_bp, cgst_minor, sgst_minor, igst_minor, place_of_supply, seller, buyer, issued_at FROM invoices WHERE id = $1
+SELECT id, tenant_id, number, razorpay_payment_id, description, period_start, period_end, sac, total_minor, taxable_minor, gst_rate_bp, cgst_minor, sgst_minor, igst_minor, place_of_supply, seller, buyer, issued_at, emailed_at FROM invoices WHERE id = $1
 `
 
 func (q *Queries) GetInvoice(ctx context.Context, id uuid.UUID) (Invoice, error) {
@@ -56,6 +170,7 @@ func (q *Queries) GetInvoice(ctx context.Context, id uuid.UUID) (Invoice, error)
 		&i.Seller,
 		&i.Buyer,
 		&i.IssuedAt,
+		&i.EmailedAt,
 	)
 	return i, err
 }
@@ -119,7 +234,7 @@ func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (i
 }
 
 const listInvoices = `-- name: ListInvoices :many
-SELECT id, tenant_id, number, razorpay_payment_id, description, period_start, period_end, sac, total_minor, taxable_minor, gst_rate_bp, cgst_minor, sgst_minor, igst_minor, place_of_supply, seller, buyer, issued_at FROM invoices ORDER BY issued_at DESC, number DESC
+SELECT id, tenant_id, number, razorpay_payment_id, description, period_start, period_end, sac, total_minor, taxable_minor, gst_rate_bp, cgst_minor, sgst_minor, igst_minor, place_of_supply, seller, buyer, issued_at, emailed_at FROM invoices ORDER BY issued_at DESC, number DESC
 `
 
 func (q *Queries) ListInvoices(ctx context.Context) ([]Invoice, error) {
@@ -150,6 +265,7 @@ func (q *Queries) ListInvoices(ctx context.Context) ([]Invoice, error) {
 			&i.Seller,
 			&i.Buyer,
 			&i.IssuedAt,
+			&i.EmailedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -159,6 +275,15 @@ func (q *Queries) ListInvoices(ctx context.Context) ([]Invoice, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markInvoiceEmailed = `-- name: MarkInvoiceEmailed :exec
+UPDATE invoices SET emailed_at = now() WHERE id = $1
+`
+
+func (q *Queries) MarkInvoiceEmailed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markInvoiceEmailed, id)
+	return err
 }
 
 const nextInvoiceNumber = `-- name: NextInvoiceNumber :one
@@ -173,6 +298,30 @@ func (q *Queries) NextInvoiceNumber(ctx context.Context, fy string) (int32, erro
 	var last int32
 	err := row.Scan(&last)
 	return last, err
+}
+
+const ownerEmails = `-- name: OwnerEmails :many
+SELECT u.email::text FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.role = 'owner' ORDER BY u.email
+`
+
+func (q *Queries) OwnerEmails(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, ownerEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var u_email string
+		if err := rows.Scan(&u_email); err != nil {
+			return nil, err
+		}
+		items = append(items, u_email)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const paymentInvoiced = `-- name: PaymentInvoiced :one

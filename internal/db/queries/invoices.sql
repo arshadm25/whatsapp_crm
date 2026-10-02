@@ -32,3 +32,18 @@ SELECT * FROM invoices WHERE id = $1;
 
 -- name: PaymentInvoiced :one
 SELECT EXISTS (SELECT 1 FROM invoices WHERE razorpay_payment_id = $1)::boolean;
+
+-- name: MarkInvoiceEmailed :exec
+UPDATE invoices SET emailed_at = now() WHERE id = $1;
+
+-- name: OwnerEmails :many
+SELECT u.email::text FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.role = 'owner' ORDER BY u.email;
+
+-- name: AdminListInvoices :many
+SELECT i.*, t.name AS tenant_name
+FROM admin_invoices(sqlc.narg(from_at)::timestamptz, sqlc.narg(to_at)::timestamptz, sqlc.narg(tenant_id)::uuid) i
+JOIN tenants t ON t.id = i.tenant_id
+LIMIT @lim;
+
+-- name: AdminGetInvoice :one
+SELECT * FROM admin_invoice(@id::uuid);
