@@ -11,13 +11,14 @@ SELECT * FROM plans WHERE razorpay_plan_id = $1;
 
 -- name: UpsertPlan :one
 INSERT INTO plans (code, name, price_minor, included_numbers, included_seats, extra_seat_minor,
-                   razorpay_plan_id, sort_order, is_active)
+                   razorpay_plan_id, extra_seat_razorpay_plan_id, sort_order, is_active)
 VALUES (@code, @name, @price_minor, @included_numbers, @included_seats, @extra_seat_minor,
-        sqlc.narg(razorpay_plan_id), @sort_order, @is_active)
+        sqlc.narg(razorpay_plan_id), sqlc.narg(extra_seat_razorpay_plan_id), @sort_order, @is_active)
 ON CONFLICT (code) DO UPDATE
 SET name = EXCLUDED.name, price_minor = EXCLUDED.price_minor, included_numbers = EXCLUDED.included_numbers,
     included_seats = EXCLUDED.included_seats, extra_seat_minor = EXCLUDED.extra_seat_minor,
-    razorpay_plan_id = EXCLUDED.razorpay_plan_id, sort_order = EXCLUDED.sort_order,
+    razorpay_plan_id = EXCLUDED.razorpay_plan_id, extra_seat_razorpay_plan_id = EXCLUDED.extra_seat_razorpay_plan_id,
+    sort_order = EXCLUDED.sort_order,
     is_active = EXCLUDED.is_active, updated_at = now()
 RETURNING *;
 
@@ -77,3 +78,22 @@ SELECT p.* FROM plans p JOIN subscriptions s ON s.plan_code = p.code;
 -- Numbers that count against the plan: connected or being connected, other than the one named.
 SELECT count(*)::int FROM phone_numbers
 WHERE status IN ('pending', 'connected') AND phone_number_id <> @other_id::text;
+
+-- name: SetSeatSubscription :exec
+UPDATE subscriptions SET seat_provider_subscription_id = @seat_provider_subscription_id, updated_at = now()
+WHERE tenant_id = @tenant_id;
+
+-- name: SetExtraSeats :exec
+-- A terminal seat event also forgets the seat subscription.
+UPDATE subscriptions
+SET extra_seats = @extra_seats,
+    seat_provider_subscription_id = CASE WHEN @ended::boolean THEN NULL ELSE seat_provider_subscription_id END,
+    updated_at = now()
+WHERE tenant_id = @tenant_id;
+
+-- name: SeatUsage :one
+-- Run inside the tenant. No row while no plan is chosen (a trial has no seat limit).
+SELECT (p.included_seats + s.extra_seats)::int AS seat_limit,
+       (SELECT count(*) FROM memberships)::int AS members,
+       (SELECT count(*) FROM invites WHERE accepted_at IS NULL AND expires_at > now())::int AS open_invites
+FROM subscriptions s JOIN plans p ON p.code = s.plan_code;

@@ -300,3 +300,77 @@ func TestPlanNumberLimit(t *testing.T) {
 		t.Fatalf("numbers = %d, want 2", len(list.Data))
 	}
 }
+
+func TestExtraSeats(t *testing.T) {
+	h := newHarness(t)
+	owner := h.newClient()
+	owner.signup("owner@example.com", "Sharma Sweets")
+	staff := h.platformAdmin("ops@ecogo.co.in")
+
+	invite := func(email string, status int) {
+		owner.do("POST", "/internal/team/invites", map[string]string{"email": email, "role": "agent"}, status, nil)
+	}
+	var ov billing.Overview
+	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": 1}, http.StatusConflict, nil) // no plan yet
+
+	staff.do("PUT", "/internal/admin/plans/team", map[string]any{"name": "Team", "price_minor": 100000, "included_numbers": 3,
+		"included_seats": 2, "extra_seat_minor": 20000, "is_active": true, "razorpay_plan_id": "plan_team",
+		"extra_seat_razorpay_plan_id": "plan_seat"}, http.StatusOK, nil)
+	staff.do("PUT", "/internal/admin/plans/bare", map[string]any{"name": "Bare", "price_minor": 100, "included_numbers": 1,
+		"included_seats": 1, "is_active": true, "razorpay_plan_id": "plan_bare"}, http.StatusOK, nil)
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if len(ov.Plans) != 2 || !ov.Plans[0].ExtraSeatsAvailable && !ov.Plans[1].ExtraSeatsAvailable || ov.Plans[0].ExtraSeatRazorpayPlanID != nil {
+		t.Fatalf("plans = %+v", ov.Plans)
+	}
+
+	// On the trial there is no seat limit; the plan brings one (the owner is already a member).
+	invite("trial1@example.com", http.StatusCreated)
+	invite("trial2@example.com", http.StatusCreated)
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "team"}, http.StatusOK, nil)
+	h.razorpayEvent("evt_1", "subscription.charged", map[string]any{"id": "sub_1", "plan_id": "plan_team", "status": "active",
+		"current_start": time.Now().Unix(), "current_end": time.Now().Add(30 * 24 * time.Hour).Unix()}, "whsec")
+	invite("third@example.com", http.StatusConflict) // owner + 2 open invites fill both seats
+
+	// Buying seats: Razorpay's payment page first, then the webhook grants them.
+	var checkout struct {
+		PaymentURL string `json:"payment_url"`
+	}
+	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": -1}, http.StatusBadRequest, nil)
+	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": 2}, http.StatusOK, &checkout)
+	call, body := h.razorpay.last()
+	if checkout.PaymentURL != "https://rzp.io/i/sub2" || call != "POST /v1/subscriptions" || body["plan_id"] != "plan_seat" || body["quantity"] != float64(2) {
+		t.Fatalf("seat checkout = %+v, %s %v", checkout, call, body)
+	}
+	invite("third@example.com", http.StatusConflict) // not paid yet
+	h.razorpayEvent("evt_2", "subscription.authenticated", map[string]any{"id": "sub_2", "plan_id": "plan_seat", "quantity": 2}, "whsec")
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Subscription.ExtraSeats != 2 || ov.Subscription.Status != "active" || ov.Subscription.PlanCode == nil || *ov.Subscription.PlanCode != "team" {
+		t.Fatalf("after seats = %+v", ov.Subscription)
+	}
+	invite("third@example.com", http.StatusCreated)
+	invite("fourth@example.com", http.StatusConflict) // 2 included + 2 extra = 4 seats: the owner and 3 invites
+
+	// More seats apply at once; fewer from the next cycle; zero ends the seat subscription.
+	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": 3}, http.StatusOK, nil)
+	call, body = h.razorpay.last()
+	if call != "PATCH /v1/subscriptions/sub_2" || body["quantity"] != float64(3) || body["schedule_change_at"] != "now" {
+		t.Fatalf("more seats = %s %v", call, body)
+	}
+	h.razorpayEvent("evt_3", "subscription.updated", map[string]any{"id": "sub_2", "quantity": 3}, "whsec")
+	invite("fourth@example.com", http.StatusCreated)
+	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": 1}, http.StatusOK, nil)
+	call, body = h.razorpay.last()
+	if call != "PATCH /v1/subscriptions/sub_2" || body["quantity"] != float64(1) || body["schedule_change_at"] != "cycle_end" {
+		t.Fatalf("fewer seats = %s %v", call, body)
+	}
+	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": 0}, http.StatusOK, nil)
+	call, body = h.razorpay.last()
+	if call != "POST /v1/subscriptions/sub_2/cancel" || body["cancel_at_cycle_end"] != float64(1) {
+		t.Fatalf("zero seats = %s %v", call, body)
+	}
+	h.razorpayEvent("evt_4", "subscription.cancelled", map[string]any{"id": "sub_2", "ended_at": time.Now().Unix()}, "whsec")
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Subscription.ExtraSeats != 0 || ov.Subscription.Status != "active" {
+		t.Fatalf("after seats ended = %+v", ov.Subscription)
+	}
+}

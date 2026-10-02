@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -245,6 +246,9 @@ func (s *Service) invite(w http.ResponseWriter, r *http.Request) error {
 		if err := q.DeleteOpenInvite(r.Context(), email); err != nil {
 			return err
 		}
+		if err := seatRoom(r.Context(), q, true); err != nil {
+			return err
+		}
 		inv, err := q.InsertInvite(r.Context(), dbq.InsertInviteParams{
 			ID: db.NewID(), TenantID: p.TenantID, Email: email, Role: role, TokenHash: hashToken(token),
 			InvitedBy: p.UserID, ExpiresAt: s.now().Add(inviteTTL),
@@ -352,5 +356,28 @@ func (s *Service) updateWorkspace(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	httpx.JSON(w, http.StatusOK, Workspace{ID: t.ID, Name: t.Name, LegalName: t.LegalName, TimeZone: t.Timezone})
+	return nil
+}
+
+// seatRoom refuses a new member or invite once the plan's seats (included plus paid extra) are
+// all taken. A workspace without a plan, on its trial, has no seat limit. Run it inside the
+// tenant; withInvites counts invitations that have not been accepted yet.
+func seatRoom(ctx context.Context, q *dbq.Queries, withInvites bool) error {
+	u, err := q.SeatUsage(ctx)
+	if db.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	used := u.Members
+	if withInvites {
+		used += u.OpenInvites
+	}
+	if used >= u.SeatLimit {
+		return httpx.NewError(http.StatusConflict, "seat_limit", fmt.Sprintf(
+			"Your plan has %d seat%s and all are taken. The workspace owner can add seats or choose a larger plan under Settings, Billing.",
+			u.SeatLimit, map[bool]string{true: "", false: "s"}[u.SeatLimit == 1]))
+	}
 	return nil
 }

@@ -21,7 +21,7 @@ SET status = $1,
     cancel_at_period_end = $5,
     updated_at = now()
 WHERE tenant_id = $6
-RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id
 `
 
 type ApplySubscriptionStateParams struct {
@@ -57,6 +57,8 @@ func (q *Queries) ApplySubscriptionState(ctx context.Context, arg ApplySubscript
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelAtPeriodEnd,
+		&i.ExtraSeats,
+		&i.SeatProviderSubscriptionID,
 	)
 	return i, err
 }
@@ -80,7 +82,7 @@ func (q *Queries) BillingUsage(ctx context.Context) (BillingUsageRow, error) {
 }
 
 const currentPlan = `-- name: CurrentPlan :one
-SELECT p.code, p.name, p.price_minor, p.currency, p.included_numbers, p.included_seats, p.extra_seat_minor, p.features, p.is_active, p.razorpay_plan_id, p.sort_order, p.created_at, p.updated_at FROM plans p JOIN subscriptions s ON s.plan_code = p.code
+SELECT p.code, p.name, p.price_minor, p.currency, p.included_numbers, p.included_seats, p.extra_seat_minor, p.features, p.is_active, p.razorpay_plan_id, p.sort_order, p.created_at, p.updated_at, p.extra_seat_razorpay_plan_id FROM plans p JOIN subscriptions s ON s.plan_code = p.code
 `
 
 // Run inside the tenant. No row while the workspace is on a trial with no plan chosen.
@@ -101,6 +103,7 @@ func (q *Queries) CurrentPlan(ctx context.Context) (Plan, error) {
 		&i.SortOrder,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExtraSeatRazorpayPlanID,
 	)
 	return i, err
 }
@@ -119,7 +122,7 @@ func (q *Queries) DropTrialPlan(ctx context.Context, tenantID uuid.UUID) error {
 const extendTrial = `-- name: ExtendTrial :one
 UPDATE subscriptions SET current_period_end = $1, updated_at = now()
 WHERE tenant_id = $2 AND status = 'trialing'
-RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id
 `
 
 type ExtendTrialParams struct {
@@ -144,12 +147,14 @@ func (q *Queries) ExtendTrial(ctx context.Context, arg ExtendTrialParams) (Subsc
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelAtPeriodEnd,
+		&i.ExtraSeats,
+		&i.SeatProviderSubscriptionID,
 	)
 	return i, err
 }
 
 const getPlan = `-- name: GetPlan :one
-SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at FROM plans WHERE code = $1
+SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id FROM plans WHERE code = $1
 `
 
 func (q *Queries) GetPlan(ctx context.Context, code string) (Plan, error) {
@@ -169,12 +174,13 @@ func (q *Queries) GetPlan(ctx context.Context, code string) (Plan, error) {
 		&i.SortOrder,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExtraSeatRazorpayPlanID,
 	)
 	return i, err
 }
 
 const getPlanByRazorpayID = `-- name: GetPlanByRazorpayID :one
-SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at FROM plans WHERE razorpay_plan_id = $1
+SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id FROM plans WHERE razorpay_plan_id = $1
 `
 
 func (q *Queries) GetPlanByRazorpayID(ctx context.Context, razorpayPlanID *string) (Plan, error) {
@@ -194,12 +200,13 @@ func (q *Queries) GetPlanByRazorpayID(ctx context.Context, razorpayPlanID *strin
 		&i.SortOrder,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExtraSeatRazorpayPlanID,
 	)
 	return i, err
 }
 
 const getSubscription = `-- name: GetSubscription :one
-SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end FROM subscriptions LIMIT 1
+SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id FROM subscriptions LIMIT 1
 `
 
 // Run inside the tenant.
@@ -220,12 +227,14 @@ func (q *Queries) GetSubscription(ctx context.Context) (Subscription, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelAtPeriodEnd,
+		&i.ExtraSeats,
+		&i.SeatProviderSubscriptionID,
 	)
 	return i, err
 }
 
 const getSubscriptionForUpdate = `-- name: GetSubscriptionForUpdate :one
-SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end FROM subscriptions LIMIT 1 FOR UPDATE
+SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id FROM subscriptions LIMIT 1 FOR UPDATE
 `
 
 func (q *Queries) GetSubscriptionForUpdate(ctx context.Context) (Subscription, error) {
@@ -245,12 +254,14 @@ func (q *Queries) GetSubscriptionForUpdate(ctx context.Context) (Subscription, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CancelAtPeriodEnd,
+		&i.ExtraSeats,
+		&i.SeatProviderSubscriptionID,
 	)
 	return i, err
 }
 
 const listPlans = `-- name: ListPlans :many
-SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at FROM plans
+SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id FROM plans
 WHERE (NOT $1::boolean OR is_active)
 ORDER BY sort_order, price_minor, code
 `
@@ -278,6 +289,7 @@ func (q *Queries) ListPlans(ctx context.Context, activeOnly bool) ([]Plan, error
 			&i.SortOrder,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExtraSeatRazorpayPlanID,
 		); err != nil {
 			return nil, err
 		}
@@ -319,6 +331,27 @@ func (q *Queries) RecordRazorpayEvent(ctx context.Context, arg RecordRazorpayEve
 	return result.RowsAffected(), nil
 }
 
+const seatUsage = `-- name: SeatUsage :one
+SELECT (p.included_seats + s.extra_seats)::int AS seat_limit,
+       (SELECT count(*) FROM memberships)::int AS members,
+       (SELECT count(*) FROM invites WHERE accepted_at IS NULL AND expires_at > now())::int AS open_invites
+FROM subscriptions s JOIN plans p ON p.code = s.plan_code
+`
+
+type SeatUsageRow struct {
+	SeatLimit   int32
+	Members     int32
+	OpenInvites int32
+}
+
+// Run inside the tenant. No row while no plan is chosen (a trial has no seat limit).
+func (q *Queries) SeatUsage(ctx context.Context) (SeatUsageRow, error) {
+	row := q.db.QueryRow(ctx, seatUsage)
+	var i SeatUsageRow
+	err := row.Scan(&i.SeatLimit, &i.Members, &i.OpenInvites)
+	return i, err
+}
+
 const setCancelAtPeriodEnd = `-- name: SetCancelAtPeriodEnd :exec
 UPDATE subscriptions SET cancel_at_period_end = $1, updated_at = now() WHERE tenant_id = $2
 `
@@ -330,6 +363,26 @@ type SetCancelAtPeriodEndParams struct {
 
 func (q *Queries) SetCancelAtPeriodEnd(ctx context.Context, arg SetCancelAtPeriodEndParams) error {
 	_, err := q.db.Exec(ctx, setCancelAtPeriodEnd, arg.Cancel, arg.TenantID)
+	return err
+}
+
+const setExtraSeats = `-- name: SetExtraSeats :exec
+UPDATE subscriptions
+SET extra_seats = $1,
+    seat_provider_subscription_id = CASE WHEN $2::boolean THEN NULL ELSE seat_provider_subscription_id END,
+    updated_at = now()
+WHERE tenant_id = $3
+`
+
+type SetExtraSeatsParams struct {
+	ExtraSeats int32
+	Ended      bool
+	TenantID   uuid.UUID
+}
+
+// A terminal seat event also forgets the seat subscription.
+func (q *Queries) SetExtraSeats(ctx context.Context, arg SetExtraSeatsParams) error {
+	_, err := q.db.Exec(ctx, setExtraSeats, arg.ExtraSeats, arg.Ended, arg.TenantID)
 	return err
 }
 
@@ -350,6 +403,21 @@ func (q *Queries) SetProviderSubscription(ctx context.Context, arg SetProviderSu
 	return err
 }
 
+const setSeatSubscription = `-- name: SetSeatSubscription :exec
+UPDATE subscriptions SET seat_provider_subscription_id = $1, updated_at = now()
+WHERE tenant_id = $2
+`
+
+type SetSeatSubscriptionParams struct {
+	SeatProviderSubscriptionID *string
+	TenantID                   uuid.UUID
+}
+
+func (q *Queries) SetSeatSubscription(ctx context.Context, arg SetSeatSubscriptionParams) error {
+	_, err := q.db.Exec(ctx, setSeatSubscription, arg.SeatProviderSubscriptionID, arg.TenantID)
+	return err
+}
+
 const subscriptionTenant = `-- name: SubscriptionTenant :one
 SELECT t.tenant_id::uuid FROM (SELECT subscription_tenant($1::text) AS tenant_id) t
 WHERE t.tenant_id IS NOT NULL
@@ -364,27 +432,29 @@ func (q *Queries) SubscriptionTenant(ctx context.Context, providerSubscriptionID
 
 const upsertPlan = `-- name: UpsertPlan :one
 INSERT INTO plans (code, name, price_minor, included_numbers, included_seats, extra_seat_minor,
-                   razorpay_plan_id, sort_order, is_active)
+                   razorpay_plan_id, extra_seat_razorpay_plan_id, sort_order, is_active)
 VALUES ($1, $2, $3, $4, $5, $6,
-        $7, $8, $9)
+        $7, $8, $9, $10)
 ON CONFLICT (code) DO UPDATE
 SET name = EXCLUDED.name, price_minor = EXCLUDED.price_minor, included_numbers = EXCLUDED.included_numbers,
     included_seats = EXCLUDED.included_seats, extra_seat_minor = EXCLUDED.extra_seat_minor,
-    razorpay_plan_id = EXCLUDED.razorpay_plan_id, sort_order = EXCLUDED.sort_order,
+    razorpay_plan_id = EXCLUDED.razorpay_plan_id, extra_seat_razorpay_plan_id = EXCLUDED.extra_seat_razorpay_plan_id,
+    sort_order = EXCLUDED.sort_order,
     is_active = EXCLUDED.is_active, updated_at = now()
-RETURNING code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at
+RETURNING code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id
 `
 
 type UpsertPlanParams struct {
-	Code            string
-	Name            string
-	PriceMinor      int64
-	IncludedNumbers int32
-	IncludedSeats   int32
-	ExtraSeatMinor  int64
-	RazorpayPlanID  *string
-	SortOrder       int32
-	IsActive        bool
+	Code                    string
+	Name                    string
+	PriceMinor              int64
+	IncludedNumbers         int32
+	IncludedSeats           int32
+	ExtraSeatMinor          int64
+	RazorpayPlanID          *string
+	ExtraSeatRazorpayPlanID *string
+	SortOrder               int32
+	IsActive                bool
 }
 
 func (q *Queries) UpsertPlan(ctx context.Context, arg UpsertPlanParams) (Plan, error) {
@@ -396,6 +466,7 @@ func (q *Queries) UpsertPlan(ctx context.Context, arg UpsertPlanParams) (Plan, e
 		arg.IncludedSeats,
 		arg.ExtraSeatMinor,
 		arg.RazorpayPlanID,
+		arg.ExtraSeatRazorpayPlanID,
 		arg.SortOrder,
 		arg.IsActive,
 	)
@@ -414,6 +485,7 @@ func (q *Queries) UpsertPlan(ctx context.Context, arg UpsertPlanParams) (Plan, e
 		&i.SortOrder,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExtraSeatRazorpayPlanID,
 	)
 	return i, err
 }

@@ -1562,19 +1562,20 @@ type PhoneNumber struct {
 }
 
 type Plan struct {
-	Code            string
-	Name            string
-	PriceMinor      int64
-	Currency        string
-	IncludedNumbers int32
-	IncludedSeats   int32
-	ExtraSeatMinor  int64
-	Features        []byte
-	IsActive        bool
-	RazorpayPlanID  *string
-	SortOrder       int32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	Code                    string
+	Name                    string
+	PriceMinor              int64
+	Currency                string
+	IncludedNumbers         int32
+	IncludedSeats           int32
+	ExtraSeatMinor          int64
+	Features                []byte
+	IsActive                bool
+	RazorpayPlanID          *string
+	SortOrder               int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	ExtraSeatRazorpayPlanID *string
 }
 
 type QuickReply struct {
@@ -1606,19 +1607,21 @@ type Session struct {
 }
 
 type Subscription struct {
-	ID                     uuid.UUID
-	TenantID               uuid.UUID
-	PlanCode               *string
-	Status                 SubscriptionStatus
-	Seats                  int32
-	CurrentPeriodStart     time.Time
-	CurrentPeriodEnd       time.Time
-	PaymentProvider        string
-	ProviderCustomerID     *string
-	ProviderSubscriptionID *string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	CancelAtPeriodEnd      bool
+	ID                         uuid.UUID
+	TenantID                   uuid.UUID
+	PlanCode                   *string
+	Status                     SubscriptionStatus
+	Seats                      int32
+	CurrentPeriodStart         time.Time
+	CurrentPeriodEnd           time.Time
+	PaymentProvider            string
+	ProviderCustomerID         *string
+	ProviderSubscriptionID     *string
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+	CancelAtPeriodEnd          bool
+	ExtraSeats                 int32
+	SeatProviderSubscriptionID *string
 }
 
 type Tag struct {

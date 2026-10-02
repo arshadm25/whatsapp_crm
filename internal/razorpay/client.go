@@ -104,6 +104,7 @@ type Subscription struct {
 	CurrentStart *int64            `json:"current_start"`
 	CurrentEnd   *int64            `json:"current_end"`
 	EndedAt      *int64            `json:"ended_at"`
+	Quantity     int               `json:"quantity"`
 	ShortURL     string            `json:"short_url"`
 	Notes        map[string]string `json:"notes"`
 }
@@ -116,12 +117,17 @@ type NewSubscription struct {
 	// StartAt delays the first charge, so a trial's remaining days stay free.
 	StartAt *time.Time
 	Notes   map[string]string
+	// Quantity multiplies the plan's amount; zero means one.
+	Quantity int
 }
 
 func (c *Client) CreateSubscription(ctx context.Context, s NewSubscription) (Subscription, error) {
 	body := map[string]any{
 		"plan_id": s.PlanID, "customer_id": s.CustomerID, "total_count": s.TotalCount,
 		"customer_notify": 1, "notes": s.Notes,
+	}
+	if s.Quantity > 1 {
+		body["quantity"] = s.Quantity
 	}
 	if s.StartAt != nil {
 		body["start_at"] = s.StartAt.Unix()
@@ -136,6 +142,20 @@ func (c *Client) ChangePlan(ctx context.Context, subscriptionID, planID string) 
 	var out Subscription
 	err := c.do(ctx, http.MethodPatch, "/v1/subscriptions/"+subscriptionID, map[string]any{
 		"plan_id": planID, "schedule_change_at": "cycle_end", "customer_notify": 1,
+	}, &out)
+	return out, err
+}
+
+// ChangeQuantity changes how many units a subscription charges for, immediately (Razorpay
+// charges the prorated difference) or from the next cycle.
+func (c *Client) ChangeQuantity(ctx context.Context, subscriptionID string, quantity int, now bool) (Subscription, error) {
+	when := "cycle_end"
+	if now {
+		when = "now"
+	}
+	var out Subscription
+	err := c.do(ctx, http.MethodPatch, "/v1/subscriptions/"+subscriptionID, map[string]any{
+		"quantity": quantity, "schedule_change_at": when, "customer_notify": 1,
 	}, &out)
 	return out, err
 }

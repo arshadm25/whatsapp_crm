@@ -490,7 +490,7 @@ function TenantPlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetai
   );
 }
 
-const blankPlan = { code: "", name: "", price: "", seat: "", numbers: "1", seats: "3", razorpay: "", order: "0", active: true };
+const blankPlan = { code: "", name: "", price: "", seat: "", numbers: "1", seats: "3", razorpay: "", seatPlan: "", order: "0", active: true };
 
 // Plans are set here because prices are decided by Ecogo, not fixed in code. Each plan also
 // needs a Razorpay plan with the same monthly amount, created in the Razorpay dashboard.
@@ -506,7 +506,7 @@ function Plans() {
   const edit = (p: Plan) =>
     setForm({
       code: p.code, name: p.name, price: String(p.price_minor / 100), seat: String(p.extra_seat_minor / 100),
-      numbers: String(p.included_numbers), seats: String(p.included_seats), razorpay: p.razorpay_plan_id ?? "",
+      numbers: String(p.included_numbers), seats: String(p.included_seats), razorpay: p.razorpay_plan_id ?? "", seatPlan: p.extra_seat_razorpay_plan_id ?? "",
       order: String(p.sort_order), active: p.is_active,
     });
   const save = async (e: FormEvent) => {
@@ -521,7 +521,8 @@ function Plans() {
     try {
       await api("PUT", `/internal/admin/plans/${encodeURIComponent(form.code.trim())}`, {
         name: form.name, price_minor: price, extra_seat_minor: seat, included_numbers: Number(form.numbers),
-        included_seats: Number(form.seats), razorpay_plan_id: form.razorpay.trim() || null, sort_order: Number(form.order),
+        included_seats: Number(form.seats), razorpay_plan_id: form.razorpay.trim() || null,
+        extra_seat_razorpay_plan_id: form.seatPlan.trim() || null, sort_order: Number(form.order),
         is_active: form.active,
       });
       setForm(null);
@@ -572,6 +573,7 @@ function Plans() {
             <label className="field">{t("admin.includedNumbers")}<input type="number" min={1} value={form.numbers} onChange={set("numbers")} required /></label>
             <label className="field">{t("admin.includedSeats")}<input type="number" min={1} value={form.seats} onChange={set("seats")} required /></label>
             <label className="field">{t("admin.razorpayPlan")}<input value={form.razorpay} onChange={set("razorpay")} placeholder="plan_…" /></label>
+            <label className="field">{t("admin.seatRazorpayPlan")}<input value={form.seatPlan} onChange={set("seatPlan")} placeholder="plan_…" /></label>
             <label className="field">{t("admin.sortOrder")}<input type="number" value={form.order} onChange={set("order")} /></label>
             <label className="field check"><input type="checkbox" checked={form.active} onChange={set("active")} /> {t("admin.showToCustomers")}</label>
           </div>
