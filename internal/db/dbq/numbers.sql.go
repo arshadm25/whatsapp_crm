@@ -11,6 +11,16 @@ import (
 	"github.com/google/uuid"
 )
 
+const disconnectPhoneNumber = `-- name: DisconnectPhoneNumber :exec
+UPDATE phone_numbers SET status = 'disconnected', registered_at = NULL, updated_at = now() WHERE id = $1
+`
+
+// The number must register with Meta again when it is reconnected.
+func (q *Queries) DisconnectPhoneNumber(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, disconnectPhoneNumber, id)
+	return err
+}
+
 const getPhoneNumber = `-- name: GetPhoneNumber :one
 SELECT p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at, w.waba_id
 FROM phone_numbers p JOIN whatsapp_accounts w ON w.id = p.whatsapp_account_id

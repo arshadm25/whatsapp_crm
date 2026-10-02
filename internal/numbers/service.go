@@ -1,8 +1,8 @@
-// Package numbers serves D5 phone number endpoints of the /v1 API (listing and health details).
-// The business profile endpoints and health sync come with the D5 slice.
+// Package numbers serves the D2/D5 phone number endpoints: listing, business profile and disconnecting.
 package numbers
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -13,21 +13,48 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
+	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 )
 
-type Service struct {
-	db  *db.DB
-	log *slog.Logger
+// Meta is the part of the Graph API client the numbers endpoints use.
+type Meta interface {
+	GetBusinessProfile(ctx context.Context, token, phoneNumberID string) (*metaclient.BusinessProfile, error)
+	UpdateBusinessProfile(ctx context.Context, token, phoneNumberID string, fields map[string]any) error
+	UploadProfilePicture(ctx context.Context, token, mimeType, filename string, data []byte) (string, error)
+	DeregisterPhoneNumber(ctx context.Context, token, phoneNumberID string) error
 }
 
-func NewService(d *db.DB, log *slog.Logger) *Service { return &Service{db: d, log: log} }
+type Service struct {
+	db   *db.DB
+	keys *envelope.Keyring
+	meta Meta
+	log  *slog.Logger
+}
 
+func NewService(d *db.DB, keys *envelope.Keyring, meta Meta, log *slog.Logger) *Service {
+	return &Service{db: d, keys: keys, meta: meta, log: log}
+}
+
+// Routes mounts /v1/phone-numbers. Every member reads; owners and admins change profiles.
 func (s *Service) Routes(r chi.Router) {
 	r.Get("/", httpx.Handler(s.log, s.list))
 	r.Get("/{id}", httpx.Handler(s.log, s.get))
+	r.Get("/{id}/profile", httpx.Handler(s.log, s.getProfile))
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireRole(dbq.MemberRoleOwner, dbq.MemberRoleAdmin))
+		r.Patch("/{id}/profile", httpx.Handler(s.log, s.patchProfile))
+		r.Post("/{id}/profile/logo", httpx.Handler(s.log, s.uploadLogo))
+	})
+}
+
+// InternalRoutes mounts /internal/numbers for the dashboard.
+func (s *Service) InternalRoutes(r chi.Router) {
+	r.Use(auth.RequireRole(dbq.MemberRoleOwner, dbq.MemberRoleAdmin))
+	r.Post("/{id}/disconnect", httpx.Handler(s.log, s.disconnect))
 }
 
 // PhoneNumber matches the PhoneNumber schema in api/openapi.yaml.

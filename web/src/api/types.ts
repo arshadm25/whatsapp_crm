@@ -55,6 +55,16 @@ export interface PhoneNumber {
   last_synced_at: string | null;
 }
 
+export interface BusinessProfile {
+  about: string;
+  address: string;
+  description: string;
+  email: string;
+  vertical: string;
+  websites: string[];
+  profile_picture_url: string;
+}
+
 export type TemplateStatus = "draft" | "pending" | "approved" | "rejected" | "paused" | "disabled" | "in_appeal";
 export type TemplateCategory = "marketing" | "utility" | "authentication";
 

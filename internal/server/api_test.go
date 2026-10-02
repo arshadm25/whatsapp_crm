@@ -65,6 +65,8 @@ type fakeMeta struct {
 	created     []map[string]any  // bodies of template creates
 	uploads     [][]byte          // files uploaded to POST /{phone}/media
 	inbound     map[string][]byte // inbound media ID -> file served for download
+	profile     map[string]any    // business profile returned by GET whatsapp_business_profile
+	pictures    [][]byte          // files sent through the resumable upload API
 }
 
 func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +119,43 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fmt.Fprint(w, `{"success":true}`)
+	case len(parts) == 2 && parts[1] == "deregister":
+		fmt.Fprint(w, `{"success":true}`)
+	case len(parts) == 2 && parts[1] == "whatsapp_business_profile":
+		if r.Method == http.MethodGet {
+			p := f.profile
+			if p == nil {
+				p = map[string]any{}
+			}
+			b, _ := json.Marshal(map[string]any{"data": []any{p}})
+			_, _ = w.Write(b)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if f.profile == nil {
+			f.profile = map[string]any{}
+		}
+		for k, v := range body {
+			if k == "messaging_product" {
+				continue
+			}
+			if k == "profile_picture_handle" {
+				k, v = "profile_picture_url", "https://cdn.example/"+fmt.Sprint(v)
+			}
+			f.profile[k] = v
+		}
+		fmt.Fprint(w, `{"success":true}`)
+	case len(parts) == 2 && parts[1] == "uploads":
+		fmt.Fprint(w, `{"id":"upload:abc"}`)
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "upload:"):
+		if r.Header.Get("Authorization") != "OAuth EAAG-cmeta" && !strings.HasPrefix(r.Header.Get("Authorization"), "OAuth ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		f.pictures = append(f.pictures, b)
+		fmt.Fprint(w, `{"h":"4:handle"}`)
 	case len(parts) == 2 && parts[1] == "smb_app_data":
 		fmt.Fprint(w, `{"success":true}`)
 	case len(parts) == 2 && parts[1] == "messages":
@@ -225,7 +264,7 @@ func newHarness(t *testing.T) *harness {
 		Config: cfg, DB: d, Log: log,
 		Auth:       auth.NewService(d, keys, cfg, mailer.Log{Logger: log}, log),
 		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
-		Numbers:    numbers.NewService(d, log),
+		Numbers:    numbers.NewService(d, keys, meta, log),
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
 		Templates:  templates.NewService(d, keys, meta, log),
 		Inbox:      inbox.NewService(d, log),
