@@ -23,12 +23,33 @@ const (
 	CSRFHeader    = "X-CSRF-Token"
 )
 
-// Principal is the signed-in user and the tenant they are working in.
+// Principal is the signed-in user and the tenant they are working in, or an API key.
 type Principal struct {
 	SessionID uuid.UUID
-	UserID    uuid.UUID
+	UserID    uuid.UUID // uuid.Nil for an API key
 	TenantID  uuid.UUID // uuid.Nil when the user has no tenant selected
 	Role      dbq.MemberRole
+
+	APIKeyID uuid.UUID // set when the request used an API key
+	// KeyPhoneNumberID limits an API key to one phone number.
+	KeyPhoneNumberID *uuid.UUID
+}
+
+// IsAPIKey reports a request authenticated with an API key rather than a dashboard session.
+func (p Principal) IsAPIKey() bool { return p.APIKeyID != uuid.Nil }
+
+// User returns the user behind the request, or nil for an API key.
+func (p Principal) User() *uuid.UUID {
+	if p.UserID == uuid.Nil {
+		return nil
+	}
+	id := p.UserID
+	return &id
+}
+
+// AllowsNumber reports whether the request may act for a phone number.
+func (p Principal) AllowsNumber(id uuid.UUID) bool {
+	return p.KeyPhoneNumberID == nil || *p.KeyPhoneNumberID == id
 }
 
 type principalKey struct{}

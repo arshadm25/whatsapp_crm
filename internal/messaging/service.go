@@ -264,7 +264,7 @@ func (s *Service) claimKey(ctx context.Context, q *dbq.Queries, tenantID uuid.UU
 // queue runs the business checks and stores the message with its send job.
 func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.Principal, req *SendRequest, content map[string]any, key string) (Message, error) {
 	num, err := q.GetSendingNumber(ctx, req.PhoneNumberID)
-	if db.IsNotFound(err) {
+	if db.IsNotFound(err) || (err == nil && !p.AllowsNumber(num.PhoneNumber.ID)) {
 		return Message{}, &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Param: "phone_number_id", Message: "Phone number not found."}
 	}
 	if err != nil {
@@ -345,8 +345,8 @@ func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.P
 	}
 	msg, err := q.InsertOutboundMessage(ctx, dbq.InsertOutboundMessageParams{
 		ID: db.NewID(), TenantID: p.TenantID, ConversationID: conv.ID, PhoneNumberID: num.PhoneNumber.ID,
-		ContactID: contact.ID, Origin: dbq.MessageOriginDashboard, Type: dbq.MessageType(req.Type), Content: body,
-		TemplateID: templateID, ReplyToWamid: replyWamid(content), SentByUserID: &p.UserID, IdempotencyKey: idemKey,
+		ContactID: contact.ID, Origin: origin(p), Type: dbq.MessageType(req.Type), Content: body,
+		TemplateID: templateID, ReplyToWamid: replyWamid(content), SentByUserID: p.User(), IdempotencyKey: idemKey,
 		MediaID: mediaID,
 	})
 	if err != nil {
@@ -359,6 +359,14 @@ func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.P
 		return Message{}, err
 	}
 	return View(msg, contact.WaID, displayName(contact)), nil
+}
+
+// origin records whether a message came from the dashboard or the public API.
+func origin(p auth.Principal) dbq.MessageOrigin {
+	if p.IsAPIKey() {
+		return dbq.MessageOriginApi
+	}
+	return dbq.MessageOriginDashboard
 }
 
 // attachedMedia checks an uploaded file named by media_id exists and suits the message type.

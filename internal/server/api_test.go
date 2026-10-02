@@ -28,6 +28,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/events"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
@@ -215,6 +216,8 @@ func newHarness(t *testing.T) *harness {
 		Templates:  templates.NewService(d, keys, meta, log),
 		Inbox:      inbox.NewService(d, log),
 		Media:      media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
+		Developers: devportal.NewService(d, log),
+		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(5), log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)

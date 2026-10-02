@@ -13,6 +13,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
+	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
@@ -33,13 +34,15 @@ type APIDeps struct {
 	Templates  *templates.Service
 	Inbox      *inbox.Service
 	Media      *media.Service
+	Developers *devportal.Service
+	Keys       *devportal.Authenticator
 	Events     http.Handler
 }
 
 // NewAPI returns the api router:
 //
 //	/internal/...  dashboard-only endpoints (session cookie + CSRF)
-//	/v1/...        public API; session auth for the dashboard today, API keys arrive with D8
+//	/v1/...        public API: API keys (Authorization: Bearer), or the dashboard's session
 func NewAPI(d APIDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID, middleware.RealIP, httpx.Logger(d.Log), middleware.Recoverer)
@@ -54,6 +57,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/onboarding", d.Onboarding.Routes)
 			r.Route("/templates", d.Templates.InternalRoutes)
 			r.Route("/inbox", d.Inbox.InternalRoutes)
+			r.Route("/developers", d.Developers.InternalRoutes)
 			r.Method(http.MethodGet, "/events", d.Events)
 		})
 	})
@@ -62,7 +66,10 @@ func NewAPI(d APIDeps) http.Handler {
 		// Signed download links work without a session.
 		r.Get("/media/{id}/content", d.Media.Content())
 		r.Group(func(r chi.Router) {
-			r.Use(d.Auth.CSRF, d.Auth.RequireSession, auth.RequireTenant)
+			// API keys for integrations; the dashboard's session cookie and CSRF token otherwise.
+			r.Use(d.Keys.Middleware(func(next http.Handler) http.Handler {
+				return d.Auth.CSRF(d.Auth.RequireSession(auth.RequireTenant(next)))
+			}))
 			r.Route("/phone-numbers", d.Numbers.Routes)
 			r.Route("/messages", d.Messaging.Routes)
 			r.Route("/templates", d.Templates.Routes)

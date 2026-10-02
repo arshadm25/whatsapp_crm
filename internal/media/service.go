@@ -143,6 +143,9 @@ func (s *Service) upload(w http.ResponseWriter, r *http.Request) error {
 	if phoneID == uuid.Nil {
 		return httpx.BadRequest("phone_number_id", "phone_number_id is required.")
 	}
+	if !p.AllowsNumber(phoneID) {
+		return &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Param: "phone_number_id", Message: "Phone number not found."}
+	}
 	mimeType, err := detectType(declared, filename, file.head)
 	if err != nil {
 		return err

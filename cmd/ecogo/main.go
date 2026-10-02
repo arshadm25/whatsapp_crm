@@ -26,6 +26,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/devportal"
 	"github.com/arshadm25/whatsapp_crm/internal/events"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
@@ -107,6 +108,8 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Templates:  templates.NewService(d, keys, meta, log),
 		Inbox:      inbox.NewService(d, log),
 		Media:      media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
+		Developers: devportal.NewService(d, log),
+		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(60), log),
 		Events:     hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)

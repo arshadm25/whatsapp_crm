@@ -112,6 +112,9 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	case "none":
 		params.Unassigned = true
 	case "me":
+		if p.IsAPIKey() {
+			return httpx.BadRequest("assignee_id", "An API key is not a team member; filter by a user ID instead of me.")
+		}
 		params.AssigneeID = &p.UserID
 	default:
 		id, err := uuid.Parse(v)

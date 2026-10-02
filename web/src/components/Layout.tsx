@@ -13,7 +13,7 @@ const NAV: { to: string; key: string; ready: boolean }[] = [
   { to: "/contacts", key: "contacts", ready: false },
   { to: "/campaigns", key: "campaigns", ready: false },
   { to: "/numbers", key: "numbers", ready: true },
-  { to: "/developers", key: "developers", ready: false },
+  { to: "/developers", key: "developers", ready: true },
   { to: "/settings", key: "settings", ready: false },
 ];
 
