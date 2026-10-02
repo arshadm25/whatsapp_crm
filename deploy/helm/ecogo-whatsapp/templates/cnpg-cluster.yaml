@@ -1,0 +1,64 @@
+{{- if .Values.postgres.cnpg.enabled }}
+{{- $pg := .Values.postgres.cnpg }}
+# PostgreSQL 16 via the CloudNativePG operator: a primary and a streaming replica with
+# automatic failover. ecogo_owner owns the schema (BYPASSRLS for the lookup functions);
+# ecogo_app is what the services use and is subject to row-level security.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Release.Name }}-pg
+  labels:
+    {{- include "ecogo.labels" . | nindent 4 }}
+spec:
+  instances: {{ $pg.instances }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  storage:
+    size: {{ $pg.storageSize }}
+    {{- with $pg.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: ecogo
+      owner: ecogo_owner
+      secret:
+        name: {{ $pg.ownerSecret }}
+  managed:
+    roles:
+      - name: ecogo_owner
+        ensure: present
+        login: true
+        bypassrls: true
+        passwordSecret:
+          name: {{ $pg.ownerSecret }}
+      - name: ecogo_app
+        ensure: present
+        login: true
+        bypassrls: false
+        passwordSecret:
+          name: {{ $pg.appSecret }}
+  {{- if $pg.backup.enabled }}
+  backup:
+    retentionPolicy: {{ $pg.backup.retentionPolicy }}
+    barmanObjectStore:
+      destinationPath: {{ $pg.backup.destinationPath }}
+      endpointURL: {{ $pg.backup.endpointURL }}
+      s3Credentials:
+        accessKeyId: { name: {{ $pg.backup.credentialsSecret }}, key: ACCESS_KEY_ID }
+        secretAccessKey: { name: {{ $pg.backup.credentialsSecret }}, key: ACCESS_SECRET_KEY }
+      wal:
+        compression: gzip
+        encryption: AES256
+      data:
+        encryption: AES256
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ .Release.Name }}-pg-nightly
+spec:
+  schedule: "0 0 2 * * *"
+  cluster:
+    name: {{ .Release.Name }}-pg
+  {{- end }}
+{{- end }}

@@ -1,0 +1,111 @@
+# Defaults assume a cluster with ingress-nginx, cert-manager and the CloudNativePG operator,
+# and plain Kubernetes Secrets created out of band (Sealed Secrets or External Secrets produce
+# the same Secret objects). Each assumption can be switched off below.
+
+image:
+  repository: ghcr.io/arshadm25/whatsapp_crm
+  tag: ""            # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+webImage:
+  repository: ghcr.io/arshadm25/whatsapp_crm-web
+  tag: ""
+imagePullSecrets: []
+
+environment: production   # or staging
+
+hosts:
+  app: whatsapp.ecogo.co.in         # dashboard; /internal and /v1 on this host go to the api
+  api: api.whatsapp.ecogo.co.in     # public /v1 API
+  hooks: hooks.whatsapp.ecogo.co.in # Meta webhooks (ingest)
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-prod   # cert-manager ClusterIssuer
+
+# Non-secret settings, passed as environment variables.
+config:
+  logLevel: info
+  metaAppId: ""
+  metaConfigId: ""
+  metaGraphVersion: v24.0
+  smtpHost: live.smtp.mailtrap.io
+  smtpPort: "587"
+  smtpUsername: ""
+  mailFrom: "Ecogo WhatsApp <no-reply@ecogo.co.in>"
+
+# Secret with these keys, created outside the chart:
+#   database-url            postgres URL for ecogo_app (no BYPASSRLS)
+#   migration-database-url  postgres URL for the schema owner (BYPASSRLS), used only by the migrate Job
+#   master-keys             "1:<base64 32 bytes>[,2:...]"; mounted only into api and worker
+#   app-secret              random string, at least 32 characters
+#   meta-app-secret         Meta App Secret
+#   meta-webhook-verify-token
+#   smtp-password
+existingSecret: ecogo-whatsapp
+
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+ingest:
+  replicas: 2
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+worker:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+web:
+  replicas: 2
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+migrations:
+  enabled: true
+
+# CloudNativePG cluster for this release. Set enabled: false and point the Secret URLs at an
+# existing Postgres service if the cluster already runs one.
+postgres:
+  cnpg:
+    enabled: true
+    instances: 2
+    storageSize: 20Gi
+    storageClass: ""          # cluster default
+    # Passwords come from basic-auth Secrets created out of band:
+    ownerSecret: ecogo-whatsapp-db-owner   # username ecogo_owner
+    appSecret: ecogo-whatsapp-db-app       # username ecogo_app
+    backup:
+      enabled: false          # turn on once the MinIO bucket and credentials exist
+      destinationPath: s3://ecogo-whatsapp-backups/
+      endpointURL: http://minio.minio.svc:9000
+      credentialsSecret: ecogo-whatsapp-backup-s3
+      retentionPolicy: 30d
+
+networkPolicy:
+  enabled: true
+  # Namespace of the ingress controller, allowed to reach api, ingest and web.
+  ingressNamespace: ingress-nginx
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: [ALL] }

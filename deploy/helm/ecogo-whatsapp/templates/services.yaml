@@ -1,0 +1,17 @@
+{{- range $c := list "api" "ingest" "web" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-{{ $c }}
+  labels:
+    {{- include "ecogo.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c }}
+spec:
+  selector:
+    {{- include "ecogo.selector" (dict "root" $ "component" $c) | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- end }}

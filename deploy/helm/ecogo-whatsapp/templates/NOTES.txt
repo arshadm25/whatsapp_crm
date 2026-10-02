@@ -1,0 +1,8 @@
+Ecogo WhatsApp {{ .Chart.AppVersion }} installed as {{ .Release.Name }} ({{ .Values.environment }}).
+
+  Dashboard:  https://{{ .Values.hosts.app }}
+  Public API: https://{{ .Values.hosts.api }}/v1
+  Webhooks:   https://{{ .Values.hosts.hooks }}/meta
+
+Required Secret "{{ .Values.existingSecret }}" keys: database-url, migration-database-url,
+master-keys, app-secret, meta-app-secret (see values.yaml).
