@@ -195,3 +195,27 @@ export interface WebhookDelivery {
   next_attempt_at: string | null;
   created_at: string;
 }
+
+export interface Tag {
+  id: string;
+  name: string;
+  contacts: number;
+}
+
+export interface ConsentEvent {
+  kind: "opt_in" | "opt_out";
+  source: string;
+  evidence: string | null;
+  recorded_by_name: string | null;
+  occurred_at: string;
+}
+
+export interface ImportResult {
+  rows: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  opted_in: number;
+  opted_out: number;
+  errors: { line: number; message: string }[];
+}

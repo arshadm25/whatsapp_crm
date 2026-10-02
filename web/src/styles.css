@@ -219,3 +219,26 @@ tr.muted td { color: var(--muted); }
 .endpoint-head code { overflow-wrap: anywhere; }
 .endpoint-head .actions { display: flex; gap: 0.6rem; align-items: center; }
 .endpoint .table-wrap { margin-top: 0.75rem; }
+.filters { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1rem 0; }
+.filters input, .filters select, .inline-add input, .contact-detail .evidence { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
+.filters input { flex: 1 1 240px; }
+.contacts-layout { display: grid; grid-template-columns: 1fr; gap: 1rem; align-items: start; }
+.contacts-layout.has-detail { grid-template-columns: 1fr 360px; }
+table.clickable tbody tr { cursor: pointer; }
+table.clickable tbody tr:hover, table.clickable tr.selected { background: var(--bg); }
+.chip { display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.05rem 0.5rem; margin: 0 0.25rem 0.25rem 0; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); font-size: 0.8rem; }
+.chip-x { border: 0; background: none; padding: 0 0.1rem; cursor: pointer; color: var(--muted); font-size: 0.95rem; line-height: 1; }
+.pill + .pill { margin-left: 0.3rem; }
+.contact-detail { display: flex; flex-direction: column; gap: 0.6rem; }
+.contact-detail h2 { margin: 0; }
+.contact-detail h3 { margin: 0.6rem 0 0; font-size: 0.95rem; }
+.detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+.detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.inline-add { display: flex; gap: 0.5rem; }
+.inline-add input { flex: 1; min-width: 0; }
+.fields { margin: 0; display: grid; gap: 0.3rem; }
+.fields div { display: flex; gap: 0.5rem; font-size: 0.9rem; }
+.fields dt { color: var(--muted); min-width: 6rem; }
+.fields dd { margin: 0; }
+.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9rem; }
+@media (max-width: 900px) { .contacts-layout.has-detail { grid-template-columns: 1fr; } }

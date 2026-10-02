@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
@@ -260,10 +261,34 @@ func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tx pgx.Tx,
 	if err := messaging.EmitEvent(ctx, q, tx, p.Jobs, tenantID, msgID, webhooks.MessageReceived); err != nil {
 		return err
 	}
+	if !echo && h.Text != nil {
+		if err := applyKeyword(ctx, q, tenantID, contact, h.Text.Body, at); err != nil {
+			return err
+		}
+	}
 	if echo {
 		return q.TouchConversationOutbound(ctx, dbq.TouchConversationOutboundParams{ID: conv.ID, At: at, Preview: preview(h)})
 	}
 	return q.TouchConversationInbound(ctx, dbq.TouchConversationInboundParams{ID: conv.ID, At: at, Preview: preview(h)})
+}
+
+// applyKeyword honours STOP and START replies: the customer opts out of (or back in to)
+// messages from this business, with the message as the consent record's evidence.
+func applyKeyword(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, c dbq.Contact, body string, at time.Time) error {
+	var st dbq.OptInStatus
+	switch strings.ToUpper(strings.Trim(strings.TrimSpace(body), ".!")) {
+	case "STOP", "STOP ALL", "UNSUBSCRIBE", "OPT OUT", "OPTOUT":
+		st = dbq.OptInStatusOptedOut
+	case "START", "SUBSCRIBE", "OPT IN", "OPTIN":
+		st = dbq.OptInStatusOptedIn
+	default:
+		return nil
+	}
+	if c.OptInStatus == st {
+		return nil
+	}
+	_, err := contacts.RecordConsent(ctx, q, tenantID, c.ID, st, dbq.ConsentSourceKeyword, body, nil, at)
+	return err
 }
 
 // queueMediaDownload enqueues the copy of a message's file from Meta, in the transaction that
