@@ -10,12 +10,15 @@ import type {
 import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
 import MetaFeesAdmin, { PaymentMode } from "./AdminMetaFees";
+import Icon from "../components/Icon";
+import { ago, initials } from "../lib/time";
 
 function message(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
 }
 
 const when = (s: string | null) => (s ? new Date(s).toLocaleString() : "—");
+const PILL: Record<AdminTenant["status"], string> = { active: "ok", suspended: "er", closed: "" };
 
 // usePaged walks an admin list by its next_cursor.
 function usePaged<T>(key: string, path: string, params: URLSearchParams) {
@@ -39,12 +42,14 @@ function More({ q }: { q: { hasNextPage: boolean; isFetchingNextPage: boolean; f
   );
 }
 
-type Tab = "tenants" | "plans" | "invoices" | "metaFees" | "webhooks" | "metaErrors" | "deletions" | "audit";
+type Tab = "overview" | "tenants" | "plans" | "invoices" | "metaFees" | "webhooks" | "metaErrors" | "deletions" | "audit";
+const TABS: Tab[] = ["overview", "tenants", "plans", "invoices", "metaFees", "webhooks", "metaErrors", "deletions", "audit"];
 
 export default function Admin() {
   const { t } = useTranslation();
   const me = useMe().data!;
-  const [tab, setTab] = useState<Tab>("tenants");
+  const [tab, setTab] = useState<Tab>("overview");
+  const [openTenant, setOpenTenant] = useState<string | null>(null);
   if (!me.user.is_platform_admin) return <Navigate to="/" replace />;
   if (!me.user.two_factor_enabled) {
     return (
@@ -58,13 +63,19 @@ export default function Admin() {
   }
   return (
     <section>
-      <h1>{t("admin.title")}</h1>
+      <div className="page-head">
+        <div>
+          <h1>{t("admin.title")}</h1>
+          <p className="sub">{t("admin.intro")}</p>
+        </div>
+      </div>
       <div className="segmented tabs">
-        {(["tenants", "plans", "invoices", "metaFees", "webhooks", "metaErrors", "deletions", "audit"] as Tab[]).map((k) => (
-          <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t(`admin.tab_${k}`)}</button>
+        {TABS.map((k) => (
+          <button key={k} className={tab === k ? "on" : ""} onClick={() => { setTab(k); setOpenTenant(null); }}>{t(`admin.tab_${k}`)}</button>
         ))}
       </div>
-      {tab === "tenants" && <Tenants />}
+      {tab === "overview" && <Overview goTab={setTab} openTenant={(id) => { setOpenTenant(id); setTab("tenants"); }} />}
+      {tab === "tenants" && <Tenants initial={openTenant} />}
       {tab === "plans" && <Plans />}
       {tab === "invoices" && <Invoices />}
       {tab === "metaFees" && <MetaFeesAdmin />}
@@ -76,11 +87,142 @@ export default function Admin() {
   );
 }
 
-function Tenants() {
+// Overview is the staff landing page: platform-wide numbers, webhook throughput, the latest
+// Meta API errors, the newest tenants and the latest audit entries.
+function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: (id: string) => void }) {
+  const { t } = useTranslation();
+  const [hours, setHours] = useState("24");
+  const tenants = usePaged<AdminTenant>("tenants", "/internal/admin/tenants", new URLSearchParams({ limit: "50" }));
+  const errors = usePaged<MetaApiError>("meta-errors", "/internal/admin/meta-errors", new URLSearchParams({ limit: "50" }));
+  const audit = usePaged<AuditEntry>("audit", "/internal/admin/audit-log", new URLSearchParams({ limit: "50" }));
+  const health = useQuery({
+    queryKey: ["admin", "webhooks", hours],
+    queryFn: () => api<WebhookHealth>("GET", `/internal/admin/webhook-health?hours=${hours}`),
+    refetchInterval: 60_000,
+  });
+  const h = health.data;
+  const received = h?.hours.reduce((a, x) => a + x.received, 0) ?? 0;
+  const failed = h?.hours.reduce((a, x) => a + x.failed, 0) ?? 0;
+  const perMin = h ? received / Math.max(1, h.hours.length * 60) : 0;
+  const peak = h ? Math.max(0, ...h.hours.map((x) => x.received)) : 0;
+  const peakHour = h?.hours.find((x) => x.received === peak)?.hour;
+  const errorRate = received ? (failed * 100) / received : 0;
+  const since = new Date(Date.now() - Number(hours) * 3600_000).toISOString();
+  const recentErrors = errors.rows.filter((e) => e.occurred_at >= since);
+  const active = tenants.rows.filter((w) => w.status === "active").length;
+  const suspended = tenants.rows.filter((w) => w.status === "suspended").length;
+  const groups = Object.values(
+    recentErrors.reduce<Record<string, { code: string; n: number; message: string; last: string; status: number }>>((acc, e) => {
+      const code = String(e.code ?? e.http_status);
+      const g = acc[code] ?? { code, n: 0, message: e.message ?? "", last: e.occurred_at, status: e.http_status };
+      acc[code] = { ...g, n: g.n + 1, last: g.last > e.occurred_at ? g.last : e.occurred_at };
+      return acc;
+    }, {}),
+  ).sort((a, b) => b.n - a.n);
+
+  return (
+    <div className="stack">
+      <div className="actions" style={{ justifyContent: "flex-end" }}>
+        <div className="segmented" role="radiogroup" aria-label={t("admin.window")}>
+          {[["1", "1h"], ["24", "24h"], ["168", "7d"]].map(([v, l]) => (
+            <button key={v} className={hours === v ? "on" : ""} onClick={() => setHours(v)}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid g4">
+        <div className="card stat">
+          <div className="sh"><span className="sl">{t("admin.activeTenants")}</span><span className="ic"><Icon name="building" size="s" /></span></div>
+          <span className="sv">{active}{tenants.hasNextPage ? "+" : ""}</span>
+          <span className="sf">{t("admin.suspendedCount", { count: suspended })}</span>
+        </div>
+        <div className="card stat">
+          <div className="sh"><span className="sl">{t("admin.eventsPerMin")}</span><span className="ic bl"><Icon name="activity" size="s" /></span></div>
+          <span className="sv">{perMin.toFixed(1)}</span>
+          <span className="sf">{peakHour ? t("admin.peakAt", { count: Math.round(peak / 60), time: new Date(peakHour).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }) : "—"}</span>
+        </div>
+        <div className="card stat">
+          <div className="sh"><span className="sl">{t("admin.errorRate")}</span><span className={errorRate > 1 ? "ic rd" : "ic"}><Icon name="shield" size="s" /></span></div>
+          <span className="sv">{received ? `${errorRate.toFixed(2)}%` : "—"}</span>
+          <span className="sf"><span className={`pill ${errorRate > 1 ? "er" : "ok"}`}>{errorRate > 1 ? t("admin.aboveTarget") : t("admin.withinTarget")}</span></span>
+        </div>
+        <div className="card stat">
+          <div className="sh"><span className="sl">{t("admin.tab_metaErrors")}</span><span className={recentErrors.length ? "ic am" : "ic gy"}><Icon name="alert" size="s" /></span></div>
+          <span className="sv">{recentErrors.length}{errors.hasNextPage && recentErrors.length === errors.rows.length ? "+" : ""}</span>
+          <span className="sf">{t("admin.inWindow", { hours: Number(hours) })}</span>
+        </div>
+      </div>
+      <div className="split">
+        {h && h.hours.length > 1 ? <Throughput hours={h.hours} /> : <div className="card muted">{t("admin.noWebhooks")}</div>}
+        <div className="card flush">
+          <div className="chd">
+            <div><h2>{t("admin.recentMetaErrors")}</h2><p>{t("admin.errorsByCodeSub")}</p></div>
+            <button className="link" onClick={() => goTab("metaErrors")}>{t("admin.all")}</button>
+          </div>
+          {groups.length === 0 && <div className="cb muted">{t("admin.noMetaErrors")}</div>}
+          {groups.slice(0, 5).map((g) => (
+            <div key={g.code} className="ev">
+              <span className={`pill k ${g.status >= 500 ? "er" : "wa"}`}>{g.code}</span>
+              <span className="t"><b>{g.message || `HTTP ${g.status}`}</b><br />{t("admin.errorCount", { count: g.n })}</span>
+              <span className="muted">{ago(g.last, t)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="card flush">
+        <div className="chd">
+          <div><h2>{t("admin.tab_tenants")}</h2><p>{t("admin.newestFirst")}</p></div>
+          <button className="sm" onClick={() => goTab("tenants")}>{t("admin.allWorkspaces")}</button>
+        </div>
+        <div className="table-wrap">
+          <table className="clickable">
+            <thead>
+              <tr>
+                <th>{t("admin.workspace")}</th>
+                <th>{t("admin.status")}</th>
+                <th>{t("admin.created")}</th>
+                <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {tenants.rows.slice(0, 8).map((w) => (
+                <tr key={w.id} onClick={() => openTenant(w.id)}>
+                  <td><div className="who"><span className="av">{initials(w.name)}</span><span><b>{w.name}</b><small>{w.slug}</small></span></div></td>
+                  <td><span className={`pill ${PILL[w.status]}`}>{t(`admin.status_${w.status}`)}</span></td>
+                  <td>{new Date(w.created_at).toLocaleDateString()}</td>
+                  <td className="r"><button className="sm">{t("admin.open")}</button></td>
+                </tr>
+              ))}
+              {tenants.isSuccess && tenants.rows.length === 0 && <tr><td colSpan={4} className="muted">{t("admin.noTenants")}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="card flush">
+        <div className="chd">
+          <div><h2>{t("admin.tab_audit")}</h2><p>{t("admin.auditSub")}</p></div>
+          <button className="link" onClick={() => goTab("audit")}>{t("admin.viewAll")}</button>
+        </div>
+        {audit.rows.length === 0 && <div className="cb muted">{t("admin.noAudit")}</div>}
+        {audit.rows.slice(0, 5).map((a) => (
+          <div key={a.id} className="ev">
+            <span className="av">{initials(a.actor_email ?? a.actor_type)}</span>
+            <span className="t">
+              <b>{a.actor_email ?? a.actor_type}</b> <code>{a.action}</code> <b>{a.target_type} {a.target_id}</b>
+              {a.reason && <><br />{t("admin.reasonLine", { reason: a.reason })}</>}
+            </span>
+            <span className="muted">{ago(a.occurred_at, t)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Tenants({ initial = null }: { initial?: string | null }) {
   const { t } = useTranslation();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(initial);
   const params = new URLSearchParams({ limit: "50" });
   if (q.trim()) params.set("q", q.trim());
   if (status) params.set("status", status);
@@ -108,11 +250,8 @@ function Tenants() {
           <tbody>
             {list.rows.map((w) => (
               <tr key={w.id} onClick={() => setOpen(w.id)}>
-                <td>
-                  {w.name}
-                  <div className="muted small">{w.slug}</div>
-                </td>
-                <td><span className={`pill ${w.status}`}>{t(`admin.status_${w.status}`)}</span></td>
+                <td><div className="who"><span className="av">{initials(w.name)}</span><span><b>{w.name}</b><small>{w.slug}</small></span></div></td>
+                <td><span className={`pill ${PILL[w.status]}`}>{t(`admin.status_${w.status}`)}</span></td>
                 <td className="small">{new Date(w.created_at).toLocaleDateString()}</td>
               </tr>
             ))}
@@ -437,29 +576,39 @@ function Throughput({ hours }: { hours: WebhookHealth["hours"] }) {
   const rows = [...hours].sort((a, b) => a.hour.localeCompare(b.hour));
   const max = Math.max(1, ...rows.map((x) => x.received));
   const w = 720;
-  const hgt = 140;
+  const hgt = 180;
   const bw = w / rows.length;
+  const hm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <h2>{t("admin.throughput")}</h2>
-      <svg className="chart" viewBox={`0 0 ${w} ${hgt}`} preserveAspectRatio="none" role="img" aria-label={t("admin.throughput")}>
-        {rows.map((x, i) => {
-          const bh = (x.received / max) * (hgt - 4);
-          const fh = (x.failed / max) * (hgt - 4);
-          return (
-            <g key={x.hour}>
-              <title>{`${new Date(x.hour).toLocaleString()}: ${x.received} / ${x.failed}`}</title>
-              <rect className="bar-sent" x={i * bw + 1} y={hgt - bh} width={Math.max(1, bw - 2)} height={bh} rx="2" />
-              {x.failed > 0 && <rect className="bar-failed" x={i * bw + 1} y={hgt - fh} width={Math.max(1, bw - 2)} height={Math.max(2, fh)} />}
-            </g>
-          );
-        })}
-      </svg>
-      <div className="ticks small muted">
-        <span>{new Date(rows[0].hour).toLocaleString()}</span>
-        <span>{new Date(rows[rows.length - 1].hour).toLocaleString()}</span>
+    <div className="card flush">
+      <div className="chd">
+        <div><h2>{t("admin.throughput")}</h2><p>{t("admin.throughputSub", { count: rows.length })}</p></div>
+        <div className="lg-row">
+          <span className="lg"><i style={{ background: "var(--accent)" }} />{t("admin.received")}</span>
+          <span className="lg"><i style={{ background: "var(--danger)" }} />{t("admin.failed")}</span>
+        </div>
       </div>
-      <div className="legend"><span className="sw sw-sent" /><span>{t("admin.received")}</span><span className="sw sw-failed" /><span>{t("admin.failed")}</span></div>
+      <div className="cb">
+        <svg className="chart" style={{ height: 180 }} viewBox={`0 0 ${w} ${hgt + 24}`} preserveAspectRatio="none" role="img" aria-label={t("admin.throughput")}>
+          {rows.map((x, i) => {
+            const bh = (x.received / max) * (hgt - 4);
+            const fh = (x.failed / max) * (hgt - 4);
+            return (
+              <g key={x.hour}>
+                <title>{`${new Date(x.hour).toLocaleString()}: ${x.received} / ${x.failed}`}</title>
+                <rect className="bar-sent" x={i * bw + 2} y={hgt - bh} width={Math.max(1, bw - 4)} height={bh} rx="3" />
+                {x.failed > 0 && <rect className="bar-failed" x={i * bw + 2} y={hgt - fh} width={Math.max(1, bw - 4)} height={Math.max(2, fh)} rx="3" />}
+              </g>
+            );
+          })}
+          <line className="axis" x1="0" x2={w} y1={hgt} y2={hgt} />
+        </svg>
+        <div className="ticks small muted">
+          <span>{hm(rows[0].hour)}</span>
+          <span>{hm(rows[Math.floor(rows.length / 2)].hour)}</span>
+          <span>{t("admin.now")}</span>
+        </div>
+      </div>
     </div>
   );
 }
