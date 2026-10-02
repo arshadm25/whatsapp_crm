@@ -16,6 +16,12 @@ app.kubernetes.io/component: {{ .component }}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end -}}
 
+{{/* ecogo.id quotes a numeric ID as written: values files and --reuse-values turn long numbers
+into floats, which quote would render as 8.8789121708352e+14. */}}
+{{- define "ecogo.id" -}}
+{{- if kindIs "float64" . -}}{{ printf "%.0f" . | quote }}{{- else -}}{{ . | quote }}{{- end -}}
+{{- end -}}
+
 {{/* Environment shared by the Go services. withKeys adds the master key (api and worker only). */}}
 {{- define "ecogo.env" -}}
 - name: ECOGO_ENV
@@ -27,9 +33,9 @@ app.kubernetes.io/component: {{ .component }}
 - name: ECOGO_PUBLIC_APP_URL
   value: "https://{{ .root.Values.hosts.app }}"
 - name: ECOGO_META_APP_ID
-  value: {{ .root.Values.config.metaAppId | quote }}
+  value: {{ include "ecogo.id" .root.Values.config.metaAppId }}
 - name: ECOGO_META_CONFIG_ID
-  value: {{ .root.Values.config.metaConfigId | quote }}
+  value: {{ include "ecogo.id" .root.Values.config.metaConfigId }}
 - name: ECOGO_META_GRAPH_VERSION
   value: {{ .root.Values.config.metaGraphVersion | quote }}
 - name: ECOGO_SMTP_HOST
