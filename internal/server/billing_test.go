@@ -15,11 +15,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/numbers"
+	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 )
 
 // fakeRazorpay records Razorpay API calls and answers like the real one.
@@ -238,4 +241,62 @@ func TestBillingIsOwnerOnly(t *testing.T) {
 	admin := h.newClient()
 	admin.do("POST", "/internal/auth/invites/accept", map[string]string{"token": inviteToken(t, inv.Link), "name": "Ravi", "password": "a long enough password"}, http.StatusOK, nil)
 	admin.do("GET", "/internal/billing", nil, http.StatusForbidden, nil)
+}
+
+// connect runs Embedded Signup for one more number of the workspace's WABA.
+func (h *harness) connect(c *client, tenant uuid.UUID, metaID string) onboarding.SessionView {
+	h.t.Helper()
+	var sess onboarding.SessionView
+	c.do("POST", "/internal/onboarding/sessions", map[string]string{"flow": "standard"}, http.StatusCreated, &sess)
+	c.do("POST", "/internal/onboarding/sessions/"+sess.ID.String()+"/complete", map[string]string{
+		"code": "c" + metaID, "waba_id": "1100111", "phone_number_id": metaID}, http.StatusOK, &sess)
+	return sess
+}
+
+func TestPlanNumberLimit(t *testing.T) {
+	h := newHarness(t)
+	owner, me, _ := h.connected()
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	h.meta.numbers["555002"] = "+91 90000 00002"
+	h.meta.numbers["555003"] = "+91 90000 00003"
+
+	// During the trial no plan applies, so a second number connects.
+	second := h.connect(owner, me.Tenant.ID, "555002")
+	if err := h.runJob(me.Tenant.ID, second.ID, 1); err != nil {
+		t.Fatalf("second number: %v", err)
+	}
+	pending := h.connect(owner, me.Tenant.ID, "555003") // started before a plan is chosen
+
+	plan := func(code string, numbers int) {
+		staff.do("PUT", "/internal/admin/plans/"+code, map[string]any{"name": code, "price_minor": 100000, "included_numbers": numbers,
+			"included_seats": 5, "extra_seat_minor": 10000, "is_active": true, "razorpay_plan_id": "plan_" + code}, http.StatusOK, nil)
+	}
+	plan("solo", 1)
+	plan("duo", 2)
+
+	// A plan that includes fewer numbers than are connected cannot be chosen.
+	var e apiErr
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "solo"}, http.StatusConflict, &e)
+	if e.Error.Code != "plan_limit" {
+		t.Fatalf("solo = %+v", e)
+	}
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "duo"}, http.StatusOK, nil)
+	h.razorpayEvent("evt_a", "subscription.authenticated", map[string]any{"id": "sub_1", "plan_id": "plan_duo", "status": "authenticated"}, "whsec")
+
+	// Both numbers are in use now: starting another is refused up front, and one already
+	// started stops at the step that would save it.
+	owner.do("POST", "/internal/onboarding/sessions", map[string]string{"flow": "standard"}, http.StatusConflict, &e)
+	if e.Error.Code != "plan_limit" {
+		t.Fatalf("start = %+v", e)
+	}
+	_ = h.runJob(me.Tenant.ID, pending.ID, 1)
+	owner.do("GET", "/internal/onboarding/sessions/"+pending.ID.String(), nil, http.StatusOK, &pending)
+	if pending.State != "failed" || pending.Error == nil || pending.Error.Code != "plan_limit" {
+		t.Fatalf("pending session = %+v", pending)
+	}
+	var list struct{ Data []numbers.PhoneNumber }
+	owner.do("GET", "/v1/phone-numbers", nil, http.StatusOK, &list)
+	if len(list.Data) != 2 {
+		t.Fatalf("numbers = %d, want 2", len(list.Data))
+	}
 }

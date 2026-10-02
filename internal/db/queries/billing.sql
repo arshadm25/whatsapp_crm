@@ -68,3 +68,12 @@ SELECT (SELECT count(*) FROM phone_numbers WHERE status = 'connected')::int AS c
 -- A plan chosen during the trial was cancelled before its first charge.
 UPDATE subscriptions SET plan_code = NULL, provider_subscription_id = NULL, updated_at = now()
 WHERE tenant_id = @tenant_id AND status = 'trialing';
+
+-- name: CurrentPlan :one
+-- Run inside the tenant. No row while the workspace is on a trial with no plan chosen.
+SELECT p.* FROM plans p JOIN subscriptions s ON s.plan_code = p.code;
+
+-- name: NumbersInUse :one
+-- Numbers that count against the plan: connected or being connected, other than the one named.
+SELECT count(*)::int FROM phone_numbers
+WHERE status IN ('pending', 'connected') AND phone_number_id <> @other_id::text;

@@ -13,10 +13,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/credentials"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/httpx"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 )
 
@@ -258,6 +260,13 @@ func (w *Worker) saveNumber(ctx context.Context, tenantID uuid.UUID, sess dbq.On
 		}
 		if owner != uuid.Nil && owner != tenantID {
 			return &stepError{"already_connected", "This number is already connected to another Ecogo workspace."}
+		}
+		if err := billing.NumberRoom(ctx, q, pn.ID); err != nil {
+			var he *httpx.Error
+			if errors.As(err, &he) {
+				return &stepError{he.Code, he.Message}
+			}
+			return err
 		}
 		if sess.PhoneNumberID == nil {
 			if err := q.SetOnboardingPhoneNumberID(ctx, dbq.SetOnboardingPhoneNumberIDParams{ID: sess.ID, PhoneNumberID: &pn.ID}); err != nil {
