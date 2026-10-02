@@ -25,6 +25,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
+	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/razorpay"
 )
 
@@ -40,12 +41,13 @@ type Service struct {
 	rp            *razorpay.Client
 	webhookSecret string
 	seller        config.Seller
+	jobs          jobs.Inserter
 	log           *slog.Logger
 	now           func() time.Time
 }
 
-func NewService(d *db.DB, rp *razorpay.Client, webhookSecret string, seller config.Seller, log *slog.Logger) *Service {
-	return &Service{db: d, rp: rp, webhookSecret: webhookSecret, seller: seller, log: log, now: time.Now}
+func NewService(d *db.DB, rp *razorpay.Client, webhookSecret string, seller config.Seller, inserter jobs.Inserter, log *slog.Logger) *Service {
+	return &Service{db: d, rp: rp, webhookSecret: webhookSecret, seller: seller, jobs: inserter, log: log, now: time.Now}
 }
 
 // InternalRoutes mounts /internal/billing for the dashboard. Only owners manage billing.
@@ -449,7 +451,7 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 	if err != nil {
 		return err
 	}
-	return s.db.InTenant(ctx, tenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+	return s.db.InTenant(ctx, tenantID, func(q *dbq.Queries, tx pgx.Tx) error {
 		if eventID != "" {
 			n, err := q.RecordRazorpayEvent(ctx, dbq.RecordRazorpayEventParams{ID: eventID, Event: ev.Event})
 			if err != nil || n == 0 {
@@ -470,7 +472,7 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 			}
 			if ev.Event == "subscription.charged" {
 				desc := fmt.Sprintf("Ecogo WhatsApp: %d extra team seat%s", extra, plural(extra))
-				if err := s.issueInvoice(ctx, q, tenantID, payment(ev), desc, unix(rs.CurrentStart), unix(rs.CurrentEnd)); err != nil {
+				if err := s.issueInvoice(ctx, q, tx, tenantID, payment(ev), desc, unix(rs.CurrentStart), unix(rs.CurrentEnd)); err != nil {
 					return err
 				}
 			}
@@ -501,7 +503,7 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 		}
 		if ev.Event == "subscription.charged" {
 			desc := "Ecogo WhatsApp: " + planName
-			if err := s.issueInvoice(ctx, q, tenantID, payment(ev), desc, &applied.CurrentPeriodStart, &applied.CurrentPeriodEnd); err != nil {
+			if err := s.issueInvoice(ctx, q, tx, tenantID, payment(ev), desc, &applied.CurrentPeriodStart, &applied.CurrentPeriodEnd); err != nil {
 				return err
 			}
 		}

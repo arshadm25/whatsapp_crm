@@ -1450,6 +1450,7 @@ type Invoice struct {
 	Seller            []byte
 	Buyer             []byte
 	IssuedAt          time.Time
+	EmailedAt         *time.Time
 }
 
 type InvoiceCounter struct {

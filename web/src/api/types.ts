@@ -437,6 +437,25 @@ export interface Subscription {
   extra_seats: number;
 }
 
+export interface AdminInvoice {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  number: string;
+  description: string;
+  buyer_name: string;
+  buyer_gstin: string;
+  place_of_supply: string;
+  taxable_minor: number;
+  cgst_minor: number;
+  sgst_minor: number;
+  igst_minor: number;
+  total_minor: number;
+  razorpay_payment_id: string;
+  issued_at: string;
+  emailed: boolean;
+}
+
 export interface Invoice {
   id: string;
   number: string;

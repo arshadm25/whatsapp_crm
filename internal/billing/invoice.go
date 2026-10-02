@@ -77,7 +77,7 @@ func (s *Service) sellerParty() Party {
 // issueInvoice records the invoice for one confirmed payment. Run it inside the tenant, in the
 // transaction that applied the webhook. It does nothing until the seller's GSTIN is set, and a
 // payment is invoiced once.
-func (s *Service) issueInvoice(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, pay *razorpay.Payment, description string, start, end *time.Time) error {
+func (s *Service) issueInvoice(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID, pay *razorpay.Payment, description string, start, end *time.Time) error {
 	if s.seller.GSTIN == "" || pay == nil || pay.ID == "" || pay.Amount <= 0 {
 		return nil
 	}
@@ -128,13 +128,18 @@ func (s *Service) issueInvoice(ctx context.Context, q *dbq.Queries, tenantID uui
 	if s.seller.SAC != "" {
 		sac = &s.seller.SAC
 	}
-	_, err = q.InsertInvoice(ctx, dbq.InsertInvoiceParams{
-		ID: db.NewID(), TenantID: tenantID, Number: fmt.Sprintf("ECO/%s/%06d", fy, n), RazorpayPaymentID: pay.ID,
+	id := db.NewID()
+	rows, err := q.InsertInvoice(ctx, dbq.InsertInvoiceParams{
+		ID: id, TenantID: tenantID, Number: fmt.Sprintf("ECO/%s/%06d", fy, n), RazorpayPaymentID: pay.ID,
 		Description: description, PeriodStart: start, PeriodEnd: end, Sac: sac,
 		TotalMinor: pay.Amount, TaxableMinor: tax.Taxable, GstRateBp: int32(s.seller.GSTRateBP),
 		CgstMinor: tax.CGST, SgstMinor: tax.SGST, IgstMinor: tax.IGST, PlaceOfSupply: place,
 		Seller: sj, Buyer: bj, IssuedAt: now,
 	})
+	if err != nil || rows == 0 || s.jobs == nil {
+		return err
+	}
+	_, err = s.jobs.InsertTx(ctx, tx, EmailArgs{InvoiceID: id, TenantID: tenantID}, nil)
 	return err
 }
 
@@ -279,6 +284,11 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	return WriteInvoice(w, inv)
+}
+
+// WriteInvoice renders an invoice as a print-ready page.
+func WriteInvoice(w http.ResponseWriter, inv dbq.Invoice) error {
 	v := invoiceView{Invoice: inv, PeriodStart: inv.PeriodStart, PeriodEnd: inv.PeriodEnd, Intra: inv.IgstMinor == 0}
 	_ = json.Unmarshal(inv.Seller, &v.Seller)
 	_ = json.Unmarshal(inv.Buyer, &v.Buyer)

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,10 +18,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/mailer"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 )
@@ -390,7 +394,7 @@ func (c *client) page(path string) (int, string) {
 func TestInvoices(t *testing.T) {
 	h := newHarness(t)
 	owner := h.newClient()
-	owner.signup("owner@example.com", "Sharma Sweets")
+	me := owner.signup("owner@example.com", "Sharma Sweets")
 	staff := h.platformAdmin("ops@ecogo.co.in")
 	staff.do("PUT", "/internal/admin/plans/team", map[string]any{"name": "Team", "price_minor": 118000, "included_numbers": 3,
 		"included_seats": 2, "extra_seat_minor": 23600, "is_active": true, "razorpay_plan_id": "plan_team",
@@ -469,10 +473,79 @@ func TestInvoices(t *testing.T) {
 		t.Fatalf("interstate invoice has CGST:\n%s", page)
 	}
 
+	// Each invoice queued an email job; the worker mails the owner once.
+	mail := &captureMail{}
+	emailer := billing.NewEmailWorker(h.db, mail, "https://whatsapp.ecogo.co.in", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var queued int
+	if err := h.db.Global(context.Background(), func(_ *dbq.Queries, tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), "SELECT count(*) FROM river_job WHERE kind = 'send_invoice_email'").Scan(&queued)
+	}); err != nil || queued != 3 {
+		t.Fatalf("email jobs = %d (%v), want 3", queued, err)
+	}
+	work := func(id string) {
+		err := emailer.Work(context.Background(), &river.Job[billing.EmailArgs]{
+			JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: 8},
+			Args:   billing.EmailArgs{InvoiceID: uuid.MustParse(id), TenantID: me.Tenant.ID}})
+		if err != nil {
+			t.Fatalf("email worker: %v", err)
+		}
+	}
+	work(list.Data[0].ID)
+	work(list.Data[0].ID) // a retry after success sends nothing more
+	if len(mail.sent) != 1 || mail.sent[0].To != "owner@example.com" || !strings.Contains(mail.sent[0].Subject, list.Data[0].Number) ||
+		!strings.Contains(mail.sent[0].Text, "/internal/billing/invoices/"+list.Data[0].ID+"/view") || !strings.Contains(mail.sent[0].Text, "472.00") {
+		t.Fatalf("mail = %+v", mail.sent)
+	}
+
+	// Platform admins list invoices across workspaces, export them and open any one.
+	var all struct {
+		Data []struct {
+			Number     string `json:"number"`
+			TenantName string `json:"tenant_name"`
+			BuyerGSTIN string `json:"buyer_gstin"`
+			TotalMinor int64  `json:"total_minor"`
+			Emailed    bool   `json:"emailed"`
+		} `json:"data"`
+		TotalMinor int64 `json:"total_minor"`
+	}
+	staff.do("GET", "/internal/admin/invoices", nil, http.StatusOK, &all)
+	if len(all.Data) != 3 || all.TotalMinor != 118000+118000+47200 || all.Data[0].TenantName != "Sharma Sweets" || !all.Data[0].Emailed || all.Data[1].Emailed {
+		t.Fatalf("admin invoices = %+v", all)
+	}
+	today := time.Now().In(time.FixedZone("IST", 5*3600+1800)).Format("2006-01-02")
+	staff.do("GET", "/internal/admin/invoices?from="+today+"&to="+today, nil, http.StatusOK, &all)
+	if len(all.Data) != 3 {
+		t.Fatalf("today's invoices = %d", len(all.Data))
+	}
+	staff.do("GET", "/internal/admin/invoices?from=2001-01-01&to=2001-01-31", nil, http.StatusOK, &all)
+	if len(all.Data) != 0 {
+		t.Fatalf("old invoices = %d", len(all.Data))
+	}
+	staff.do("GET", "/internal/admin/invoices?from=yesterday", nil, http.StatusBadRequest, nil)
+	status, csvText := staff.page("/internal/admin/invoices.csv")
+	if status != http.StatusOK || !strings.HasPrefix(csvText, "Invoice number,Date,Workspace") || !strings.Contains(csvText, "27AAPFU0939F1ZV") ||
+		!strings.Contains(csvText, ",472.00,") || strings.Count(csvText, "\n") != 4 {
+		t.Fatalf("csv (%d):\n%s", status, csvText)
+	}
+	if status, page := staff.page("/internal/admin/invoices/" + list.Data[1].ID + "/view"); status != http.StatusOK || !strings.Contains(page, "IGST @ 18%") {
+		t.Fatalf("admin invoice view = %d", status)
+	}
+	if status, _ := owner.page("/internal/admin/invoices"); status != http.StatusNotFound {
+		t.Fatalf("customer reaches the admin invoice list: %d", status)
+	}
+
 	// An invoice is private to its workspace.
 	other := h.newClient()
 	other.signup("other@example.com", "Other Shop")
 	if status, _ := other.page("/internal/billing/invoices/" + list.Data[0].ID + "/view"); status != http.StatusNotFound {
 		t.Fatalf("other workspace sees the invoice: %d", status)
 	}
+}
+
+// captureMail keeps the emails the code under test sends.
+type captureMail struct{ sent []mailer.Message }
+
+func (c *captureMail) Send(_ context.Context, m mailer.Message) error {
+	c.sent = append(c.sent, m)
+	return nil
 }

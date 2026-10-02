@@ -5,7 +5,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
 import type {
-  AdminConversation, AdminTenant, AdminTenantDetail, AuditEntry, Message, MetaApiError, Page, Plan, WebhookHealth,
+  AdminConversation, AdminInvoice, AdminTenant, AdminTenantDetail, AuditEntry, Message, MetaApiError, Page, Plan, WebhookHealth,
 } from "../api/types";
 import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
@@ -38,7 +38,7 @@ function More({ q }: { q: { hasNextPage: boolean; isFetchingNextPage: boolean; f
   );
 }
 
-type Tab = "tenants" | "plans" | "webhooks" | "metaErrors" | "audit";
+type Tab = "tenants" | "plans" | "invoices" | "webhooks" | "metaErrors" | "audit";
 
 export default function Admin() {
   const { t } = useTranslation();
@@ -59,12 +59,13 @@ export default function Admin() {
     <section>
       <h1>{t("admin.title")}</h1>
       <div className="segmented tabs">
-        {(["tenants", "plans", "webhooks", "metaErrors", "audit"] as Tab[]).map((k) => (
+        {(["tenants", "plans", "invoices", "webhooks", "metaErrors", "audit"] as Tab[]).map((k) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t(`admin.tab_${k}`)}</button>
         ))}
       </div>
       {tab === "tenants" && <Tenants />}
       {tab === "plans" && <Plans />}
+      {tab === "invoices" && <Invoices />}
       {tab === "webhooks" && <Webhooks />}
       {tab === "metaErrors" && <MetaErrors />}
       {tab === "audit" && <Audit />}
@@ -363,6 +364,60 @@ function Webhooks() {
           </div>
         </>
       )}
+    </>
+  );
+}
+
+// Invoices lists every GST invoice across workspaces for a date range; the CSV is for the accountant.
+function Invoices() {
+  const { t } = useTranslation();
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString() ? `?${params}` : "";
+  const list = useQuery({
+    queryKey: ["admin", "invoices", from, to],
+    queryFn: () => api<{ data: AdminInvoice[]; total_minor: number; truncated: boolean }>("GET", `/internal/admin/invoices${qs}`),
+  });
+  return (
+    <>
+      <div className="filters">
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t("admin.from")} />
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label={t("admin.to")} />
+        <a href={`/internal/admin/invoices.csv${qs}`}>{t("admin.downloadCsv")}</a>
+      </div>
+      {list.data && <p className="muted small">{t("admin.invoiceTotal", { count: list.data.data.length, total: formatPaise(list.data.total_minor) })}{list.data.truncated ? ` ${t("admin.invoiceTruncated")}` : ""}</p>}
+      <div className="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{t("admin.invoiceNumber")}</th>
+              <th>{t("admin.workspace")}</th>
+              <th>{t("admin.invoiceBuyer")}</th>
+              <th>{t("admin.invoiceTax")}</th>
+              <th>{t("admin.invoiceTotalCol")}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.data?.data.map((i) => (
+              <tr key={i.id}>
+                <td>{i.number}<div className="small muted">{when(i.issued_at)}</div></td>
+                <td>{i.tenant_name}</td>
+                <td>{i.buyer_name}<div className="small muted">{i.buyer_gstin || "—"}</div></td>
+                <td className="small">
+                  {i.igst_minor > 0 ? `IGST ${formatPaise(i.igst_minor)}` : `CGST ${formatPaise(i.cgst_minor)} · SGST ${formatPaise(i.sgst_minor)}`}
+                </td>
+                <td>{formatPaise(i.total_minor)}{!i.emailed && <div className="small muted">{t("admin.notEmailed")}</div>}</td>
+                <td><a href={`/internal/admin/invoices/${i.id}/view`} target="_blank" rel="noreferrer">{t("admin.viewInvoice")}</a></td>
+              </tr>
+            ))}
+            {list.isSuccess && list.data.data.length === 0 && <tr><td colSpan={6} className="muted">{t("admin.noInvoices")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

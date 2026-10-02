@@ -126,7 +126,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
-			cfg.Razorpay.WebhookSecret, cfg.Seller, log),
+			cfg.Razorpay.WebhookSecret, cfg.Seller, rc, log),
 		Events: hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
@@ -171,6 +171,7 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, webhooks.NewWorker(d, keys, nil, log))
 	river.AddWorker(workers, campaigns.NewWorker(d, log))
 	river.AddWorker(workers, analytics.NewWorker(d, log))
+	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
 	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic()}, log)
 	if err != nil {
 		return err
