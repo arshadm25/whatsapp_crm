@@ -15,6 +15,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
+	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
@@ -31,6 +32,7 @@ type APIDeps struct {
 	Messaging  *messaging.Service
 	Templates  *templates.Service
 	Inbox      *inbox.Service
+	Media      *media.Service
 	Events     http.Handler
 }
 
@@ -57,11 +59,16 @@ func NewAPI(d APIDeps) http.Handler {
 	})
 
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(d.Auth.CSRF, d.Auth.RequireSession, auth.RequireTenant)
-		r.Route("/phone-numbers", d.Numbers.Routes)
-		r.Route("/messages", d.Messaging.Routes)
-		r.Route("/templates", d.Templates.Routes)
-		r.Route("/conversations", d.Inbox.Routes)
+		// Signed download links work without a session.
+		r.Get("/media/{id}/content", d.Media.Content())
+		r.Group(func(r chi.Router) {
+			r.Use(d.Auth.CSRF, d.Auth.RequireSession, auth.RequireTenant)
+			r.Route("/phone-numbers", d.Numbers.Routes)
+			r.Route("/messages", d.Messaging.Routes)
+			r.Route("/templates", d.Templates.Routes)
+			r.Route("/conversations", d.Inbox.Routes)
+			r.Route("/media", d.Media.Routes)
+		})
 	})
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) { httpx.WriteError(w, r, d.Log, httpx.ErrNotFound) })

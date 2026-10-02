@@ -185,7 +185,15 @@ fieldset.field input { font: inherit; padding: 0.55rem 0.7rem; border: 1px solid
 .notes input, .notes textarea, .text-composer textarea { font: inherit; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
 .note { background: var(--warn-bg); border-radius: 8px; padding: 0.4rem 0.6rem; }
 .composer { border-top: 1px solid var(--border); padding: 0.8rem 1rem; }
-.text-composer { display: grid; grid-template-columns: 1fr auto; gap: 0.6rem; align-items: end; }
+.text-composer { display: grid; grid-template-columns: auto 1fr auto; gap: 0.6rem; align-items: end; }
+.text-composer .attachment { grid-column: 1 / -1; display: flex; gap: 0.5rem; align-items: center; font-size: 0.9rem; }
+.text-composer .attach { font-size: 1.1rem; padding: 0.4rem 0.6rem; }
+.media-image, .media-video { display: block; max-width: 100%; max-height: 320px; border-radius: 8px; }
+.media-sticker { display: block; width: 128px; height: 128px; object-fit: contain; }
+.media-audio { width: 260px; max-width: 100%; }
+.media-file { display: inline-block; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); text-decoration: none; }
+.media-pending { font-style: italic; }
+.bubble .bubble-text:not(:first-child) { margin-top: 0.3rem; }
 .text-composer textarea { resize: none; }
 .text-composer .error, .quick-replies { grid-column: 1 / -1; }
 .quick-replies { list-style: none; margin: 0; padding: 0.3rem; border: 1px solid var(--border); border-radius: 8px; }

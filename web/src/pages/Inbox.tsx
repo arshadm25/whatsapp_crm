@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, useMembers, usePhoneNumbers, useQuickReplies } from "../api/hooks";
-import type { Conversation, Message, Note, Page } from "../api/types";
+import type { Conversation, Media, Message, Note, Page } from "../api/types";
+import MediaPreview from "../components/MediaPreview";
 import TemplateComposer from "../components/TemplateComposer";
-import { messageText, statusTick } from "../lib/messages";
+import { ACCEPT, MEDIA_TYPES, formatSize, mediaKind, takesCaption } from "../lib/media";
+import { captionOf, messageText, statusTick } from "../lib/messages";
 
 type Filter = "all" | "mine" | "unassigned" | "closed";
 
@@ -172,7 +174,14 @@ function Thread({ id }: { id: string }) {
           )}
           {messages.map((m) => (
             <div key={m.id} className={`bubble ${m.direction}`}>
-              <div className="bubble-text">{messageText(m)}</div>
+              {MEDIA_TYPES.has(m.type) ? (
+                <>
+                  <MediaPreview message={m} />
+                  {captionOf(m) && <div className="bubble-text">{captionOf(m)}</div>}
+                </>
+              ) : (
+                <div className="bubble-text">{messageText(m)}</div>
+              )}
               <div className="bubble-meta">
                 {shortTime(m.created_at)}
                 {m.direction === "outbound" && (
@@ -212,13 +221,46 @@ function TextComposer({ conv, onSent }: { conv: Conversation; onSent: () => void
   const slash = text.startsWith("/") && !text.includes(" ") ? text.slice(1).toLowerCase() : null;
   const matches = slash === null ? [] : (replies.data ?? []).filter((r) => r.shortcut.toLowerCase().startsWith(slash));
 
+  const [file, setFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const kind = file ? mediaKind(file.type) : null;
+
+  const pick = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    e.target.value = "";
+    if (!f) return;
+    const k = mediaKind(f.type);
+    if (!k) return setError(t("inbox.fileType"));
+    if (f.size > k.limit) return setError(t("inbox.fileTooLarge", { name: f.name, limit: formatSize(k.limit) }));
+    setError("");
+    setFile(f);
+  };
+
+  const post = (body: Record<string, unknown>) =>
+    api("POST", "/v1/messages", { phone_number_id: conv.phone_number_id, to: conv.contact.wa_id, ...body });
+
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
-    if (!text.trim()) return;
+    if (!text.trim() && !file) return;
     setBusy(true);
     setError("");
     try {
-      await api("POST", "/v1/messages", { phone_number_id: conv.phone_number_id, to: conv.contact.wa_id, type: "text", text: { body: text } });
+      if (file && kind) {
+        const form = new FormData();
+        form.append("phone_number_id", conv.phone_number_id);
+        form.append("file", file);
+        const media = await api<Media>("POST", "/v1/media", form);
+        const caption = takesCaption(kind.kind) ? text.trim() : "";
+        const part: Record<string, unknown> = { media_id: media.id };
+        if (caption) part.caption = caption;
+        if (kind.kind === "document") part.filename = file.name;
+        await post({ type: kind.kind, [kind.kind]: part });
+        // Audio and stickers cannot carry a caption, so any text goes as its own message.
+        if (!caption && text.trim()) await post({ type: "text", text: { body: text } });
+        setFile(null);
+      } else {
+        await post({ type: "text", text: { body: text } });
+      }
       setText("");
       onSent();
     } catch (e) {
@@ -249,15 +291,25 @@ function TextComposer({ conv, onSent }: { conv: Conversation; onSent: () => void
         </ul>
       )}
       {error && <div className="error">{error}</div>}
+      {file && (
+        <div className="attachment">
+          📎 {file.name} <span className="muted">· {formatSize(file.size)}</span>
+          <button type="button" className="link" onClick={() => setFile(null)}>{t("inbox.removeFile")}</button>
+        </div>
+      )}
+      <button type="button" className="attach" title={t("inbox.attach")} aria-label={t("inbox.attach")} onClick={() => fileInput.current?.click()}>
+        📎
+      </button>
+      <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={pick} />
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKey}
         rows={2}
-        maxLength={4096}
-        placeholder={t("inbox.placeholder")}
+        maxLength={file && kind && takesCaption(kind.kind) ? 1024 : 4096}
+        placeholder={file ? t("inbox.captionPlaceholder") : t("inbox.placeholder")}
       />
-      <button className="primary" disabled={busy || !text.trim()}>{t("send.send")}</button>
+      <button className="primary" disabled={busy || (!text.trim() && !file)}>{t("send.send")}</button>
     </form>
   );
 }

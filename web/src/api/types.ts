@@ -85,6 +85,7 @@ export interface Message {
   origin: string;
   type: string;
   content: Record<string, unknown>;
+  media_id: string | null;
   status: MessageStatus;
   error: { code: string; message: string; meta_error_code?: number } | null;
   created_at: string;
@@ -142,4 +143,13 @@ export interface QuickReply {
   id: string;
   shortcut: string;
   body: string;
+}
+
+export interface Media {
+  id: string;
+  mime_type: string;
+  size_bytes: number;
+  filename: string | null;
+  url: string;
+  created_at: string;
 }

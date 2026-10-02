@@ -36,6 +36,11 @@ export function messageText(m: Pick<Message, "type" | "content">): string {
   }
 }
 
+// The caption under a media message's file in the thread.
+export function captionOf(m: Pick<Message, "type" | "content">): string {
+  return str(obj(obj(m.content)[m.type]).caption);
+}
+
 // The tick shown next to an outbound message.
 export function statusTick(status: Message["status"]): string {
   return { queued: "🕓", sent: "✓", delivered: "✓✓", read: "✓✓", failed: "⚠", received: "", deleted: "" }[status];

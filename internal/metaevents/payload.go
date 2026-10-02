@@ -59,9 +59,11 @@ type MessageHeader struct {
 	Text *struct {
 		Body string `json:"body"`
 	} `json:"text"`
-	Image    *Caption `json:"image"`
-	Video    *Caption `json:"video"`
-	Document *Caption `json:"document"`
+	Image    *MediaRef `json:"image"`
+	Video    *MediaRef `json:"video"`
+	Audio    *MediaRef `json:"audio"`
+	Document *MediaRef `json:"document"`
+	Sticker  *MediaRef `json:"sticker"`
 	Button   *struct {
 		Text string `json:"text"`
 	} `json:"button"`
@@ -78,9 +80,11 @@ type MessageHeader struct {
 	} `json:"interactive"`
 }
 
-type Caption struct {
-	ID      string `json:"id"`
-	Caption string `json:"caption"`
+// MediaRef is the file part of an image, video, audio, document or sticker message.
+type MediaRef struct {
+	ID       string `json:"id"`
+	Caption  string `json:"caption"`
+	Filename string `json:"filename"`
 }
 
 type Status struct {

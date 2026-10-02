@@ -1121,6 +1121,10 @@ components:
         content:
           type: object
           description: Normalised body; same field names as the request for each type.
+        media_id:
+          type: [string, 'null']
+          format: uuid
+          description: The message's file, for GET /media/{media_id}. Inbound files appear here once copied from Meta, usually within seconds.
         status: { $ref: '#/components/schemas/MessageStatus' }
         error:
           oneOf:

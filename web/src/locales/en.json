@@ -190,6 +190,14 @@
     "notesHint": "Only your team sees notes.",
     "addNote": "Add note",
     "quickReplies": "Quick replies",
-    "addQuickReply": "Add quick reply"
+    "addQuickReply": "Add quick reply",
+    "attach": "Attach a file",
+    "removeFile": "Remove",
+    "attachmentLoading": "Attachment is still arriving…",
+    "attachmentMissing": "Attachment not available",
+    "captionPlaceholder": "Add a caption (optional)",
+    "fileTooLarge": "{{name}} is larger than WhatsApp allows ({{limit}}).",
+    "fileType": "WhatsApp does not accept this file type.",
+    "download": "Download"
   }
 }

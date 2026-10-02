@@ -21,7 +21,11 @@ hosts:
 ingress:
   enabled: true
   className: nginx
-  annotations: {}
+  annotations:
+    # Media uploads go up to 100 MB (WhatsApp's document limit).
+    nginx.ingress.kubernetes.io/proxy-body-size: 101m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
   tls:
     enabled: true
     clusterIssuer: letsencrypt-prod   # cert-manager ClusterIssuer
@@ -36,6 +40,11 @@ config:
   smtpPort: "587"
   smtpUsername: ""
   mailFrom: "Ecogo WhatsApp <no-reply@ecogo.co.in>"
+  # Media files (uploads and copies of inbound media) live in this S3-compatible bucket; the
+  # bucket is created on first start if missing.
+  s3Endpoint: minio.minio.svc:9000   # host:port, no scheme
+  s3Bucket: ""                       # defaults to <release name>-media
+  s3UseSSL: false
 
 # Secret with these keys, created outside the chart:
 #   database-url            postgres URL for ecogo_app (no BYPASSRLS)
@@ -45,6 +54,7 @@ config:
 #   meta-app-secret         Meta App Secret
 #   meta-webhook-verify-token  any random string; also entered as the Verify token in the Meta app
 #   smtp-password
+#   s3-access-key, s3-secret-key  MinIO credentials for the media bucket
 existingSecret: ecogo-whatsapp
 
 api:
@@ -101,6 +111,9 @@ networkPolicy:
   enabled: true
   # Namespace of the ingress controller, allowed to reach api, ingest and web.
   ingressNamespace: ingress-nginx
+  # Namespace and port of MinIO, which api and worker reach for media files.
+  storageNamespace: minio
+  storagePort: 9000
 
 podSecurityContext:
   runAsNonRoot: true

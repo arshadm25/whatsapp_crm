@@ -18,6 +18,8 @@ import (
 
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/jobs"
+	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
 )
 
@@ -26,6 +28,8 @@ type Processor struct {
 	river.WorkerDefaults[ProcessArgs]
 	db  *db.DB
 	log *slog.Logger
+	// Jobs enqueues follow-up jobs; when nil, the River client working the job is used.
+	Jobs jobs.Inserter
 }
 
 func NewProcessor(d *db.DB, log *slog.Logger) *Processor {
@@ -142,7 +146,7 @@ func (p *Processor) apply(ctx context.Context, entry Entry, change Change) error
 
 // inTenant routes a change to its tenant and runs fn there. Events for numbers or accounts we
 // do not know (for example a client that disconnected) are dropped.
-func (p *Processor) inTenant(ctx context.Context, phoneNumberID, wabaID string, fn func(q *dbq.Queries, tenantID uuid.UUID) error) error {
+func (p *Processor) inTenant(ctx context.Context, phoneNumberID, wabaID string, fn func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error) error {
 	var tenantID uuid.UUID
 	err := p.db.Global(ctx, func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
@@ -156,7 +160,7 @@ func (p *Processor) inTenant(ctx context.Context, phoneNumberID, wabaID string, 
 		p.log.Warn("meta event: no tenant for event", "phone_number_id", phoneNumberID, "waba_id", wabaID)
 		return nil
 	}
-	return p.db.InTenant(ctx, tenantID, func(q *dbq.Queries, _ pgx.Tx) error { return fn(q, tenantID) })
+	return p.db.InTenant(ctx, tenantID, func(q *dbq.Queries, tx pgx.Tx) error { return fn(q, tx, tenantID) })
 }
 
 // messages handles inbound messages and statuses ("messages"), and messages the business sent
@@ -166,7 +170,7 @@ func (p *Processor) messages(ctx context.Context, entry Entry, raw json.RawMessa
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil // malformed value: kept in meta_webhook_events, nothing to apply
 	}
-	return p.inTenant(ctx, v.Metadata.PhoneNumberID, entry.ID, func(q *dbq.Queries, tenantID uuid.UUID) error {
+	return p.inTenant(ctx, v.Metadata.PhoneNumberID, entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
 		phone, err := q.GetPhoneNumberByMetaID(ctx, v.Metadata.PhoneNumberID)
 		if db.IsNotFound(err) {
 			return nil
@@ -183,7 +187,7 @@ func (p *Processor) messages(ctx context.Context, entry Entry, raw json.RawMessa
 			msgs = v.MessageEchoes
 		}
 		for _, m := range msgs {
-			if err := p.storeMessage(ctx, q, tenantID, phone, m, names, echoes); err != nil {
+			if err := p.storeMessage(ctx, q, tx, tenantID, phone, m, names, echoes); err != nil {
 				return err
 			}
 		}
@@ -198,7 +202,7 @@ func (p *Processor) messages(ctx context.Context, entry Entry, raw json.RawMessa
 
 var waID = regexp.MustCompile(`^[0-9]{6,15}$`)
 
-func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, phone dbq.PhoneNumber,
+func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID, phone dbq.PhoneNumber,
 	raw json.RawMessage, names map[string]string, echo bool) error {
 	var h MessageHeader
 	if err := json.Unmarshal(raw, &h); err != nil || h.ID == "" {
@@ -236,7 +240,7 @@ func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tenantID u
 	if h.Context != nil {
 		replyTo = nonEmpty(h.Context.ID)
 	}
-	_, err = q.InsertWhatsAppMessage(ctx, dbq.InsertWhatsAppMessageParams{
+	msgID, err := q.InsertWhatsAppMessage(ctx, dbq.InsertWhatsAppMessageParams{
 		ID: db.NewID(), TenantID: tenantID, ConversationID: conv.ID, PhoneNumberID: phone.ID, ContactID: contact.ID,
 		Direction: direction, Origin: origin, Wamid: &h.ID, Type: typ, Content: raw,
 		ReplyToWamid: replyTo, Status: status, MetaTimestamp: &at,
@@ -247,10 +251,34 @@ func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tenantID u
 	if err != nil {
 		return err
 	}
+	if err := p.queueMediaDownload(ctx, tx, tenantID, msgID, h); err != nil {
+		return err
+	}
 	if echo {
 		return q.TouchConversationOutbound(ctx, dbq.TouchConversationOutboundParams{ID: conv.ID, At: at, Preview: preview(h)})
 	}
 	return q.TouchConversationInbound(ctx, dbq.TouchConversationInboundParams{ID: conv.ID, At: at, Preview: preview(h)})
+}
+
+// queueMediaDownload enqueues the copy of a message's file from Meta, in the transaction that
+// stores the message.
+func (p *Processor) queueMediaDownload(ctx context.Context, tx pgx.Tx, tenantID, messageID uuid.UUID, h MessageHeader) error {
+	ref := map[string]*MediaRef{"image": h.Image, "video": h.Video, "audio": h.Audio, "document": h.Document, "sticker": h.Sticker}[h.Type]
+	if ref == nil || ref.ID == "" {
+		return nil
+	}
+	ins := p.Jobs
+	if ins == nil {
+		c, err := river.ClientFromContextSafely[pgx.Tx](ctx)
+		if err != nil {
+			return err
+		}
+		ins = c
+	}
+	_, err := ins.InsertTx(ctx, tx, media.DownloadArgs{
+		TenantID: tenantID, MessageID: messageID, MetaMediaID: ref.ID, Filename: ref.Filename,
+	}, nil)
+	return err
 }
 
 // applyStatus records a delivery status for one of our outbound messages and moves the
@@ -322,7 +350,7 @@ func (p *Processor) templateStatus(ctx context.Context, entry Entry, raw json.Ra
 		reason = v.Reason
 	}
 	id := v.MessageTemplateID.String()
-	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ uuid.UUID) error {
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, _ uuid.UUID) error {
 		// A template created outside Ecogo is not in our table yet; a template sync picks it up.
 		_, err := q.UpdateTemplateStatusByMetaID(ctx, dbq.UpdateTemplateStatusByMetaIDParams{Status: st, RejectedReason: reason, MetaTemplateID: &id})
 		return err
@@ -340,7 +368,7 @@ func (p *Processor) quality(ctx context.Context, entry Entry, raw json.RawMessag
 		}
 		return -1
 	}, v.DisplayPhoneNumber)
-	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ uuid.UUID) error {
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, _ uuid.UUID) error {
 		_, err := q.UpdatePhoneLimitTierByDisplay(ctx, dbq.UpdatePhoneLimitTierByDisplayParams{
 			Tier: &v.CurrentLimit, WabaID: entry.ID, DisplayDigits: digits,
 		})
@@ -359,7 +387,7 @@ func (p *Processor) accountUpdate(ctx context.Context, entry Entry, raw json.Raw
 		p.log.Info("meta event: account update", "event", v.Event, "waba_id", entry.ID)
 		return nil
 	}
-	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ uuid.UUID) error {
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, _ uuid.UUID) error {
 		acct, err := q.GetWhatsAppAccountByWabaID(ctx, entry.ID)
 		if db.IsNotFound(err) {
 			return nil
@@ -386,7 +414,7 @@ func (p *Processor) stateSync(ctx context.Context, entry Entry, raw json.RawMess
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil
 	}
-	return p.inTenant(ctx, v.Metadata.PhoneNumberID, entry.ID, func(q *dbq.Queries, tenantID uuid.UUID) error {
+	return p.inTenant(ctx, v.Metadata.PhoneNumberID, entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
 		for _, s := range v.StateSync {
 			if s.Type != "contact" || (s.Action != "add" && s.Action != "edit") {
 				continue
