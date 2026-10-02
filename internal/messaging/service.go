@@ -164,10 +164,10 @@ func View(m dbq.Message, waID string, name *string) Message {
 
 var waIDRE = regexp.MustCompile(`^[0-9]{6,15}$`)
 
-// replay is a stored response for a repeated Idempotency-Key.
-type replay struct {
-	status int
-	body   []byte
+// Replay is the stored response of the first request that used an Idempotency-Key.
+type Replay struct {
+	Status int
+	Body   []byte
 }
 
 func (s *Service) send(w http.ResponseWriter, r *http.Request) error {
@@ -193,12 +193,12 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) error {
 
 	var (
 		out    Message
-		cached *replay
+		cached *Replay
 	)
 	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
 		if key != "" {
 			hash := sha256.Sum256(raw)
-			cached, err = s.claimKey(ctx, q, p.TenantID, key, hash[:])
+			cached, err = ClaimIdempotencyKey(ctx, q, p.TenantID, key, hash[:], s.now())
 			if err != nil || cached != nil {
 				return err
 			}
@@ -221,19 +221,17 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if cached != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Idempotent-Replayed", "true")
-		w.WriteHeader(cached.status)
-		_, _ = w.Write(cached.body)
+		WriteReplay(w, cached)
 		return nil
 	}
 	httpx.JSON(w, http.StatusAccepted, out)
 	return nil
 }
 
-// claimKey records a new Idempotency-Key, or returns the stored response of the first request
-// that used it. The same key with a different body is refused.
-func (s *Service) claimKey(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, key string, hash []byte) (*replay, error) {
+// ClaimIdempotencyKey records a new Idempotency-Key, or returns the stored response of the first
+// request that used it. The same key with a different body is refused. Keys are shared by every
+// endpoint that takes one (message sends, campaign creation).
+func ClaimIdempotencyKey(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, key string, hash []byte, now time.Time) (*Replay, error) {
 	_, err := q.ClaimIdempotencyKey(ctx, dbq.ClaimIdempotencyKeyParams{TenantID: tenantID, Key: key, RequestHash: hash})
 	if err == nil {
 		return nil, nil
@@ -245,7 +243,7 @@ func (s *Service) claimKey(ctx context.Context, q *dbq.Queries, tenantID uuid.UU
 	if err != nil {
 		return nil, err
 	}
-	if s.now().Sub(rec.CreatedAt) > idempotencyTTL {
+	if now.Sub(rec.CreatedAt) > idempotencyTTL {
 		if err := q.RestartIdempotencyRecord(ctx, dbq.RestartIdempotencyRecordParams{TenantID: tenantID, Key: key, RequestHash: hash}); err != nil {
 			return nil, err
 		}
@@ -258,7 +256,15 @@ func (s *Service) claimKey(ctx context.Context, q *dbq.Queries, tenantID uuid.UU
 	if rec.ResponseStatus == nil {
 		return nil, httpx.NewError(http.StatusConflict, "conflict", "A request with this Idempotency-Key is still being processed.")
 	}
-	return &replay{status: int(*rec.ResponseStatus), body: rec.ResponseBody}, nil
+	return &Replay{Status: int(*rec.ResponseStatus), Body: rec.ResponseBody}, nil
+}
+
+// WriteReplay sends a stored response again, marked as replayed.
+func WriteReplay(w http.ResponseWriter, r *Replay) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Idempotent-Replayed", "true")
+	w.WriteHeader(r.Status)
+	_, _ = w.Write(r.Body)
 }
 
 // queue runs the business checks and stores the message with its send job.

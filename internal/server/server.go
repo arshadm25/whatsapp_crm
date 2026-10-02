@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
@@ -40,6 +41,7 @@ type APIDeps struct {
 	Keys       *devportal.Authenticator
 	Webhooks   *webhooks.Service
 	Contacts   *contacts.Service
+	Campaigns  *campaigns.Service
 	Events     http.Handler
 }
 
@@ -63,6 +65,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/inbox", d.Inbox.InternalRoutes)
 			r.Route("/developers", d.Developers.InternalRoutes)
 			r.Route("/contacts", d.Contacts.InternalRoutes)
+			r.Route("/campaigns", d.Campaigns.InternalRoutes)
 			r.Method(http.MethodGet, "/events", d.Events)
 		})
 	})
@@ -82,6 +85,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/media", d.Media.Routes)
 			r.Route("/webhook-endpoints", d.Webhooks.Routes)
 			r.Route("/contacts", d.Contacts.Routes)
+			r.Route("/campaigns", d.Campaigns.Routes)
 		})
 	})
 

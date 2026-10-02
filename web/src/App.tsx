@@ -16,6 +16,7 @@ import SendMessage from "./pages/SendMessage";
 import Inbox from "./pages/Inbox";
 import Developers from "./pages/Developers";
 import Contacts from "./pages/Contacts";
+import Campaigns from "./pages/Campaigns";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -49,9 +50,8 @@ export default function App() {
         <Route path="inbox/:id" element={<Inbox />} />
         <Route path="developers" element={<Developers />} />
         <Route path="contacts" element={<Contacts />} />
-        {["campaigns", "settings"].map((p) => (
-          <Route key={p} path={p} element={<ComingSoon section={p} />} />
-        ))}
+        <Route path="campaigns" element={<Campaigns />} />
+        <Route path="settings" element={<ComingSoon section="settings" />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

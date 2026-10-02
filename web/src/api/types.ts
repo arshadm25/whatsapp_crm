@@ -219,3 +219,53 @@ export interface ImportResult {
   opted_out: number;
   errors: { line: number; message: string }[];
 }
+
+export type CampaignStatus = "draft" | "scheduled" | "running" | "paused" | "completed" | "cancelled" | "failed";
+
+export interface CampaignStats {
+  total: number;
+  pending: number;
+  skipped: number;
+  queued: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  status: CampaignStatus;
+  phone_number_id: string;
+  template_id: string;
+  template: { name: string; language: string; variables: Record<string, string> };
+  audience: { tags?: string[]; contact_ids?: string[] };
+  scheduled_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  send_rate_per_min: number;
+  stats: CampaignStats;
+  created_at: string;
+}
+
+export interface AudienceCounts {
+  total: number;
+  eligible: number;
+  blocked: number;
+  opted_out: number;
+  no_opt_in: number;
+}
+
+export type RecipientStatus = "pending" | "skipped" | "queued" | "sent" | "delivered" | "read" | "failed";
+
+export interface Recipient {
+  contact_id: string;
+  wa_id: string;
+  name: string | null;
+  status: RecipientStatus;
+  skip_reason: string | null;
+  message_id: string | null;
+  error_code: number | null;
+  updated_at: string;
+}

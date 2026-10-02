@@ -220,7 +220,7 @@ tr.muted td { color: var(--muted); }
 .endpoint-head .actions { display: flex; gap: 0.6rem; align-items: center; }
 .endpoint .table-wrap { margin-top: 0.75rem; }
 .filters { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1rem 0; }
-.filters input, .filters select, .inline-add input, .contact-detail .evidence { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
+.filters input, .filters select, .inline-add input, .contact-detail .evidence, .recipient-filter { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
 .filters input { flex: 1 1 240px; }
 .contacts-layout { display: grid; grid-template-columns: 1fr; gap: 1rem; align-items: start; }
 .contacts-layout.has-detail { grid-template-columns: 1fr 360px; }
@@ -242,3 +242,20 @@ table.clickable tbody tr:hover, table.clickable tr.selected { background: var(--
 .fields dd { margin: 0; }
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9rem; }
 @media (max-width: 900px) { .contacts-layout.has-detail { grid-template-columns: 1fr; } }
+
+/* Campaigns */
+.vars { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.vars legend { padding: 0 0.3rem; font-weight: 600; }
+.var-row { display: flex; gap: 0.5rem; align-items: end; }
+.var-row .field { flex: 1; }
+.var-row select { font: inherit; padding: 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
+.preview { background: var(--bg); border-radius: 8px; padding: 0.6rem 0.75rem; white-space: pre-wrap; }
+.chip.selectable { cursor: pointer; padding: 0.2rem 0.6rem; }
+.chip.selectable input { display: none; }
+.chip.selectable.on { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+.stats { margin: 0.75rem 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: 0.5rem; }
+.stats div { background: var(--bg); border-radius: 8px; padding: 0.4rem 0.6rem; }
+.stats dt { color: var(--muted); font-size: 0.75rem; }
+.stats dd { margin: 0; font-size: 1.2rem; font-weight: 600; }
+.recipient-filter { margin-bottom: 0.5rem; }
+.nowrap { white-space: nowrap; }
