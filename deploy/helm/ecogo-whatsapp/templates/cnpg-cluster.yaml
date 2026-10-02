@@ -48,9 +48,13 @@ spec:
         secretAccessKey: { name: {{ $pg.backup.credentialsSecret }}, key: ACCESS_SECRET_KEY }
       wal:
         compression: gzip
-        encryption: AES256
+        {{- with $pg.backup.encryption }}
+        encryption: {{ . }}
+        {{- end }}
+      {{- with $pg.backup.encryption }}
       data:
-        encryption: AES256
+        encryption: {{ . }}
+      {{- end }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
