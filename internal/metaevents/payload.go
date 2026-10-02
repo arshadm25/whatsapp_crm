@@ -122,6 +122,34 @@ type QualityValue struct {
 	CurrentLimit       string `json:"current_limit"`
 }
 
+// NameUpdateValue is the value of "phone_number_name_update".
+type NameUpdateValue struct {
+	DisplayPhoneNumber    string  `json:"display_phone_number"`
+	Decision              string  `json:"decision"` // APPROVED, REJECTED, DEFERRED
+	RequestedVerifiedName string  `json:"requested_verified_name"`
+	RejectionReason       *string `json:"rejection_reason"`
+}
+
+// TemplateQualityValue is the value of "message_template_quality_update".
+type TemplateQualityValue struct {
+	PreviousQualityScore string      `json:"previous_quality_score"`
+	NewQualityScore      string      `json:"new_quality_score"`
+	MessageTemplateID    json.Number `json:"message_template_id"`
+}
+
+// CapabilityValue is the value of "business_capability_update".
+type CapabilityValue struct {
+	MaxDailyConversationPerPhone int `json:"max_daily_conversation_per_phone"`
+	MaxPhoneNumbersPerBusiness   int `json:"max_phone_numbers_per_business"`
+}
+
+// SecurityValue is the value of "security" (two-step verification PIN changes).
+type SecurityValue struct {
+	DisplayPhoneNumber string `json:"display_phone_number"`
+	Event              string `json:"event"` // PIN_CHANGED, PIN_RESET_REQUEST
+	Requester          string `json:"requester"`
+}
+
 // AccountUpdateValue is the value of "account_update".
 type AccountUpdateValue struct {
 	Event string `json:"event"`

@@ -358,6 +358,116 @@ func (q *Queries) UpdatePhoneLimitTierByDisplay(ctx context.Context, arg UpdateP
 	return items, nil
 }
 
+const updatePhoneNameByDisplay = `-- name: UpdatePhoneNameByDisplay :many
+UPDATE phone_numbers p
+SET name_status = $1, verified_name = coalesce($2, p.verified_name), updated_at = now()
+FROM whatsapp_accounts w
+WHERE w.id = p.whatsapp_account_id AND w.waba_id = $3
+  AND regexp_replace(p.display_phone_number, '[^0-9]', '', 'g') = $4::text
+RETURNING p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at
+`
+
+type UpdatePhoneNameByDisplayParams struct {
+	NameStatus    *string
+	VerifiedName  *string
+	WabaID        string
+	DisplayDigits string
+}
+
+// A name review result; verified_name changes only when the new name was approved.
+func (q *Queries) UpdatePhoneNameByDisplay(ctx context.Context, arg UpdatePhoneNameByDisplayParams) ([]PhoneNumber, error) {
+	rows, err := q.db.Query(ctx, updatePhoneNameByDisplay,
+		arg.NameStatus,
+		arg.VerifiedName,
+		arg.WabaID,
+		arg.DisplayDigits,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PhoneNumber
+	for rows.Next() {
+		var i PhoneNumber
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.WhatsappAccountID,
+			&i.PhoneNumberID,
+			&i.DisplayPhoneNumber,
+			&i.VerifiedName,
+			&i.NameStatus,
+			&i.QualityRating,
+			&i.MessagingLimitTier,
+			&i.CodeVerificationStatus,
+			&i.IsCoexistence,
+			&i.RegisteredAt,
+			&i.TwoStepPinEnc,
+			&i.Status,
+			&i.BusinessProfile,
+			&i.LastSyncedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateTemplateQualityByMetaID = `-- name: UpdateTemplateQualityByMetaID :many
+UPDATE templates SET quality_score = $1, updated_at = now()
+WHERE meta_template_id = $2
+RETURNING id, tenant_id, whatsapp_account_id, meta_template_id, name, language, category, status, rejected_reason, quality_score, parameter_format, components, created_by, submitted_at, status_updated_at, created_at, updated_at
+`
+
+type UpdateTemplateQualityByMetaIDParams struct {
+	QualityScore   *string
+	MetaTemplateID *string
+}
+
+func (q *Queries) UpdateTemplateQualityByMetaID(ctx context.Context, arg UpdateTemplateQualityByMetaIDParams) ([]Template, error) {
+	rows, err := q.db.Query(ctx, updateTemplateQualityByMetaID, arg.QualityScore, arg.MetaTemplateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Template
+	for rows.Next() {
+		var i Template
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.WhatsappAccountID,
+			&i.MetaTemplateID,
+			&i.Name,
+			&i.Language,
+			&i.Category,
+			&i.Status,
+			&i.RejectedReason,
+			&i.QualityScore,
+			&i.ParameterFormat,
+			&i.Components,
+			&i.CreatedBy,
+			&i.SubmittedAt,
+			&i.StatusUpdatedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateTemplateStatusByMetaID = `-- name: UpdateTemplateStatusByMetaID :many
 UPDATE templates
 SET status = $1, rejected_reason = $2, status_updated_at = now(), updated_at = now()

@@ -90,3 +90,17 @@ UPDATE whatsapp_accounts SET status = 'revoked', disconnected_at = now(), update
 
 -- name: SetAccountPhoneNumbersStatus :exec
 UPDATE phone_numbers SET status = $2, updated_at = now() WHERE whatsapp_account_id = $1;
+
+-- name: UpdateTemplateQualityByMetaID :many
+UPDATE templates SET quality_score = @quality_score, updated_at = now()
+WHERE meta_template_id = @meta_template_id
+RETURNING *;
+
+-- name: UpdatePhoneNameByDisplay :many
+-- A name review result; verified_name changes only when the new name was approved.
+UPDATE phone_numbers p
+SET name_status = @name_status, verified_name = coalesce(@verified_name, p.verified_name), updated_at = now()
+FROM whatsapp_accounts w
+WHERE w.id = p.whatsapp_account_id AND w.waba_id = @waba_id
+  AND regexp_replace(p.display_phone_number, '[^0-9]', '', 'g') = @display_digits::text
+RETURNING p.*;
