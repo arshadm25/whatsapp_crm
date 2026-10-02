@@ -32,6 +32,9 @@ func New(baseURL, keyID, keySecret string) *Client {
 // take payment.
 func (c *Client) Configured() bool { return c != nil && c.keyID != "" && c.keySecret != "" }
 
+// KeyID is the public key the browser checkout needs; it is not secret.
+func (c *Client) KeyID() string { return c.keyID }
+
 // Error is a Razorpay API error response.
 type Error struct {
 	HTTPStatus  int    `json:"-"`

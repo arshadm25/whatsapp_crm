@@ -342,7 +342,7 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 	if err := s.audit(r, "subscription.checkout", plan.Code); err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"payment_url": rs.ShortURL})
+	httpx.JSON(w, http.StatusOK, s.checkout(rs))
 	return nil
 }
 
@@ -594,4 +594,11 @@ func AIAllowanceFor(ctx context.Context, q *dbq.Queries) (AIAllowance, error) {
 		a.Limit = plan.AiRepliesPerMonth
 	}
 	return a, nil
+}
+
+// checkout is the reply that starts a payment. The dashboard opens Razorpay's checkout pop-up
+// from the key and subscription id, which works without Razorpay's hosted page; payment_url
+// stays for API clients.
+func (s *Service) checkout(rs razorpay.Subscription) map[string]any {
+	return map[string]any{"payment_url": rs.ShortURL, "razorpay_key_id": s.rp.KeyID(), "razorpay_subscription_id": rs.ID}
 }
