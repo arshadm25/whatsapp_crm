@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type { Me, PhoneNumber, PublicConfig, Template } from "./types";
+import type { Me, Member, PhoneNumber, PublicConfig, QuickReply, Template } from "./types";
 
 export function useMe() {
   return useQuery<Me | null>({
@@ -41,4 +42,44 @@ export function useTemplates(status?: string) {
       return (await api<{ data: Template[] }>("GET", `/v1/templates?${qs}`)).data;
     },
   });
+}
+
+export function useMembers() {
+  return useQuery({
+    queryKey: ["members"],
+    queryFn: async () => (await api<{ data: Member[] }>("GET", "/internal/inbox/members")).data,
+    staleTime: 60_000,
+  });
+}
+
+export function useQuickReplies() {
+  return useQuery({
+    queryKey: ["quick-replies"],
+    queryFn: async () => (await api<{ data: QuickReply[] }>("GET", "/internal/inbox/quick-replies")).data,
+  });
+}
+
+// useLiveEvents keeps cached data fresh from the server's event stream: every message,
+// conversation or template change refetches the queries that show it.
+export function useLiveEvents() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+    const es = new EventSource("/internal/events");
+    const onChange = (e: MessageEvent) => {
+      const ev = JSON.parse(e.data) as { type: string; id: string; conversation_id?: string };
+      if (ev.type === "template") {
+        qc.invalidateQueries({ queryKey: ["templates"] });
+        return;
+      }
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+      if (ev.conversation_id) {
+        qc.invalidateQueries({ queryKey: ["conversation", ev.conversation_id] });
+        qc.invalidateQueries({ queryKey: ["conversation-messages", ev.conversation_id] });
+      }
+      if (ev.type === "message") qc.invalidateQueries({ queryKey: ["message", ev.id] });
+    };
+    for (const type of ["message", "conversation", "template"]) es.addEventListener(type, onChange);
+    return () => es.close();
+  }, [qc]);
 }

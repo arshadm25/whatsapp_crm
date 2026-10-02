@@ -13,6 +13,7 @@ import ComingSoon from "./pages/ComingSoon";
 import Templates from "./pages/Templates";
 import NewTemplate from "./pages/NewTemplate";
 import SendMessage from "./pages/SendMessage";
+import Inbox from "./pages/Inbox";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -42,7 +43,9 @@ export default function App() {
         <Route path="templates" element={<Templates />} />
         <Route path="templates/new" element={<NewTemplate />} />
         <Route path="send" element={<SendMessage />} />
-        {["inbox", "contacts", "campaigns", "developers", "settings"].map((p) => (
+        <Route path="inbox" element={<Inbox />} />
+        <Route path="inbox/:id" element={<Inbox />} />
+        {["contacts", "campaigns", "developers", "settings"].map((p) => (
           <Route key={p} path={p} element={<ComingSoon section={p} />} />
         ))}
       </Route>

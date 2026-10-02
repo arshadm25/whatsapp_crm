@@ -28,6 +28,8 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/events"
+	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
@@ -165,6 +167,10 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hub := events.NewHub(d.Pool, log)
+	hubCtx, stopHub := context.WithCancel(context.Background())
+	t.Cleanup(stopHub)
+	go hub.Run(hubCtx)
 	h := server.NewAPI(server.APIDeps{
 		Config: cfg, DB: d, Log: log,
 		Auth:       auth.NewService(d, cfg, mailer.Log{Logger: log}, log),
@@ -172,6 +178,8 @@ func newHarness(t *testing.T) *harness {
 		Numbers:    numbers.NewService(d, log),
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
 		Templates:  templates.NewService(d, keys, meta, log),
+		Inbox:      inbox.NewService(d, log),
+		Events:     hub,
 	})
 	api := httptest.NewServer(h)
 	t.Cleanup(api.Close)

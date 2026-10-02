@@ -145,7 +145,8 @@ type Pricing struct {
 	Billable bool   `json:"billable"`
 }
 
-func view(m dbq.Message, waID string, name *string) Message {
+// View renders a stored message in the API shape.
+func View(m dbq.Message, waID string, name *string) Message {
 	v := Message{
 		ID: m.ID, Wamid: m.Wamid, ConversationID: m.ConversationID, PhoneNumberID: m.PhoneNumberID,
 		Contact: ContactRef{ID: m.ContactID, WaID: waID, Name: name}, Direction: string(m.Direction),
@@ -349,7 +350,7 @@ func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.P
 	if err := q.TouchConversationOutbound(ctx, dbq.TouchConversationOutboundParams{ID: conv.ID, At: now, Preview: preview(req)}); err != nil {
 		return Message{}, err
 	}
-	return view(msg, contact.WaID, displayName(contact)), nil
+	return View(msg, contact.WaID, displayName(contact)), nil
 }
 
 func (s *Service) wamidOf(ctx context.Context, q *dbq.Queries, id, conversationID uuid.UUID, param string) (string, error) {
@@ -369,7 +370,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 	var out Message
 	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		row, err := q.GetMessageView(r.Context(), id)
-		out = view(row.Message, row.ContactWaID, row.ContactName)
+		out = View(row.Message, row.ContactWaID, row.ContactName)
 		return err
 	})
 	if db.IsNotFound(err) {

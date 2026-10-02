@@ -26,6 +26,8 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/events"
+	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
@@ -86,6 +88,8 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	hub := events.NewHub(d.Pool, log)
+	go hub.Run(ctx)
 	h := server.NewAPI(server.APIDeps{
 		Config:     cfg,
 		DB:         d,
@@ -95,6 +99,8 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Numbers:    numbers.NewService(d, log),
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
 		Templates:  templates.NewService(d, keys, meta, log),
+		Inbox:      inbox.NewService(d, log),
+		Events:     hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
 }
