@@ -89,7 +89,7 @@ export default function Bots() {
           key={editing === "new" ? "new" : editing.id}
           bot={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
-          onSaved={(b) => setEditing(b)}
+          onSaved={() => setEditing(null)}
         />
       )}
 

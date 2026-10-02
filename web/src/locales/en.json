@@ -122,6 +122,7 @@
     "start": "Continue with Facebook",
     "loadingSdk": "Opening Meta's sign-up…",
     "notConfigured": "Connecting WhatsApp is not configured on this server yet.",
+    "sdkNotReady": "Meta's sign-up could not start. Reload the page and try again. If it keeps failing, turn off ad or privacy blockers for this site.",
     "popupClosed": "The Meta window closed before sign-up finished. You can try again.",
     "noCode": "Meta did not finish the sign-up. Please try again.",
     "progressTitle": "Connecting your number",
@@ -695,6 +696,7 @@
   },
   "billing": {
     "onPlan": "{{plan}} plan",
+    "verifyNote": "Your trial continues. Razorpay takes a refundable ₹5 now to verify your payment method, and your plan price is charged when the trial ends on {{date}}.",
     "noPlan": "Free trial",
     "trial_one": "Your trial ends tomorrow ({{date}}). Choose a plan to keep sending.",
     "trial_other": "{{count}} days left in your trial, until {{date}}.",

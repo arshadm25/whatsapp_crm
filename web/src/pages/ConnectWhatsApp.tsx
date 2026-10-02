@@ -62,7 +62,8 @@ export default function ConnectWhatsApp() {
       });
       setError(ev?.kind === "error" ? ev.message : ev?.kind === "finish" ? t("connect.noCode") : t("connect.popupClosed"));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t("common.error"));
+      // A non-API error here means Meta's sign-up script did not start (blocked or not ready).
+      setError(e instanceof ApiError ? e.message : t("connect.sdkNotReady"));
     } finally {
       setBusy(false);
     }
