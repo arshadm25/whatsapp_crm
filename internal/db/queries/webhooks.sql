@@ -43,3 +43,16 @@ LIMIT @lim;
 -- name: RequeueDelivery :execrows
 UPDATE webhook_deliveries SET status = 'pending', next_attempt_at = now()
 WHERE id = @id AND endpoint_id = @endpoint_id;
+
+-- name: DeliveryStatsSince :many
+-- Deliveries created since a time, by endpoint and status.
+SELECT endpoint_id, status, count(*)::int AS n
+FROM webhook_deliveries
+WHERE created_at >= @since
+GROUP BY endpoint_id, status;
+
+-- name: GetDelivery :one
+SELECT * FROM webhook_deliveries WHERE id = @id AND endpoint_id = @endpoint_id;
+
+-- name: SetWebhookSecret :exec
+UPDATE webhook_endpoints SET secret_ciphertext = @secret_ciphertext WHERE id = @id;

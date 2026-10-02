@@ -1393,6 +1393,70 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/WebhookDelivery' }
 
+  /webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}:
+    get:
+      tags: [Webhook endpoints]
+      operationId: getWebhookDelivery
+      summary: Get a delivery with the payload that was sent
+      parameters:
+        - name: endpoint_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: delivery_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The delivery
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/WebhookDelivery'
+                  - type: object
+                    properties:
+                      payload: { type: object, description: The event body as it was posted. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhook-endpoints/{endpoint_id}/secret:
+    post:
+      tags: [Webhook endpoints]
+      operationId: revealWebhookSecret
+      summary: Show an endpoint's signing secret again
+      parameters:
+        - name: endpoint_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The current secret
+          content:
+            application/json:
+              schema: { type: object, properties: { secret: { type: string } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhook-endpoints/{endpoint_id}/secret/rotate:
+    post:
+      tags: [Webhook endpoints]
+      operationId: rotateWebhookSecret
+      summary: Replace an endpoint's signing secret
+      description: Deliveries from now on, retries included, are signed with the new secret.
+      parameters:
+        - name: endpoint_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The new secret
+          content:
+            application/json:
+              schema: { type: object, properties: { secret: { type: string } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/retry:
     post:
       tags: [Webhook endpoints]

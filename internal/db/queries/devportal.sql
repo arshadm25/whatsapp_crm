@@ -12,3 +12,16 @@ RETURNING *;
 
 -- name: RevokeAPIKey :execrows
 UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL;
+
+-- name: CountAPICall :exec
+INSERT INTO api_usage_hourly (tenant_id, api_key_id, hour, calls, errors)
+VALUES (@tenant_id, @api_key_id, date_trunc('hour', now()), 1, CASE WHEN @failed::bool THEN 1 ELSE 0 END)
+ON CONFLICT (api_key_id, hour) DO UPDATE
+SET calls = api_usage_hourly.calls + 1, errors = api_usage_hourly.errors + EXCLUDED.errors;
+
+-- name: APIUsageSince :many
+-- Calls and errors per key since a time (whole hours).
+SELECT api_key_id, sum(calls)::int AS calls, sum(errors)::int AS errors
+FROM api_usage_hourly
+WHERE hour >= date_trunc('hour', @since::timestamptz)
+GROUP BY api_key_id;

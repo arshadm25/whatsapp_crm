@@ -1305,6 +1305,14 @@ type ApiKey struct {
 	CreatedAt     time.Time
 }
 
+type ApiUsageHourly struct {
+	TenantID uuid.UUID
+	ApiKeyID uuid.UUID
+	Hour     time.Time
+	Calls    int32
+	Errors   int32
+}
+
 type AuditLog struct {
 	ID         int64
 	TenantID   *uuid.UUID

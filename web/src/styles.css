@@ -753,3 +753,6 @@ pre.code .c1 { color: #7dd3fc; } pre.code .c3 { color: #fde68a; }
 .tab-count { margin-left: 6px; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface-2, rgba(0,0,0,.05)); border-radius: 9999px; padding: 1px 7px; }
 .tabs button.active .tab-count { color: var(--accent-ink); }
 nav .nav-badge { margin-left: auto; }
+
+/* A webhook delivery's payload. */
+pre.code.payload { max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; }

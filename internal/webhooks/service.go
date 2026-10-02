@@ -3,6 +3,7 @@ package webhooks
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -41,7 +42,10 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/", httpx.Handler(s.log, s.create))
 	r.Delete("/{id}", httpx.Handler(s.log, s.delete))
 	r.Get("/{id}/deliveries", httpx.Handler(s.log, s.deliveries))
+	r.Get("/{id}/deliveries/{delivery_id}", httpx.Handler(s.log, s.delivery))
 	r.Post("/{id}/deliveries/{delivery_id}/retry", httpx.Handler(s.log, s.retry))
+	r.Post("/{id}/secret", httpx.Handler(s.log, s.revealSecret))
+	r.Post("/{id}/secret/rotate", httpx.Handler(s.log, s.rotateSecret))
 }
 
 // Endpoint matches the WebhookEndpoint schema in api/openapi.yaml.
@@ -107,6 +111,17 @@ type CreatedEndpoint struct {
 	Secret string `json:"secret"`
 }
 
+// newSecret makes a signing secret and seals it for the endpoint.
+func (s *Service) newSecret(tenantID, endpointID uuid.UUID) (string, []byte, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
+	secret := "whsec_" + base64.RawURLEncoding.EncodeToString(raw)
+	sealed, err := s.keys.SealCompact([]byte(secret), SecretAAD(tenantID, endpointID))
+	return secret, sealed, err
+}
+
 func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	var req struct {
@@ -145,13 +160,8 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return err
-	}
-	secret := "whsec_" + base64.RawURLEncoding.EncodeToString(raw)
 	id := db.NewID()
-	sealed, err := s.keys.SealCompact([]byte(secret), SecretAAD(p.TenantID, id))
+	secret, sealed, err := s.newSecret(p.TenantID, id)
 	if err != nil {
 		return err
 	}
@@ -294,5 +304,82 @@ func (s *Service) retry(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	w.WriteHeader(http.StatusAccepted)
+	return nil
+}
+
+// DeliveryDetail is a delivery with the payload that was sent.
+type DeliveryDetail struct {
+	Delivery
+	Payload json.RawMessage `json:"payload"`
+}
+
+func (s *Service) delivery(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	deliveryID, err := uuid.Parse(chi.URLParam(r, "delivery_id"))
+	if err != nil {
+		return httpx.ErrNotFound
+	}
+	var out DeliveryDetail
+	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		e, err := endpoint(r, q, p)
+		if err != nil {
+			return err
+		}
+		d, err := q.GetDelivery(r.Context(), dbq.GetDeliveryParams{ID: deliveryID, EndpointID: e.ID})
+		if db.IsNotFound(err) {
+			return httpx.ErrNotFound
+		}
+		out = DeliveryDetail{Delivery: deliveryView(d), Payload: d.Payload}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
+}
+
+// revealSecret returns an endpoint's signing secret again. It is a POST so the secret is never
+// cached or logged as a URL.
+func (s *Service) revealSecret(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	var secret []byte
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		e, err := endpoint(r, q, p)
+		if err != nil {
+			return err
+		}
+		secret, err = s.keys.OpenCompact(e.SecretCiphertext, SecretAAD(p.TenantID, e.ID))
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	httpx.JSON(w, http.StatusOK, map[string]string{"secret": string(secret)})
+	return nil
+}
+
+// rotateSecret replaces an endpoint's signing secret; deliveries from now on are signed with
+// the new one.
+func (s *Service) rotateSecret(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	var secret string
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		e, err := endpoint(r, q, p)
+		if err != nil {
+			return err
+		}
+		var sealed []byte
+		if secret, sealed, err = s.newSecret(p.TenantID, e.ID); err != nil {
+			return err
+		}
+		return q.SetWebhookSecret(r.Context(), dbq.SetWebhookSecretParams{ID: e.ID, SecretCiphertext: sealed})
+	})
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	httpx.JSON(w, http.StatusOK, map[string]string{"secret": secret})
 	return nil
 }

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
@@ -26,6 +26,7 @@ export default function Webhooks() {
   const [phone, setPhone] = useState("");
   const [created, setCreated] = useState<CreatedWebhookEndpoint | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
+  const [shown, setShown] = useState<{ id: string; secret: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,6 +54,18 @@ export default function Webhooks() {
       setError(e instanceof ApiError ? e.message : t("common.error"));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Shows the signing secret again, or replaces it with a new one.
+  const secret = async (ep: WebhookEndpoint, rotate: boolean) => {
+    if (rotate && !window.confirm(t("developers.confirmRotate"))) return;
+    setError("");
+    try {
+      const r = await api<{ secret: string }>("POST", `/v1/webhook-endpoints/${ep.id}/secret${rotate ? "/rotate" : ""}`);
+      setShown({ id: ep.id, secret: r.secret });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : t("common.error"));
     }
   };
 
@@ -123,12 +136,25 @@ export default function Webhooks() {
               {endpoints.data!.length > 1 && (
                 <button className="link" onClick={() => setPicked(ep.id)}>{t("developers.showLog")}</button>
               )}
+              <button className="link" onClick={() => (shown?.id === ep.id ? setShown(null) : secret(ep, false))}>
+                {shown?.id === ep.id ? t("developers.hideSecret") : t("developers.showSecret")}
+              </button>
+              <button className="link" onClick={() => secret(ep, true)}>{t("developers.rotateSecret")}</button>
               <button className="link danger" onClick={() => remove(ep)}>{t("developers.delete")}</button>
             </div>
             {ep.description && <div className="muted small">{ep.description}</div>}
             <div className="chips">
               {ep.event_types.map((e) => <span key={e} className="chip k">{e}</span>)}
             </div>
+            {shown?.id === ep.id && (
+              <div className="secret-row">
+                <span className="muted small">{t("developers.signingSecret")}</span>
+                <span className="k">{shown.secret}</span>
+                <button className="ib gh sm" aria-label={t("developers.copy")} title={t("developers.copy")} onClick={() => navigator.clipboard?.writeText(shown.secret)}>
+                  <Icon name="copy" size="s" />
+                </button>
+              </div>
+            )}
             {created?.id === ep.id && (
               <div className="secret-row">
                 <span className="muted small">{t("developers.signingSecret")}</span>
@@ -151,6 +177,12 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [status, setStatus] = useState<"" | "dead" | "retrying">("");
+  const [payloadOf, setPayloadOf] = useState<string | null>(null);
+  const payload = useQuery({
+    queryKey: ["webhook-delivery", endpoint.id, payloadOf],
+    queryFn: () => api<{ payload: unknown }>("GET", `/v1/webhook-endpoints/${endpoint.id}/deliveries/${payloadOf}`),
+    enabled: !!payloadOf,
+  });
   const key = ["webhook-deliveries", endpoint.id, status];
   const q = useQuery({
     queryKey: key,
@@ -208,7 +240,8 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
             </thead>
             <tbody>
               {q.data.data.map((d) => (
-                <tr key={d.id}>
+                <Fragment key={d.id}>
+                <tr>
                   <td className="k">{d.event_type}</td>
                   <td>{response(d)}</td>
                   <td>
@@ -219,11 +252,24 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
                     {d.created_at >= dayAgo ? shortTime(d.created_at) : new Date(d.created_at).toLocaleString()}
                   </td>
                   <td className="r">
-                    {d.status !== "succeeded" && d.status !== "pending" && (
-                      <button className="sm" onClick={() => retry(d)}><Icon name="refresh" size="xs" />{t("developers.retryNow")}</button>
-                    )}
+                    <span className="actions" style={{ justifyContent: "flex-end" }}>
+                      <button className="lnk" onClick={() => setPayloadOf(payloadOf === d.id ? null : d.id)}>
+                        {payloadOf === d.id ? t("developers.hidePayload") : t("developers.payload")}
+                      </button>
+                      {d.status !== "succeeded" && d.status !== "pending" && (
+                        <button className="sm" onClick={() => retry(d)}><Icon name="refresh" size="xs" />{t("developers.retryNow")}</button>
+                      )}
+                    </span>
                   </td>
                 </tr>
+                {payloadOf === d.id && (
+                  <tr>
+                    <td colSpan={5}>
+                      <pre className="code payload">{payload.data ? JSON.stringify(payload.data.payload, null, 2) : t("common.loading")}</pre>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
