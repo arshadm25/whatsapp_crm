@@ -9,7 +9,7 @@ NS=ecogo-whatsapp
 rnd() { openssl rand -hex 24; }
 
 echo "== 1. CloudNativePG operator (new namespace cnpg-system)"
-h repo add cnpg https://cloudnative-pg.github.io/charts >/dev/null && h repo update >/dev/null
+h repo add cnpg https://cloudnative-pg.github.io/charts >/dev/null && h repo update cnpg >/dev/null
 h upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace --wait
 
 echo "== 2. MinIO for media (new namespace minio, 20Gi on local-path)"
