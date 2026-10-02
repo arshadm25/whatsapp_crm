@@ -143,20 +143,38 @@ export default function Webhooks() {
 function Deliveries({ endpointId }: { endpointId: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const key = ["webhook-deliveries", endpointId];
+  const [status, setStatus] = useState<"" | "dead" | "retrying">("");
+  const key = ["webhook-deliveries", endpointId, status];
   const q = useQuery({
     queryKey: key,
-    queryFn: () => api<Page<WebhookDelivery>>("GET", `/v1/webhook-endpoints/${endpointId}/deliveries?limit=50`),
+    queryFn: () =>
+      api<Page<WebhookDelivery>>("GET", `/v1/webhook-endpoints/${endpointId}/deliveries?limit=50${status ? `&status=${status}` : ""}`),
     refetchInterval: 10_000,
   });
   const retry = async (d: WebhookDelivery) => {
     await api("POST", `/v1/webhook-endpoints/${endpointId}/deliveries/${d.id}/retry`);
     await qc.invalidateQueries({ queryKey: key });
   };
-  if (!q.data) return <div className="muted small">{t("common.loading")}</div>;
-  if (!q.data.data.length) return <div className="muted small">{t("developers.noDeliveries")}</div>;
+  const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const recent = (q.data?.data ?? []).filter((d) => d.created_at >= dayAgo && d.status !== "pending");
+  const ok = recent.filter((d) => d.status === "succeeded").length;
   return (
     <div className="table-wrap">
+      <div className="deliveries-head">
+        <div className="segmented">
+          {(["", "dead", "retrying"] as const).map((f) => (
+            <button key={f} type="button" className={status === f ? "on" : ""} onClick={() => setStatus(f)}>
+              {t(`developers.filter_${f || "all"}`)}
+            </button>
+          ))}
+        </div>
+        {!status && recent.length > 0 && (
+          <span className="muted small">{t("developers.successRate", { pct: Math.round((ok * 100) / recent.length), count: recent.length })}</span>
+        )}
+      </div>
+      {!q.data && <div className="muted small">{t("common.loading")}</div>}
+      {q.data && !q.data.data.length && <div className="muted small">{t("developers.noDeliveries")}</div>}
+      {!!q.data?.data.length && (
       <table>
         <thead>
           <tr>
@@ -173,7 +191,12 @@ function Deliveries({ endpointId }: { endpointId: string }) {
             <tr key={d.id}>
               <td>{t(`developers.event_${d.event_type}`)}</td>
               <td><span className={`pill ${PILL[d.status]}`}>{t(`developers.delivery_${d.status}`)}</span></td>
-              <td>{d.attempt_count}</td>
+              <td>
+                {d.attempt_count}
+                {d.status === "retrying" && d.next_attempt_at && (
+                  <div className="muted small">{t("developers.nextAttempt", { time: new Date(d.next_attempt_at).toLocaleTimeString() })}</div>
+                )}
+              </td>
               <td className="small">{d.last_response_code ?? d.last_error ?? "—"}</td>
               <td className="small">{new Date(d.created_at).toLocaleString()}</td>
               <td>
@@ -185,6 +208,7 @@ function Deliveries({ endpointId }: { endpointId: string }) {
           ))}
         </tbody>
       </table>
+      )}
     </div>
   );
 }

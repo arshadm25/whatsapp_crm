@@ -313,16 +313,20 @@ function Webhooks() {
     <>
       <div className="filters">
         <select value={hours} onChange={(e) => setHours(e.target.value)} aria-label={t("admin.window")}>
-          {["6", "24", "72", "168"].map((v) => <option key={v} value={v}>{t("admin.lastHours", { count: Number(v) })}</option>)}
+          {["1", "6", "24", "72", "168"].map((v) => <option key={v} value={v}>{t("admin.lastHours", { count: Number(v) })}</option>)}
         </select>
       </div>
-      {total && (
+      {total && h && (
         <dl className="stats">
           <div><dt>{t("admin.received")}</dt><dd>{total.received}</dd></div>
+          <div><dt>{t("admin.perMinute")}</dt><dd>{(total.received / Math.max(1, h.hours.length * 60)).toFixed(1)}</dd></div>
+          <div><dt>{t("admin.peakPerMinute")}</dt><dd>{(Math.max(0, ...h.hours.map((x) => x.received)) / 60).toFixed(1)}</dd></div>
+          <div><dt>{t("admin.errorRate")}</dt><dd>{total.received ? `${((total.failed * 100) / total.received).toFixed(2)}%` : "—"}</dd></div>
           <div><dt>{t("admin.failed")}</dt><dd>{total.failed}</dd></div>
           <div><dt>{t("admin.pending")}</dt><dd>{total.pending}</dd></div>
         </dl>
       )}
+      {h && h.hours.length > 1 && <Throughput hours={h.hours} />}
       <div className="card table-wrap">
         <table>
           <thead>
@@ -427,11 +431,63 @@ function Invoices() {
   );
 }
 
+// Throughput draws events received per hour, with the failed share on top in red.
+function Throughput({ hours }: { hours: WebhookHealth["hours"] }) {
+  const { t } = useTranslation();
+  const rows = [...hours].sort((a, b) => a.hour.localeCompare(b.hour));
+  const max = Math.max(1, ...rows.map((x) => x.received));
+  const w = 720;
+  const hgt = 140;
+  const bw = w / rows.length;
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h2>{t("admin.throughput")}</h2>
+      <svg className="chart" viewBox={`0 0 ${w} ${hgt}`} preserveAspectRatio="none" role="img" aria-label={t("admin.throughput")}>
+        {rows.map((x, i) => {
+          const bh = (x.received / max) * (hgt - 4);
+          const fh = (x.failed / max) * (hgt - 4);
+          return (
+            <g key={x.hour}>
+              <title>{`${new Date(x.hour).toLocaleString()}: ${x.received} / ${x.failed}`}</title>
+              <rect className="bar-sent" x={i * bw + 1} y={hgt - bh} width={Math.max(1, bw - 2)} height={bh} rx="2" />
+              {x.failed > 0 && <rect className="bar-failed" x={i * bw + 1} y={hgt - fh} width={Math.max(1, bw - 2)} height={Math.max(2, fh)} />}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="ticks small muted">
+        <span>{new Date(rows[0].hour).toLocaleString()}</span>
+        <span>{new Date(rows[rows.length - 1].hour).toLocaleString()}</span>
+      </div>
+      <div className="legend"><span className="sw sw-sent" /><span>{t("admin.received")}</span><span className="sw sw-failed" /><span>{t("admin.failed")}</span></div>
+    </div>
+  );
+}
+
 function MetaErrors() {
   const { t } = useTranslation();
   const list = usePaged<MetaApiError>("meta-errors", "/internal/admin/meta-errors", new URLSearchParams({ limit: "50" }));
+  const groups = Object.entries(
+    list.rows.reduce<Record<string, { n: number; message: string; last: string }>>((acc, e) => {
+      const k = String(e.code ?? e.http_status);
+      const g = acc[k] ?? { n: 0, message: e.message ?? "", last: e.occurred_at };
+      acc[k] = { n: g.n + 1, message: g.message, last: g.last > e.occurred_at ? g.last : e.occurred_at };
+      return acc;
+    }, {}),
+  ).sort((a, b) => b[1].n - a[1].n);
   return (
     <>
+      {groups.length > 0 && (
+        <div className="card flush" style={{ marginBottom: 16 }}>
+          <div className="chd"><div><h2>{t("admin.errorsByCode")}</h2><p>{t("admin.errorsByCodeHint", { count: list.rows.length })}</p></div></div>
+          {groups.slice(0, 6).map(([code, g]) => (
+            <div key={code} className="ql">
+              <span className="chip muted"><code>{code}</code></span>
+              <span className="t"><b>{g.message || "—"}</b><small>{t("admin.errorCount", { count: g.n })} · {when(g.last)}</small></span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="card table-wrap">
         <table>
           <thead>

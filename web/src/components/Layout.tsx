@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import { useLiveEvents, useMe, usePhoneNumbers } from "../api/hooks";
-import type { BillingOverview, Me } from "../api/types";
+import type { BillingOverview, Conversation, Me, Page } from "../api/types";
 import { daysLeft } from "../lib/billing";
 import Icon, { type IconName } from "./Icon";
 
@@ -64,6 +64,13 @@ export default function Layout() {
   useLiveEvents();
 
   const connected = numbers.data?.find((n) => n.status === "connected");
+  // Unread messages across the newest 100 open conversations; live events refresh it.
+  const open = useQuery({
+    queryKey: ["conversations", "nav-unread"],
+    queryFn: () => api<Page<Conversation>>("GET", "/v1/conversations?status=open&limit=100"),
+    staleTime: 30_000,
+  });
+  const unread = open.data?.data.reduce((n, c) => n + c.unread_count, 0) ?? 0;
   const page = location.pathname.startsWith("/admin")
     ? "admin"
     : [...ALL_ITEMS].reverse().find((n) => (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)))?.key;
@@ -113,6 +120,7 @@ export default function Layout() {
                 <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
                   <Icon name={n.icon} />
                   {t(`nav.${n.key}`)}
+                  {n.key === "inbox" && unread > 0 && <span className="cnt" aria-label={t("nav.unread", { count: unread })}>{unread > 99 ? "99+" : unread}</span>}
                 </NavLink>
               ))}
               {g.group === "manage" && me.user.is_platform_admin && (

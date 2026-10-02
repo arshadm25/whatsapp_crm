@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, useTags } from "../api/hooks";
@@ -25,6 +26,12 @@ export default function Contacts() {
   const [consent, setConsent] = useState("");
   const [panel, setPanel] = useState<"add" | "import" | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkTag, setBulkTag] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const params = new URLSearchParams({ limit: "50" });
   if (q.trim()) params.set("q", q.trim());
@@ -38,11 +45,42 @@ export default function Contacts() {
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
   const contacts = list.data?.pages.flatMap((p) => p.data) ?? [];
+  const allPicked = contacts.length > 0 && contacts.every((c) => picked.has(c.id));
+  const toggle = (id: string) =>
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // There is no bulk endpoint, so each picked contact gets its own PATCH.
+  const tagPicked = async (e: FormEvent) => {
+    e.preventDefault();
+    const name = bulkTag.trim();
+    if (!name) return;
+    setBulkBusy(true);
+    setBulkError("");
+    try {
+      for (const id of picked) await api("PATCH", `/v1/contacts/${id}`, { add_tags: [name] });
+      setBulkTag("");
+      setPicked(new Set());
+    } catch (e) {
+      setBulkError(e instanceof ApiError ? e.message : t("common.error"));
+    } finally {
+      setBulkBusy(false);
+      await qc.invalidateQueries({ queryKey: ["contacts"] });
+      await qc.invalidateQueries({ queryKey: ["tags"] });
+    }
+  };
 
   return (
     <section>
       <div className="page-head">
-        <h1>{t("contacts.title")}</h1>
+        <div>
+          <h1>{t("contacts.title")}</h1>
+          <p className="sub">{t("contacts.intro")}</p>
+        </div>
         <div className="actions">
           {canImport && <button onClick={() => setPanel(panel === "import" ? null : "import")}>{t("contacts.import")}</button>}
           <button className="primary" onClick={() => setPanel(panel === "add" ? null : "add")}>{t("contacts.add")}</button>
@@ -59,13 +97,28 @@ export default function Contacts() {
             <option key={tg.id} value={tg.name}>{tg.name} ({tg.contacts})</option>
           ))}
         </select>
-        <select value={consent} onChange={(e) => setConsent(e.target.value)}>
-          <option value="">{t("contacts.anyConsent")}</option>
-          {(["opted_in", "unknown", "opted_out"] as const).map((s) => (
-            <option key={s} value={s}>{t(`contacts.consent_${s}`)}</option>
-          ))}
-        </select>
       </div>
+      <div className="tabs" role="tablist" style={{ marginBottom: 16 }}>
+        {(["", "opted_in", "unknown", "opted_out"] as const).map((s) => (
+          <button key={s} role="tab" aria-selected={consent === s} className={consent === s ? "active" : ""} onClick={() => setConsent(s)}>
+            {s ? t(`contacts.consent_${s}`) : t("contacts.allContacts")}
+          </button>
+        ))}
+      </div>
+      {picked.size > 0 && (
+        <form className="card bulk-bar" onSubmit={tagPicked}>
+          <b>{t("contacts.pickedCount", { count: picked.size })}</b>
+          <input value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} placeholder={t("contacts.tagPlaceholder")} aria-label={t("contacts.addTag")} />
+          <button disabled={bulkBusy || !bulkTag.trim()}>{t("contacts.addTag")}</button>
+          {canImport && (
+            <button type="button" className="primary" onClick={() => navigate("/campaigns", { state: { contactIds: [...picked] } })}>
+              {t("contacts.startCampaign")}
+            </button>
+          )}
+          <button type="button" className="link" onClick={() => setPicked(new Set())}>{t("contacts.clearPicked")}</button>
+          {bulkError && <span className="field-error">{bulkError}</span>}
+        </form>
+      )}
 
       <div className={`contacts-layout ${selected ? "has-detail" : ""}`}>
         <div className="card table-wrap">
@@ -75,22 +128,29 @@ export default function Contacts() {
             <table className="clickable">
               <thead>
                 <tr>
+                  <th>
+                    <input type="checkbox" aria-label={t("contacts.pickAll")} checked={allPicked}
+                      onChange={() => setPicked(allPicked ? new Set() : new Set(contacts.map((c) => c.id)))} />
+                  </th>
                   <th>{t("contacts.name")}</th>
-                  <th>{t("contacts.number")}</th>
                   <th>{t("contacts.tags")}</th>
                   <th>{t("contacts.consent")}</th>
+                  <th>{t("contacts.optedInAt")}</th>
                 </tr>
               </thead>
               <tbody>
                 {contacts.map((c) => (
                   <tr key={c.id} className={selected === c.id ? "selected" : ""} onClick={() => setSelected(c.id)}>
-                    <td>{displayName(c)}</td>
-                    <td>+{c.wa_id}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" aria-label={displayName(c)} checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
+                    </td>
+                    <td><div className="who"><span><b>{displayName(c)}</b><small>+{c.wa_id}</small></span></div></td>
                     <td>{c.tags.map((tg) => <span key={tg} className="chip">{tg}</span>)}</td>
                     <td>
                       <span className={`pill ${CONSENT_PILL[c.opt_in_status]}`}>{t(`contacts.consent_${c.opt_in_status}`)}</span>
                       {c.blocked && <span className="pill t-rejected">{t("contacts.blocked")}</span>}
                     </td>
+                    <td className="muted">{c.opted_in_at ? new Date(c.opted_in_at).toLocaleDateString() : "—"}</td>
                   </tr>
                 ))}
               </tbody>
