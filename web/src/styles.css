@@ -313,3 +313,26 @@ tr.warn td { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .danger-text { color: var(--danger); }
 .field.check { flex-direction: row; align-items: center; gap: 0.4rem; }
 .plan .pill { align-self: flex-start; }
+
+/* Chatbot builder */
+.bot-editor { margin-bottom: 1rem; }
+.bot-editor h3 { margin: 1.25rem 0 0.4rem; font-size: 1rem; }
+.field.inline { flex-direction: row; align-items: center; }
+.trigger-row, .button-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.4rem; }
+.trigger-row input, .button-row input, .trigger-row select, .button-row select { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
+.trigger-row input { flex: 1; min-width: 10rem; }
+.button-row input { flex: 1; min-width: 7rem; }
+.flow-map { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem; background: var(--bg); color: var(--muted); }
+.flow-map .map-node { cursor: pointer; color: var(--text, inherit); }
+.flow-map .map-node rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+.flow-map .map-node text { fill: currentColor; }
+.flow-map .map-node .sub { opacity: 0.7; }
+.flow-map .map-node.selected rect { stroke: var(--accent); stroke-width: 2.5; }
+.flow-map .map-node.lost { opacity: 0.45; }
+.flow-map .edge text { fill: currentColor; }
+.node-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.5rem; background: var(--surface); }
+.node-card.has-problems { border-color: var(--danger); }
+.node-head { display: flex; gap: 0.6rem; align-items: center; width: 100%; padding: 0.6rem 0.8rem; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.node-head .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-body { padding: 0 0.8rem 0.8rem; display: grid; gap: 0.7rem; }
+.problems ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }

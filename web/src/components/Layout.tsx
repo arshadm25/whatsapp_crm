@@ -14,6 +14,7 @@ const NAV: { to: string; key: string; ready: boolean }[] = [
   { to: "/templates", key: "templates", ready: true },
   { to: "/contacts", key: "contacts", ready: true },
   { to: "/campaigns", key: "campaigns", ready: true },
+  { to: "/bots", key: "bots", ready: true },
   { to: "/analytics", key: "analytics", ready: true },
   { to: "/numbers", key: "numbers", ready: true },
   { to: "/developers", key: "developers", ready: true },
