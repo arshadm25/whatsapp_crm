@@ -13,12 +13,13 @@ import (
 	"github.com/riverqueue/river/rivertype"
 )
 
-// Queue names. Onboarding and Meta webhooks have their own queues, so a backlog in one never
-// delays the others.
+// Queue names. Onboarding, Meta webhooks and outbound messages have their own queues, so a
+// backlog in one never delays the others.
 const (
 	QueueDefault    = river.QueueDefault
 	QueueOnboarding = "onboarding"
 	QueueMetaEvents = "meta_events"
+	QueueMessages   = "messages"
 )
 
 // Inserter is the part of the River client that request handlers need.
@@ -36,10 +37,15 @@ func NewWorkerClient(pool *pgxpool.Pool, workers *river.Workers, log *slog.Logge
 	return river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Logger:  log,
 		Workers: workers,
-		Queues: map[string]river.QueueConfig{
-			QueueDefault:    {MaxWorkers: 50},
-			QueueOnboarding: {MaxWorkers: 10},
-			QueueMetaEvents: {MaxWorkers: 50},
-		},
+		Queues:  Queues,
 	})
+}
+
+// Queues is every queue the worker deployment works. A job inserted into a queue missing here
+// is never picked up.
+var Queues = map[string]river.QueueConfig{
+	QueueDefault:    {MaxWorkers: 50},
+	QueueOnboarding: {MaxWorkers: 10},
+	QueueMetaEvents: {MaxWorkers: 50},
+	QueueMessages:   {MaxWorkers: 50},
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/credentials"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
@@ -22,18 +23,24 @@ import (
 // Worker runs the onboarding steps after the token exchange. Each step is idempotent and is
 // committed before the next starts, so a retry resumes from the step that failed:
 //
-//	token_exchanged -> webhooks_subscribed -> number_registered            -> details_synced -> completed
+//	token_exchanged -> webhooks_subscribed -> number_registered            -> details_synced -> (template sync) completed
 //	                                       -> contacts_sync_requested -> history_sync_requested (coexistence)
 type Worker struct {
 	river.WorkerDefaults[Args]
-	db   *db.DB
-	keys *envelope.Keyring
-	meta Meta
-	log  *slog.Logger
+	db        *db.DB
+	keys      *envelope.Keyring
+	meta      Meta
+	templates TemplateSyncer
+	log       *slog.Logger
 }
 
-func NewWorker(d *db.DB, keys *envelope.Keyring, meta Meta, log *slog.Logger) *Worker {
-	return &Worker{db: d, keys: keys, meta: meta, log: log}
+// TemplateSyncer copies an account's existing templates from Meta (internal/templates).
+type TemplateSyncer interface {
+	SyncAccount(ctx context.Context, tenantID uuid.UUID, acct dbq.WhatsappAccount, token string) (int, error)
+}
+
+func NewWorker(d *db.DB, keys *envelope.Keyring, meta Meta, templates TemplateSyncer, log *slog.Logger) *Worker {
+	return &Worker{db: d, keys: keys, meta: meta, templates: templates, log: log}
 }
 
 // stepError is a failure the client has to act on; it stops the job instead of retrying.
@@ -90,7 +97,7 @@ func (w *Worker) run(ctx context.Context, a Args, log *slog.Logger) error {
 			if acct, err = q.GetWhatsAppAccountByWabaID(ctx, *sess.WabaID); err != nil {
 				return err
 			}
-			token, err = w.token(ctx, q, acct)
+			token, err = credentials.Token(ctx, q, w.keys, acct)
 			return err
 		})
 		if db.IsNotFound(err) {
@@ -201,6 +208,13 @@ func (w *Worker) step(ctx context.Context, tenantID uuid.UUID, sess dbq.Onboardi
 		return dbq.OnboardingStepDetailsSynced, w.commit(ctx, tenantID, sess.ID, dbq.OnboardingStepDetailsSynced, nil)
 
 	case dbq.OnboardingStepDetailsSynced:
+		// Templates the business already has (from WhatsApp Manager or the Business app) become
+		// usable right away. A failure does not block the connection; Sync on the Templates page retries.
+		if n, err := w.templates.SyncAccount(ctx, tenantID, acct, token); err != nil {
+			w.log.Warn("onboarding: template sync failed", "session_id", sess.ID, "err", err)
+		} else {
+			w.log.Info("onboarding: templates synced", "session_id", sess.ID, "count", n)
+		}
 		return dbq.OnboardingStepCompleted, w.commit(ctx, tenantID, sess.ID, dbq.OnboardingStepCompleted, func(q *dbq.Queries) error {
 			phone, err := q.GetPhoneNumberByMetaID(ctx, deref(sess.PhoneNumberID))
 			if err != nil {
@@ -296,24 +310,6 @@ func (w *Worker) fail(ctx context.Context, a Args, code, msg string) {
 	if err != nil {
 		w.log.Error("onboarding: record failure", "session_id", a.SessionID, "err", err)
 	}
-}
-
-// token decrypts the active BISU token for the account. It lives only for the job's duration.
-func (w *Worker) token(ctx context.Context, q *dbq.Queries, acct dbq.WhatsappAccount) (string, error) {
-	cred, err := q.GetActiveCredential(ctx, acct.ID)
-	if err != nil {
-		return "", err
-	}
-	pt, err := w.keys.Open(envelope.Sealed{
-		Ciphertext: cred.TokenCiphertext, DataKeyEncrypted: cred.DataKeyCiphertext, MasterKeyVersion: int(cred.MasterKeyVersion),
-	}, credentialAAD(acct.TenantID, acct.ID))
-	if err != nil {
-		return "", err
-	}
-	if err := q.TouchCredential(ctx, cred.ID); err != nil {
-		return "", err
-	}
-	return string(pt), nil
 }
 
 func newPIN() (string, error) {

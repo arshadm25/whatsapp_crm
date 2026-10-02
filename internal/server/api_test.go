@@ -30,10 +30,13 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/mailer"
+	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
+	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
+	"github.com/arshadm25/whatsapp_crm/internal/templates"
 	"github.com/arshadm25/whatsapp_crm/internal/testdb"
 )
 
@@ -43,6 +46,11 @@ type fakeMeta struct {
 	calls       []string
 	registerErr string            // JSON error body for /register, if set
 	numbers     map[string]string // phone number ID -> display number, per WABA listing
+	sendErr     string            // JSON error body for sends, if set
+	sent        []map[string]any  // bodies of message sends
+	wamids      int
+	templates   []string         // JSON objects returned by GET message_templates
+	created     []map[string]any // bodies of template creates
 }
 
 func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +80,35 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"success":true}`)
 	case len(parts) == 2 && parts[1] == "smb_app_data":
 		fmt.Fprint(w, `{"success":true}`)
+	case len(parts) == 2 && parts[1] == "messages":
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["status"] == "read" {
+			fmt.Fprint(w, `{"success":true}`)
+			return
+		}
+		f.sent = append(f.sent, body)
+		if f.sendErr != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, f.sendErr)
+			return
+		}
+		f.wamids++
+		fmt.Fprintf(w, `{"messaging_product":"whatsapp","contacts":[{"input":%q,"wa_id":%q}],"messages":[{"id":"wamid.TEST%d"}]}`, body["to"], body["to"], f.wamids)
+	case len(parts) == 2 && parts[1] == "message_templates":
+		switch r.Method {
+		case http.MethodGet:
+			fmt.Fprintf(w, `{"data":[%s],"paging":{"cursors":{"before":"a","after":"b"}}}`, strings.Join(f.templates, ","))
+		case http.MethodPost:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.created = append(f.created, body)
+			fmt.Fprintf(w, `{"id":"9%03d","status":"PENDING","category":%q}`, len(f.created), body["category"])
+		case http.MethodDelete:
+			fmt.Fprint(w, `{"success":true}`)
+		}
+	case len(parts) == 1 && r.Method == http.MethodPost:
+		fmt.Fprint(w, `{"success":true}`) // template edit
 	case len(parts) == 1 && strings.HasPrefix(parts[0], "11"):
 		fmt.Fprintf(w, `{"id":%q,"name":"Sharma Sweets","currency":"INR","timezone_id":"71"}`, parts[0])
 	case len(parts) == 1:
@@ -101,6 +138,8 @@ type harness struct {
 	meta   *fakeMeta
 	api    *httptest.Server
 	worker *onboarding.Worker
+	sender *messaging.Worker
+	events *metaevents.Processor
 }
 
 func newHarness(t *testing.T) *harness {
@@ -131,10 +170,17 @@ func newHarness(t *testing.T) *harness {
 		Auth:       auth.NewService(d, cfg, mailer.Log{Logger: log}, log),
 		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
 		Numbers:    numbers.NewService(d, log),
+		Messaging:  messaging.NewService(d, keys, meta, rc, log),
+		Templates:  templates.NewService(d, keys, meta, log),
 	})
 	api := httptest.NewServer(h)
 	t.Cleanup(api.Close)
-	return &harness{t: t, db: d, meta: fm, api: api, worker: onboarding.NewWorker(d, keys, meta, log)}
+	return &harness{
+		t: t, db: d, meta: fm, api: api,
+		worker: onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
+		sender: messaging.NewWorker(d, keys, meta, log),
+		events: metaevents.NewProcessor(d, log),
+	}
 }
 
 // client is a browser-like client: it keeps cookies and echoes the CSRF cookie in the header.

@@ -1,5 +1,7 @@
 {
-  "app": { "name": "Ecogo WhatsApp" },
+  "app": {
+    "name": "Ecogo WhatsApp"
+  },
   "nav": {
     "getStarted": "Get started",
     "numbers": "Numbers",
@@ -10,7 +12,8 @@
     "developers": "Developers",
     "settings": "Settings",
     "comingSoon": "Coming soon",
-    "logout": "Log out"
+    "logout": "Log out",
+    "send": "Send a message"
   },
   "auth": {
     "loginTitle": "Log in",
@@ -96,6 +99,70 @@
   "common": {
     "loading": "Loading…",
     "error": "Something went wrong.",
-    "comingSoonBody": "This screen is part of release 1 and is being built next."
+    "comingSoonBody": "This screen is part of release 1 and is being built next.",
+    "cancel": "Cancel"
+  },
+  "templates": {
+    "title": "Templates",
+    "new": "New template",
+    "newTitle": "New template",
+    "newIntro": "Meta reviews every template before you can send it. Most reviews finish within minutes.",
+    "sync": "Sync from Meta",
+    "syncing": "Syncing…",
+    "synced": "{{count}} templates loaded from Meta.",
+    "empty": "No templates yet. Create one, or sync the ones you made in WhatsApp Manager.",
+    "needNumber": "Connect a WhatsApp number first.",
+    "account": "WhatsApp account",
+    "name": "Name",
+    "nameHint": "Lowercase letters, digits and underscores, for example order_shipped.",
+    "language": "Language",
+    "category": "Category",
+    "status": "Status",
+    "header": "Header (optional)",
+    "body": "Message",
+    "bodyHint": "Use {{1}}, {{2}} … for values you fill in when sending.",
+    "footer": "Footer (optional)",
+    "quickReplies": "Quick reply buttons (optional)",
+    "samples": "Example values for Meta's review",
+    "headerVar": "Header {{v}}",
+    "bodyVar": "Variable {{v}}",
+    "submit": "Submit to Meta",
+    "submitting": "Submitting…",
+    "delete": "Delete",
+    "confirmDelete": "Delete {{name}} in every language? Meta will not let you reuse this name for 30 days.",
+    "category_utility": "Utility",
+    "category_marketing": "Marketing",
+    "category_authentication": "Authentication",
+    "status_draft": "Draft",
+    "status_pending": "In review",
+    "status_approved": "Approved",
+    "status_rejected": "Rejected",
+    "status_paused": "Paused",
+    "status_disabled": "Disabled",
+    "status_in_appeal": "In appeal"
+  },
+  "send": {
+    "title": "Send a message",
+    "intro": "Send a test message from a connected number. The inbox will replace this screen.",
+    "from": "From",
+    "to": "Customer's WhatsApp number",
+    "toHint": "With country code, for example 919876543210.",
+    "mode_template": "Template",
+    "mode_template_hint": "Works any time. Needs an approved template.",
+    "mode_text": "Text",
+    "mode_text_hint": "Only within 24 hours of the customer's last message.",
+    "message": "Message",
+    "template": "Template",
+    "noTemplates": "No approved templates for this number yet.",
+    "send": "Send",
+    "sending": "Sending…",
+    "statusTitle": "Message status:",
+    "status_queued": "Queued",
+    "status_sent": "Sent",
+    "status_delivered": "Delivered",
+    "status_read": "Read",
+    "status_failed": "Failed",
+    "status_received": "Received",
+    "status_deleted": "Deleted"
   }
 }

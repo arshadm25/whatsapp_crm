@@ -45,3 +45,48 @@ export interface PhoneNumber {
   status: "pending" | "connected" | "disconnected" | "revoked" | "error";
   last_synced_at: string | null;
 }
+
+export type TemplateStatus = "draft" | "pending" | "approved" | "rejected" | "paused" | "disabled" | "in_appeal";
+export type TemplateCategory = "marketing" | "utility" | "authentication";
+
+export interface TemplateComponent {
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  format?: string;
+  text?: string;
+  example?: Record<string, unknown>;
+  buttons?: { type: string; text: string; url?: string; phone_number?: string }[];
+}
+
+export interface Template {
+  id: string;
+  meta_template_id: string | null;
+  whatsapp_account_id: string;
+  name: string;
+  language: string;
+  category: TemplateCategory;
+  status: TemplateStatus;
+  rejected_reason: string | null;
+  quality_score: string | null;
+  parameter_format: "positional" | "named";
+  components: TemplateComponent[];
+  created_at: string;
+  status_updated_at: string | null;
+}
+
+export type MessageStatus = "queued" | "sent" | "delivered" | "read" | "failed" | "received" | "deleted";
+
+export interface Message {
+  id: string;
+  wamid: string | null;
+  conversation_id: string;
+  phone_number_id: string;
+  contact: { id: string; wa_id: string; name: string | null };
+  direction: "inbound" | "outbound";
+  origin: string;
+  type: string;
+  content: Record<string, unknown>;
+  status: MessageStatus;
+  error: { code: string; message: string; meta_error_code?: number } | null;
+  created_at: string;
+  status_updated_at: string;
+}

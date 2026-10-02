@@ -14,8 +14,10 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
+	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
+	"github.com/arshadm25/whatsapp_crm/internal/templates"
 )
 
 type APIDeps struct {
@@ -25,6 +27,8 @@ type APIDeps struct {
 	Auth       *auth.Service
 	Onboarding *onboarding.Service
 	Numbers    *numbers.Service
+	Messaging  *messaging.Service
+	Templates  *templates.Service
 }
 
 // NewAPI returns the api router:
@@ -43,12 +47,15 @@ func NewAPI(d APIDeps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(d.Auth.RequireSession, auth.RequireTenant)
 			r.Route("/onboarding", d.Onboarding.Routes)
+			r.Route("/templates", d.Templates.InternalRoutes)
 		})
 	})
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(d.Auth.CSRF, d.Auth.RequireSession, auth.RequireTenant)
 		r.Route("/phone-numbers", d.Numbers.Routes)
+		r.Route("/messages", d.Messaging.Routes)
+		r.Route("/templates", d.Templates.Routes)
 	})
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) { httpx.WriteError(w, r, d.Log, httpx.ErrNotFound) })

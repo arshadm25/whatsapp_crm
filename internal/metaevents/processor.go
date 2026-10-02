@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
+	"github.com/arshadm25/whatsapp_crm/internal/templates"
 )
 
 // Processor is the River worker that applies one webhook delivery.
@@ -186,7 +188,7 @@ func (p *Processor) messages(ctx context.Context, entry Entry, raw json.RawMessa
 			}
 		}
 		for _, s := range v.Statuses {
-			if err := p.applyStatus(ctx, q, tenantID, s); err != nil {
+			if err := p.applyStatus(ctx, q, tenantID, phone, s); err != nil {
 				return err
 			}
 		}
@@ -253,7 +255,7 @@ func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tenantID u
 
 // applyStatus records a delivery status for one of our outbound messages and moves the
 // message forward if the status ranks higher than its current one.
-func (p *Processor) applyStatus(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, s Status) error {
+func (p *Processor) applyStatus(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, phone dbq.PhoneNumber, s Status) error {
 	st := dbq.MessageStatus(s.Status)
 	switch st {
 	case dbq.MessageStatusSent, dbq.MessageStatusDelivered, dbq.MessageStatusRead, dbq.MessageStatusFailed:
@@ -262,6 +264,18 @@ func (p *Processor) applyStatus(ctx context.Context, q *dbq.Queries, tenantID uu
 	}
 	msg, err := q.GetMessageByWamid(ctx, &s.ID)
 	if db.IsNotFound(err) {
+		// Meta can report a status before the send worker has stored the wamid. While a
+		// message to this customer is still waiting for its wamid, retry the event shortly.
+		at := unixTime(s.Timestamp, time.Now().UTC())
+		if time.Since(at) < statusWaitLimit {
+			pending, err := q.HasUnsentMessageTo(ctx, dbq.HasUnsentMessageToParams{PhoneNumberID: phone.ID, WaID: s.RecipientID})
+			if err != nil {
+				return err
+			}
+			if pending {
+				return errStatusAhead
+			}
+		}
 		return nil // not sent through Ecogo (for example from the Business app before echoes)
 	}
 	if err != nil {
@@ -286,28 +300,22 @@ func (p *Processor) applyStatus(ctx context.Context, q *dbq.Queries, tenantID uu
 	})
 }
 
-// templateEvents maps Meta's template review events to our template_status.
-var templateEvents = map[string]dbq.TemplateStatus{
-	"APPROVED":         dbq.TemplateStatusApproved,
-	"REJECTED":         dbq.TemplateStatusRejected,
-	"PENDING":          dbq.TemplateStatusPending,
-	"PAUSED":           dbq.TemplateStatusPaused,
-	"DISABLED":         dbq.TemplateStatusDisabled,
-	"IN_APPEAL":        dbq.TemplateStatusInAppeal,
-	"PENDING_DELETION": dbq.TemplateStatusDeleted,
-	"DELETED":          dbq.TemplateStatusDeleted,
-	"REINSTATED":       dbq.TemplateStatusApproved,
-	"FLAGGED":          dbq.TemplateStatusApproved, // still sendable; quality drops are a later D4 concern
-}
+// statusWaitLimit bounds how long a status for an unknown wamid is retried.
+const statusWaitLimit = 10 * time.Minute
+
+var errStatusAhead = errors.New("status arrived before the message's wamid was stored")
 
 func (p *Processor) templateStatus(ctx context.Context, entry Entry, raw json.RawMessage) error {
 	var v TemplateStatusValue
 	if err := json.Unmarshal(raw, &v); err != nil || v.MessageTemplateID == "" {
 		return nil
 	}
-	st, ok := templateEvents[strings.ToUpper(v.Event)]
+	st, ok := templates.StatusFromMeta(v.Event)
 	if !ok {
-		return nil
+		st = dbq.TemplateStatusDeleted // PENDING_DELETION and DELETED
+		if e := strings.ToUpper(v.Event); e != "PENDING_DELETION" && e != "DELETED" {
+			return nil
+		}
 	}
 	var reason *string
 	if v.Reason != nil && *v.Reason != "" && *v.Reason != "NONE" {
@@ -315,7 +323,7 @@ func (p *Processor) templateStatus(ctx context.Context, entry Entry, raw json.Ra
 	}
 	id := v.MessageTemplateID.String()
 	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ uuid.UUID) error {
-		// A template created outside Ecogo is not in our table yet; the D4 sync picks it up.
+		// A template created outside Ecogo is not in our table yet; a template sync picks it up.
 		_, err := q.UpdateTemplateStatusByMetaID(ctx, dbq.UpdateTemplateStatusByMetaIDParams{Status: st, RejectedReason: reason, MetaTemplateID: &id})
 		return err
 	})

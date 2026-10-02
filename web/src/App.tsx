@@ -10,6 +10,9 @@ import GetStarted from "./pages/GetStarted";
 import Numbers from "./pages/Numbers";
 import ConnectWhatsApp from "./pages/ConnectWhatsApp";
 import ComingSoon from "./pages/ComingSoon";
+import Templates from "./pages/Templates";
+import NewTemplate from "./pages/NewTemplate";
+import SendMessage from "./pages/SendMessage";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -36,7 +39,10 @@ export default function App() {
         <Route index element={<GetStarted />} />
         <Route path="numbers" element={<Numbers />} />
         <Route path="numbers/connect" element={<ConnectWhatsApp />} />
-        {["inbox", "templates", "contacts", "campaigns", "developers", "settings"].map((p) => (
+        <Route path="templates" element={<Templates />} />
+        <Route path="templates/new" element={<NewTemplate />} />
+        <Route path="send" element={<SendMessage />} />
+        {["inbox", "contacts", "campaigns", "developers", "settings"].map((p) => (
           <Route key={p} path={p} element={<ComingSoon section={p} />} />
         ))}
       </Route>

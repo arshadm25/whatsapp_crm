@@ -14,7 +14,9 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 | D2 Connect WhatsApp with Embedded Signup v4, standard and coexistence | Done |
 | D5 Phone numbers list (`GET /v1/phone-numbers`) | Done (profile and health sync later) |
 | Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import, media download, client webhooks later) |
-| Sending messages and templates | Next |
+| Sending messages (`POST /v1/messages`): opt-out and 24-hour window checks, `Idempotency-Key`, send worker with Meta error mapping, `GET /v1/messages/{id}`, mark as read | Done (media upload, inbox and API keys later) |
+| D4 Templates: list, create and edit through Meta review, delete by name, sync from Meta (also at the end of onboarding) | Done |
+| Dashboard: Templates list and editor, Send a message test screen | Done (the inbox replaces the test screen) |
 
 ## Layout
 
@@ -24,6 +26,9 @@ internal/
   auth/               D1: sign-up, login, sessions, CSRF, email verification
   onboarding/         D2: Embedded Signup code exchange (api) and onboarding steps (River worker)
   numbers/            D5: /v1/phone-numbers
+  messaging/          Flow 3: /v1/messages and the send worker
+  templates/          D4: /v1/templates, template sync from Meta
+  credentials/        opens the encrypted Meta tokens
   metaclient/         the only package that calls Meta's Graph API
   metaevents/         Meta webhooks: signature check and enqueue (ingest), processing (worker)
   crypto/envelope/    AES-256-GCM envelope encryption for Meta tokens and PINs
@@ -65,7 +70,8 @@ cd web && npm test
 The database tests create a fresh database per test, migrate it as the owner role, and run the
 app as `ecogo_app`, so row-level security is enforced exactly as in production. They cover sign-up
 and login, CSRF, the standard and coexistence onboarding flows against a fake Graph API, retrying
-a failed step, and tenant isolation.
+a failed step, tenant isolation, sending messages (window, opt-out, idempotency, Meta error
+mapping, delivery statuses) and the template lifecycle.
 
 ## Database roles and tenant isolation
 

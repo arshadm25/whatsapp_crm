@@ -8,7 +8,8 @@ import { useMe } from "../api/hooks";
 const NAV: { to: string; key: string; ready: boolean }[] = [
   { to: "/", key: "getStarted", ready: true },
   { to: "/inbox", key: "inbox", ready: false },
-  { to: "/templates", key: "templates", ready: false },
+  { to: "/send", key: "send", ready: true },
+  { to: "/templates", key: "templates", ready: true },
   { to: "/contacts", key: "contacts", ready: false },
   { to: "/campaigns", key: "campaigns", ready: false },
   { to: "/numbers", key: "numbers", ready: true },
