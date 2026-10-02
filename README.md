@@ -1,0 +1,98 @@
+# Ecogo WhatsApp Platform
+
+Multi-tenant WhatsApp Cloud API platform by Ecogo Software Solutions Pvt Ltd: a dashboard for
+businesses and a public REST API, built to qualify Ecogo as a Meta WhatsApp Tech Provider.
+
+Design documents live in [`docs/design`](docs/design) (BRD v0.1, schema v0.1) and the public API
+contract in [`api/openapi.yaml`](api/openapi.yaml).
+
+## What is built so far (release 1, slice 1)
+
+| Area | Status |
+| --- | --- |
+| D1 Sign-up, login, sessions, email verification | Done (invites, roles screen and 2FA later) |
+| D2 Connect WhatsApp with Embedded Signup v4, standard and coexistence | Done |
+| D5 Phone numbers list (`GET /v1/phone-numbers`) | Done (profile and health sync later) |
+| Meta webhook receiver (`ingest`) | Next |
+| Sending messages and templates | After the receiver |
+
+## Layout
+
+```
+cmd/ecogo/            one binary: `ecogo api | ingest | worker | migrate`
+internal/
+  auth/               D1: sign-up, login, sessions, CSRF, email verification
+  onboarding/         D2: Embedded Signup code exchange (api) and onboarding steps (River worker)
+  numbers/            D5: /v1/phone-numbers
+  metaclient/         the only package that calls Meta's Graph API
+  crypto/envelope/    AES-256-GCM envelope encryption for Meta tokens and PINs
+  db/                 pgx pool, tenant-scoped transactions, migrations
+  db/migrations/      SQL migrations (000001 is the design schema)
+  db/queries/         sqlc queries; generated code in db/dbq
+  jobs/               River (Postgres-backed job queue) setup
+  server/             routers for api and ingest, end-to-end tests
+web/                  React + Vite dashboard (TanStack Query, React Router, i18next)
+deploy/helm/          Helm chart for the Kubernetes cluster
+deploy/dev/           local database roles
+```
+
+## Run it locally
+
+Needs Go 1.26, Node 22 and Docker.
+
+```sh
+cp .env.example .env               # then fill ECOGO_MASTER_KEYS, ECOGO_APP_SECRET and the Meta app
+docker compose up -d               # Postgres 16 and Mailpit (mail UI on http://localhost:8025)
+make migrate
+make run-api                       # :8080
+make run-worker                    # in another terminal
+cd web && npm install && npm run dev   # dashboard on http://localhost:5173
+```
+
+Embedded Signup only opens on a domain listed in the Meta app's Facebook Login for Business
+settings, so test the full Connect WhatsApp flow on staging, or add `localhost` to the
+staging app's allowed domains.
+
+## Tests
+
+```sh
+make test       # unit tests; database tests skip
+make test-db    # everything, against the docker-compose Postgres
+cd web && npm test
+```
+
+The database tests create a fresh database per test, migrate it as the owner role, and run the
+app as `ecogo_app`, so row-level security is enforced exactly as in production. They cover sign-up
+and login, CSRF, the standard and coexistence onboarding flows against a fake Graph API, retrying
+a failed step, and tenant isolation.
+
+## Database roles and tenant isolation
+
+* `ecogo_owner` owns the schema and runs migrations. It has `BYPASSRLS`, which the
+  `SECURITY DEFINER` lookup functions (`route_meta_event`, `user_memberships`, ...) need.
+* `ecogo_app` is used by api, ingest and worker and is always subject to row-level security.
+  Every tenant query runs inside `db.InTenant`, which sets `app.tenant_id` for the transaction.
+
+## Configuration
+
+All settings are `ECOGO_*` environment variables; see [`.env.example`](.env.example) and
+[`internal/config/config.go`](internal/config/config.go). Secrets come from a Kubernetes Secret in
+the cluster (see `deploy/helm/ecogo-whatsapp/values.yaml`). `ECOGO_MASTER_KEYS` holds versioned
+master keys (`1:<base64>,2:<base64>`); the highest version encrypts new data, older ones stay
+for decryption during rotation.
+
+## Deploying
+
+```sh
+helm upgrade --install ecogo-whatsapp-staging deploy/helm/ecogo-whatsapp \
+  -n ecogo-whatsapp-staging --set environment=staging \
+  --set hosts.app=staging.whatsapp.ecogo.co.in \
+  --set hosts.api=api.staging.whatsapp.ecogo.co.in \
+  --set hosts.hooks=hooks.staging.whatsapp.ecogo.co.in \
+  --set image.tag=<git sha> --set webImage.tag=<git sha> \
+  --set config.metaAppId=<staging app id> --set config.metaConfigId=<configuration id>
+```
+
+The chart assumes ingress-nginx, cert-manager and the CloudNativePG operator; each can be switched
+off in `values.yaml`. Database migrations run as a Helm hook Job before every upgrade. CI builds
+images to GitHub Container Registry on every push to `main`.

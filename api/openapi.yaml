@@ -1,0 +1,1395 @@
+openapi: 3.1.0
+info:
+  title: Ecogo WhatsApp Platform API
+  version: 1.0.0-draft.1
+  summary: Send and receive WhatsApp messages, manage templates, numbers, contacts and campaigns.
+  description: |
+    Public REST API for Ecogo Software Solutions Pvt Ltd's WhatsApp platform (release 1, design v0.1, 2026-10-02).
+
+    The API wraps Meta's WhatsApp Cloud API. Clients never handle Meta tokens: Ecogo stores each
+    client's Business Integration System User token and calls Meta on the client's behalf.
+
+    **Authentication.** Send an API key as `Authorization: Bearer <key>`. Keys start with `eco_live_`
+    or `eco_test_` (sandbox). A sandbox key returns realistic responses but never calls Meta.
+    A key may be scoped to one phone number; requests for other numbers then return 403.
+
+    **Idempotency.** Every POST that sends a message or starts a campaign accepts an `Idempotency-Key`
+    header (any unique string up to 255 characters). Repeating a request with the same key within 24 hours
+    returns the first response; reusing a key with a different body returns 422 `idempotency_conflict`.
+
+    **Rate limits.** 60 requests per second per key by default (plan dependent). Every response carries
+    `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`. Exceeding it returns 429 with
+    `Retry-After`. Meta's own limits surface as clear error codes (see `Error`).
+
+    **Pagination.** List endpoints are cursor-based: pass `limit` (1-100, default 25) and the
+    `next_cursor` from the previous page as `cursor`.
+
+    **Phone numbers and IDs.** Customer numbers are E.164 digits without `+` (for example `919876543210`).
+    All Ecogo IDs are UUIDs. Meta IDs (such as `wamid`) are returned alongside where useful.
+  contact:
+    name: Ecogo Software Solutions Pvt Ltd
+    url: https://ecogo.co.in
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://api.whatsapp.ecogo.co.in/v1
+    description: Production (Ecogo Kubernetes cluster)
+  - url: https://api.staging.whatsapp.ecogo.co.in/v1
+    description: Staging
+security:
+  - apiKey: []
+tags:
+  - name: Messages
+  - name: Conversations
+  - name: Media
+  - name: Templates
+  - name: Phone numbers
+  - name: Contacts
+  - name: Campaigns
+  - name: Webhook endpoints
+
+paths:
+  /messages:
+    post:
+      tags: [Messages]
+      operationId: sendMessage
+      summary: Send a message
+      description: |
+        Queues a message for sending from one of your phone numbers and returns immediately with status `queued`.
+        Final status arrives through `message.status` webhooks or `GET /messages/{id}`.
+
+        Free-form messages (everything except `template`) are allowed only within 24 hours of the
+        customer's last inbound message; outside that window the request fails with `window_closed`.
+        Messages to contacts who opted out fail with `contact_opted_out`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+            examples:
+              text:
+                summary: Text reply inside the 24-hour window
+                value:
+                  phone_number_id: 0f6d8c1e-2b1a-4f0e-9d7c-5a1b2c3d4e5f
+                  to: '919876543210'
+                  type: text
+                  text: { body: 'नमस्ते! आपका ऑर्डर कल पहुँच जाएगा।', preview_url: false }
+              template:
+                summary: Utility template with one body variable
+                value:
+                  phone_number_id: 0f6d8c1e-2b1a-4f0e-9d7c-5a1b2c3d4e5f
+                  to: '919876543210'
+                  type: template
+                  template:
+                    name: order_shipped
+                    language: hi
+                    components:
+                      - type: body
+                        parameters:
+                          - { type: text, text: 'ORD-4821' }
+      responses:
+        '202':
+          description: Accepted and queued
+          headers:
+            X-RateLimit-Remaining: { $ref: '#/components/headers/RateLimitRemaining' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /messages/{message_id}:
+    get:
+      tags: [Messages]
+      operationId: getMessage
+      summary: Get a message and its status
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '200':
+          description: The message
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /messages/{message_id}/read:
+    post:
+      tags: [Messages]
+      operationId: markMessageRead
+      summary: Mark an inbound message as read
+      description: Shows blue ticks to the customer and marks earlier messages in the conversation as read.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                typing_indicator:
+                  type: boolean
+                  default: false
+                  description: Also show a typing indicator to the customer while you prepare a reply.
+      responses:
+        '204': { description: Marked as read }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /conversations:
+    get:
+      tags: [Conversations]
+      operationId: listConversations
+      summary: List conversations
+      parameters:
+        - name: phone_number_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ConversationStatus' }
+        - name: assignee_id
+          in: query
+          description: User ID, or `none` for unassigned conversations.
+          schema: { type: string }
+        - name: window
+          in: query
+          description: Filter by 24-hour customer service window state.
+          schema: { type: string, enum: [open, closed] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of conversations, most recent activity first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Conversation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /conversations/{conversation_id}:
+    get:
+      tags: [Conversations]
+      operationId: getConversation
+      summary: Get a conversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          description: The conversation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Conversations]
+      operationId: updateConversation
+      summary: Assign, close or reopen a conversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                status: { $ref: '#/components/schemas/ConversationStatus' }
+                assignee_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: User to assign, or null to unassign.
+      responses:
+        '200':
+          description: Updated conversation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /conversations/{conversation_id}/messages:
+    get:
+      tags: [Conversations]
+      operationId: listConversationMessages
+      summary: List messages in a conversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of messages, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Message' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /media:
+    post:
+      tags: [Media]
+      operationId: uploadMedia
+      summary: Upload media for sending
+      description: |
+        Uploads a file and returns a media ID to use in `POST /messages`. Limits follow Meta's:
+        images 5 MB (JPEG, PNG), video 16 MB (MP4, 3GP), audio 16 MB, documents 100 MB, stickers 500 KB (WebP).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, phone_number_id]
+              properties:
+                file:
+                  type: string
+                  contentMediaType: application/octet-stream
+                phone_number_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Media' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413':
+          description: File larger than the limit for its type
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /media/{media_id}:
+    get:
+      tags: [Media]
+      operationId: getMedia
+      summary: Get media details and a download link
+      description: Returns a pre-signed download URL valid for 15 minutes. Inbound media is copied from Meta on arrival.
+      parameters:
+        - name: media_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Media details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Media' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /templates:
+    get:
+      tags: [Templates]
+      operationId: listTemplates
+      summary: List message templates
+      parameters:
+        - name: whatsapp_account_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TemplateStatus' }
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/TemplateCategory' }
+        - name: name
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of templates
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Template' }
+    post:
+      tags: [Templates]
+      operationId: createTemplate
+      summary: Create a template and submit it to Meta
+      description: |
+        Creates the template and submits it to Meta for review. The response has status `pending`
+        (or `approved` when Meta approves instantly). Status changes arrive as `template.status` webhooks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTemplateRequest' }
+            example:
+              whatsapp_account_id: 7c2e4b9a-1d3f-4a5b-8c6d-9e0f1a2b3c4d
+              name: order_shipped
+              language: hi
+              category: utility
+              components:
+                - type: BODY
+                  text: 'आपका ऑर्डर {{1}} भेज दिया गया है।'
+                  example: { body_text: [['ORD-4821']] }
+                - type: FOOTER
+                  text: Ecogo Demo Store
+      responses:
+        '201':
+          description: Created and submitted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /templates/{template_id}:
+    get:
+      tags: [Templates]
+      operationId: getTemplate
+      summary: Get a template
+      parameters:
+        - $ref: '#/components/parameters/TemplateId'
+      responses:
+        '200':
+          description: The template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Templates]
+      operationId: editTemplate
+      summary: Edit a template and resubmit it
+      description: Meta allows editing approved templates a limited number of times; rejected or paused templates can be edited and resubmitted.
+      parameters:
+        - $ref: '#/components/parameters/TemplateId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category: { $ref: '#/components/schemas/TemplateCategory' }
+                components:
+                  type: array
+                  items: { $ref: '#/components/schemas/TemplateComponent' }
+      responses:
+        '200':
+          description: Resubmitted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /templates/by-name/{name}:
+    delete:
+      tags: [Templates]
+      operationId: deleteTemplateByName
+      summary: Delete a template (all languages)
+      description: Deletes every language version of the template on the given WhatsApp account, at Meta and here.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z0-9_]{1,512}$' }
+        - name: whatsapp_account_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /phone-numbers:
+    get:
+      tags: [Phone numbers]
+      operationId: listPhoneNumbers
+      summary: List connected phone numbers
+      responses:
+        '200':
+          description: All numbers the key can access
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/PhoneNumber' }
+
+  /phone-numbers/{phone_number_id}:
+    get:
+      tags: [Phone numbers]
+      operationId: getPhoneNumber
+      summary: Get a phone number with health details
+      parameters:
+        - $ref: '#/components/parameters/PhoneNumberId'
+      responses:
+        '200':
+          description: The number
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhoneNumber' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /phone-numbers/{phone_number_id}/profile:
+    get:
+      tags: [Phone numbers]
+      operationId: getBusinessProfile
+      summary: Get the WhatsApp business profile
+      parameters:
+        - $ref: '#/components/parameters/PhoneNumberId'
+      responses:
+        '200':
+          description: The profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusinessProfile' }
+    patch:
+      tags: [Phone numbers]
+      operationId: updateBusinessProfile
+      summary: Update the WhatsApp business profile
+      parameters:
+        - $ref: '#/components/parameters/PhoneNumberId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BusinessProfile' }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusinessProfile' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /contacts:
+    get:
+      tags: [Contacts]
+      operationId: listContacts
+      summary: List contacts
+      parameters:
+        - name: tag
+          in: query
+          schema: { type: string }
+        - name: opt_in_status
+          in: query
+          schema: { $ref: '#/components/schemas/OptInStatus' }
+        - name: q
+          in: query
+          description: Search by name or number.
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of contacts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Contact' }
+    post:
+      tags: [Contacts]
+      operationId: upsertContact
+      summary: Create or update a contact by number
+      description: Matches on `wa_id`. When `opt_in` is given, an append-only consent record is stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactInput' }
+      responses:
+        '200':
+          description: Existing contact updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '201':
+          description: Contact created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /contacts/{contact_id}:
+    get:
+      tags: [Contacts]
+      operationId: getContact
+      summary: Get a contact
+      parameters:
+        - $ref: '#/components/parameters/ContactId'
+      responses:
+        '200':
+          description: The contact
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Contacts]
+      operationId: updateContact
+      summary: Update a contact, its tags or consent
+      parameters:
+        - $ref: '#/components/parameters/ContactId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactPatch' }
+      responses:
+        '200':
+          description: Updated contact
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /campaigns:
+    get:
+      tags: [Campaigns]
+      operationId: listCampaigns
+      summary: List campaigns
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of campaigns, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Campaign' }
+    post:
+      tags: [Campaigns]
+      operationId: createCampaign
+      summary: Create a template broadcast
+      description: |
+        Sends an approved template to an audience now or at `scheduled_at`. Contacts who are opted out,
+        blocked, or have no opt-in record are skipped and reported. Sending is throttled to stay within
+        the number's messaging limit.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCampaignRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /campaigns/{campaign_id}:
+    get:
+      tags: [Campaigns]
+      operationId: getCampaign
+      summary: Get a campaign and its delivery report
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: The campaign with counts per recipient status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /campaigns/{campaign_id}/cancel:
+    post:
+      tags: [Campaigns]
+      operationId: cancelCampaign
+      summary: Cancel a scheduled or running campaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Cancelled; messages already sent are not recalled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /webhook-endpoints:
+    get:
+      tags: [Webhook endpoints]
+      operationId: listWebhookEndpoints
+      summary: List your webhook endpoints
+      responses:
+        '200':
+          description: Endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WebhookEndpoint' }
+    post:
+      tags: [Webhook endpoints]
+      operationId: createWebhookEndpoint
+      summary: Register a webhook endpoint
+      description: The signing secret is returned once, in this response only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, event_types]
+              properties:
+                url: { type: string, format: uri, pattern: '^https://' }
+                description: { type: string, maxLength: 200 }
+                event_types:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/EventType' }
+                phone_number_id:
+                  type: string
+                  format: uuid
+                  description: Only send events for this number.
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/WebhookEndpoint'
+                  - type: object
+                    required: [secret]
+                    properties:
+                      secret:
+                        type: string
+                        description: HMAC-SHA256 signing secret, starts with `whsec_`.
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /webhook-endpoints/{endpoint_id}:
+    delete:
+      tags: [Webhook endpoints]
+      operationId: deleteWebhookEndpoint
+      summary: Delete a webhook endpoint
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhook-endpoints/{endpoint_id}/deliveries:
+    get:
+      tags: [Webhook endpoints]
+      operationId: listWebhookDeliveries
+      summary: List delivery attempts for an endpoint
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, succeeded, retrying, dead] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of deliveries, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/WebhookDelivery' }
+
+  /webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/retry:
+    post:
+      tags: [Webhook endpoints]
+      operationId: retryWebhookDelivery
+      summary: Retry a failed delivery now
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+        - name: delivery_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '202': { description: Retry queued }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+webhooks:
+  message.received:
+    post:
+      summary: A customer sent a message (or the business sent one from the WhatsApp Business App on a coexistence number)
+      parameters:
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EventEnvelope'
+                - type: object
+                  properties:
+                    type: { const: message.received }
+                    data: { $ref: '#/components/schemas/Message' }
+      responses:
+        '2XX': { description: Return any 2xx within 10 seconds to acknowledge. }
+  message.status:
+    post:
+      summary: An outbound message changed status (sent, delivered, read, failed)
+      parameters:
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EventEnvelope'
+                - type: object
+                  properties:
+                    type: { const: message.status }
+                    data: { $ref: '#/components/schemas/Message' }
+      responses:
+        '2XX': { description: Acknowledged }
+  template.status:
+    post:
+      summary: Meta approved, rejected, paused or disabled a template
+      parameters:
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EventEnvelope'
+                - type: object
+                  properties:
+                    type: { const: template.status }
+                    data: { $ref: '#/components/schemas/Template' }
+      responses:
+        '2XX': { description: Acknowledged }
+  number.quality:
+    post:
+      summary: A phone number's quality rating or messaging limit changed
+      parameters:
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EventEnvelope'
+                - type: object
+                  properties:
+                    type: { const: number.quality }
+                    data: { $ref: '#/components/schemas/PhoneNumber' }
+      responses:
+        '2XX': { description: Acknowledged }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: eco_live_... or eco_test_...
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, maxLength: 255 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    MessageId:
+      name: message_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TemplateId:
+      name: template_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PhoneNumberId:
+      name: phone_number_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ContactId:
+      name: contact_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CampaignId:
+      name: campaign_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EndpointId:
+      name: endpoint_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SignatureHeader:
+      name: Ecogo-Signature
+      in: header
+      required: true
+      description: |
+        `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>" with the endpoint secret>`.
+        Reject requests older than 5 minutes. Retries use exponential backoff for up to 24 hours.
+      schema: { type: string }
+
+  headers:
+    RateLimitRemaining:
+      schema: { type: integer }
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing, invalid or revoked API key
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Key not allowed for this resource (for example, scoped to another number)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found in your account
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Conflicts with current state (duplicate name, already cancelled)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unprocessable:
+      description: Valid JSON but rejected by a business or Meta rule
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code.
+              enum:
+                - invalid_request
+                - unauthorized
+                - forbidden
+                - not_found
+                - conflict
+                - idempotency_conflict
+                - rate_limited
+                - window_closed
+                - contact_opted_out
+                - contact_blocked
+                - template_not_approved
+                - template_param_mismatch
+                - messaging_limit_reached
+                - number_not_connected
+                - number_quality_restricted
+                - recipient_not_on_whatsapp
+                - media_too_large
+                - meta_error
+            message: { type: string }
+            param: { type: string, description: Request field the error refers to. }
+            meta_error_code:
+              type: integer
+              description: Meta's original error code when the error came from Meta (for example 131047).
+            request_id: { type: string }
+
+    Page:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: {} }
+        next_cursor: { type: [string, 'null'] }
+
+    ConversationStatus:
+      type: string
+      enum: [open, pending, closed]
+    OptInStatus:
+      type: string
+      enum: [unknown, opted_in, opted_out]
+    TemplateCategory:
+      type: string
+      enum: [marketing, utility, authentication]
+    TemplateStatus:
+      type: string
+      enum: [draft, pending, approved, rejected, paused, disabled, in_appeal]
+    MessageStatus:
+      type: string
+      enum: [queued, sent, delivered, read, failed, received, deleted]
+    EventType:
+      type: string
+      enum: [message.received, message.status, template.status, number.quality]
+
+    SendMessageRequest:
+      type: object
+      required: [phone_number_id, to, type]
+      properties:
+        phone_number_id:
+          type: string
+          format: uuid
+          description: Your connected number to send from.
+        to:
+          type: string
+          pattern: '^[0-9]{6,15}$'
+          description: Customer number, E.164 digits without '+'.
+        type:
+          type: string
+          enum: [text, image, video, audio, document, sticker, location, template, interactive, reaction]
+        reply_to:
+          type: string
+          format: uuid
+          description: Message ID to quote in the reply.
+        text:
+          type: object
+          required: [body]
+          properties:
+            body: { type: string, maxLength: 4096 }
+            preview_url: { type: boolean, default: false }
+        image: { $ref: '#/components/schemas/MediaRef' }
+        video: { $ref: '#/components/schemas/MediaRef' }
+        audio: { $ref: '#/components/schemas/MediaRef' }
+        document:
+          allOf:
+            - $ref: '#/components/schemas/MediaRef'
+            - type: object
+              properties:
+                filename: { type: string }
+        sticker: { $ref: '#/components/schemas/MediaRef' }
+        location:
+          type: object
+          required: [latitude, longitude]
+          properties:
+            latitude: { type: number }
+            longitude: { type: number }
+            name: { type: string }
+            address: { type: string }
+        template:
+          type: object
+          required: [name, language]
+          properties:
+            name: { type: string }
+            language: { type: string, examples: [en, hi, ta, te, mr, bn, kn, ml, gu] }
+            components:
+              type: array
+              description: Parameter values, same shape as Meta's Cloud API template components.
+              items: { type: object }
+        interactive:
+          type: object
+          description: Reply buttons (up to 3) or a list message, same shape as Meta's Cloud API interactive object.
+          required: [type]
+          properties:
+            type: { type: string, enum: [button, list, cta_url] }
+          additionalProperties: true
+        reaction:
+          type: object
+          required: [message_id, emoji]
+          properties:
+            message_id: { type: string, format: uuid }
+            emoji: { type: string, description: Empty string removes a reaction. }
+      oneOf:
+        - { required: [text], properties: { type: { const: text } } }
+        - { required: [image], properties: { type: { const: image } } }
+        - { required: [video], properties: { type: { const: video } } }
+        - { required: [audio], properties: { type: { const: audio } } }
+        - { required: [document], properties: { type: { const: document } } }
+        - { required: [sticker], properties: { type: { const: sticker } } }
+        - { required: [location], properties: { type: { const: location } } }
+        - { required: [template], properties: { type: { const: template } } }
+        - { required: [interactive], properties: { type: { const: interactive } } }
+        - { required: [reaction], properties: { type: { const: reaction } } }
+
+    MediaRef:
+      type: object
+      description: Either a media ID from POST /media or a public HTTPS link.
+      properties:
+        media_id: { type: string, format: uuid }
+        link: { type: string, format: uri }
+        caption: { type: string, maxLength: 1024 }
+      oneOf:
+        - required: [media_id]
+        - required: [link]
+
+    Message:
+      type: object
+      required: [id, conversation_id, phone_number_id, contact, direction, origin, type, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        wamid: { type: [string, 'null'], description: Meta's message ID. }
+        conversation_id: { type: string, format: uuid }
+        phone_number_id: { type: string, format: uuid }
+        contact:
+          type: object
+          required: [id, wa_id]
+          properties:
+            id: { type: string, format: uuid }
+            wa_id: { type: string }
+            name: { type: [string, 'null'] }
+        direction: { type: string, enum: [inbound, outbound] }
+        origin: { type: string, enum: [customer, dashboard, api, campaign, phone_app, bot] }
+        type: { type: string }
+        content:
+          type: object
+          description: Normalised body; same field names as the request for each type.
+        status: { $ref: '#/components/schemas/MessageStatus' }
+        error:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Error/properties/error'
+        pricing:
+          type: [object, 'null']
+          properties:
+            category: { type: string, enum: [marketing, utility, authentication, service] }
+            billable: { type: boolean }
+        campaign_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        status_updated_at: { type: string, format: date-time }
+
+    Conversation:
+      type: object
+      required: [id, phone_number_id, contact, status, window]
+      properties:
+        id: { type: string, format: uuid }
+        phone_number_id: { type: string, format: uuid }
+        contact: { $ref: '#/components/schemas/Contact' }
+        status: { $ref: '#/components/schemas/ConversationStatus' }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        window:
+          type: object
+          required: [open]
+          properties:
+            open: { type: boolean, description: True when free-form messages are allowed. }
+            expires_at: { type: [string, 'null'], format: date-time }
+        unread_count: { type: integer }
+        last_message_at: { type: [string, 'null'], format: date-time }
+        last_message_preview: { type: [string, 'null'] }
+
+    Media:
+      type: object
+      required: [id, mime_type, size_bytes]
+      properties:
+        id: { type: string, format: uuid }
+        mime_type: { type: string }
+        size_bytes: { type: integer }
+        filename: { type: [string, 'null'] }
+        url:
+          type: string
+          format: uri
+          description: Pre-signed download URL, valid for 15 minutes.
+        created_at: { type: string, format: date-time }
+
+    TemplateComponent:
+      type: object
+      required: [type]
+      description: Same shape as Meta's template components.
+      properties:
+        type: { type: string, enum: [HEADER, BODY, FOOTER, BUTTONS] }
+        format: { type: string, enum: [TEXT, IMAGE, VIDEO, DOCUMENT, LOCATION] }
+        text: { type: string }
+        example: { type: object }
+        buttons:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [type, text]
+            properties:
+              type: { type: string, enum: [QUICK_REPLY, URL, PHONE_NUMBER, COPY_CODE, OTP] }
+              text: { type: string, maxLength: 25 }
+              url: { type: string }
+              phone_number: { type: string }
+              example: { type: array, items: { type: string } }
+
+    CreateTemplateRequest:
+      type: object
+      required: [whatsapp_account_id, name, language, category, components]
+      properties:
+        whatsapp_account_id: { type: string, format: uuid }
+        name: { type: string, pattern: '^[a-z0-9_]{1,512}$' }
+        language: { type: string }
+        category: { $ref: '#/components/schemas/TemplateCategory' }
+        parameter_format: { type: string, enum: [positional, named], default: positional }
+        components:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/TemplateComponent' }
+
+    Template:
+      type: object
+      required: [id, whatsapp_account_id, name, language, category, status, components]
+      properties:
+        id: { type: string, format: uuid }
+        meta_template_id: { type: [string, 'null'] }
+        whatsapp_account_id: { type: string, format: uuid }
+        name: { type: string }
+        language: { type: string }
+        category: { $ref: '#/components/schemas/TemplateCategory' }
+        status: { $ref: '#/components/schemas/TemplateStatus' }
+        rejected_reason: { type: [string, 'null'] }
+        quality_score: { type: [string, 'null'] }
+        components:
+          type: array
+          items: { $ref: '#/components/schemas/TemplateComponent' }
+        created_at: { type: string, format: date-time }
+        status_updated_at: { type: [string, 'null'], format: date-time }
+
+    PhoneNumber:
+      type: object
+      required: [id, whatsapp_account_id, display_phone_number, status]
+      properties:
+        id: { type: string, format: uuid }
+        meta_phone_number_id: { type: string }
+        whatsapp_account_id: { type: string, format: uuid }
+        waba_id: { type: string }
+        display_phone_number: { type: string, examples: ['+91 98765 43210'] }
+        verified_name: { type: [string, 'null'] }
+        name_status: { type: [string, 'null'] }
+        quality_rating: { type: string, enum: [green, yellow, red, unknown] }
+        messaging_limit_tier:
+          type: [string, 'null']
+          enum: [TIER_250, TIER_2K, TIER_10K, TIER_100K, TIER_UNLIMITED, null]
+        is_coexistence: { type: boolean }
+        status: { type: string, enum: [pending, connected, disconnected, revoked, error] }
+        last_synced_at: { type: [string, 'null'], format: date-time }
+
+    BusinessProfile:
+      type: object
+      properties:
+        about: { type: string, maxLength: 139 }
+        address: { type: string, maxLength: 256 }
+        description: { type: string, maxLength: 512 }
+        email: { type: string, format: email }
+        vertical: { type: string }
+        websites:
+          type: array
+          maxItems: 2
+          items: { type: string, format: uri }
+        profile_picture_media_id:
+          type: string
+          format: uuid
+          description: Write-only; upload an image with POST /media first.
+        profile_picture_url: { type: string, format: uri, readOnly: true }
+
+    ContactInput:
+      type: object
+      required: [wa_id]
+      properties:
+        wa_id: { type: string, pattern: '^[0-9]{6,15}$' }
+        name: { type: string }
+        language: { type: string }
+        custom_fields: { type: object, additionalProperties: true }
+        tags: { type: array, items: { type: string } }
+        opt_in: { $ref: '#/components/schemas/ConsentInput' }
+
+    ContactPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string }
+        language: { type: string }
+        custom_fields: { type: object, additionalProperties: true }
+        add_tags: { type: array, items: { type: string } }
+        remove_tags: { type: array, items: { type: string } }
+        blocked: { type: boolean }
+        consent: { $ref: '#/components/schemas/ConsentInput' }
+
+    ConsentInput:
+      type: object
+      required: [status, source]
+      properties:
+        status: { type: string, enum: [opted_in, opted_out] }
+        source: { type: string, enum: [api, dashboard, csv_import, whatsapp_flow] }
+        evidence: { type: string, description: 'Where consent was captured, for example a form URL.' }
+        occurred_at: { type: string, format: date-time }
+
+    Contact:
+      type: object
+      required: [id, wa_id, opt_in_status]
+      properties:
+        id: { type: string, format: uuid }
+        wa_id: { type: string }
+        name: { type: [string, 'null'] }
+        profile_name: { type: [string, 'null'] }
+        language: { type: [string, 'null'] }
+        custom_fields: { type: object }
+        tags: { type: array, items: { type: string } }
+        opt_in_status: { $ref: '#/components/schemas/OptInStatus' }
+        opted_in_at: { type: [string, 'null'], format: date-time }
+        blocked: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    CreateCampaignRequest:
+      type: object
+      required: [name, phone_number_id, template, audience]
+      properties:
+        name: { type: string }
+        phone_number_id: { type: string, format: uuid }
+        template:
+          type: object
+          required: [name, language]
+          properties:
+            name: { type: string }
+            language: { type: string }
+            variables:
+              type: object
+              description: 'Map of template parameter to a contact field ("{{contact.name}}") or a literal.'
+              additionalProperties: { type: string }
+        audience:
+          type: object
+          minProperties: 1
+          properties:
+            tags: { type: array, items: { type: string } }
+            contact_ids: { type: array, items: { type: string, format: uuid }, maxItems: 10000 }
+        scheduled_at: { type: string, format: date-time }
+        send_rate_per_min: { type: integer, minimum: 1 }
+
+    Campaign:
+      type: object
+      required: [id, name, status, phone_number_id, template_id]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string, enum: [draft, scheduled, running, paused, completed, cancelled, failed] }
+        phone_number_id: { type: string, format: uuid }
+        template_id: { type: string, format: uuid }
+        scheduled_at: { type: [string, 'null'], format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        stats:
+          type: object
+          properties:
+            total: { type: integer }
+            skipped: { type: integer }
+            sent: { type: integer }
+            delivered: { type: integer }
+            read: { type: integer }
+            failed: { type: integer }
+
+    WebhookEndpoint:
+      type: object
+      required: [id, url, event_types, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        description: { type: [string, 'null'] }
+        event_types: { type: array, items: { $ref: '#/components/schemas/EventType' } }
+        phone_number_id: { type: [string, 'null'], format: uuid }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    WebhookDelivery:
+      type: object
+      required: [id, event_id, event_type, status, attempt_count]
+      properties:
+        id: { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        event_type: { $ref: '#/components/schemas/EventType' }
+        status: { type: string, enum: [pending, succeeded, retrying, dead] }
+        attempt_count: { type: integer }
+        last_response_code: { type: [integer, 'null'] }
+        last_error: { type: [string, 'null'] }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
+    EventEnvelope:
+      type: object
+      required: [id, type, created_at, tenant_id, data]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable event ID; the same on every retry. Use it to de-duplicate.
+        type: { $ref: '#/components/schemas/EventType' }
+        created_at: { type: string, format: date-time }
+        tenant_id: { type: string, format: uuid }
+        data: { type: object }
