@@ -5,8 +5,9 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
 import type {
-  AdminConversation, AdminTenant, AdminTenantDetail, AuditEntry, Message, MetaApiError, Page, WebhookHealth,
+  AdminConversation, AdminTenant, AdminTenantDetail, AuditEntry, Message, MetaApiError, Page, Plan, WebhookHealth,
 } from "../api/types";
+import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
 
 function message(e: unknown, fallback: string) {
@@ -37,7 +38,7 @@ function More({ q }: { q: { hasNextPage: boolean; isFetchingNextPage: boolean; f
   );
 }
 
-type Tab = "tenants" | "webhooks" | "metaErrors" | "audit";
+type Tab = "tenants" | "plans" | "webhooks" | "metaErrors" | "audit";
 
 export default function Admin() {
   const { t } = useTranslation();
@@ -58,11 +59,12 @@ export default function Admin() {
     <section>
       <h1>{t("admin.title")}</h1>
       <div className="segmented tabs">
-        {(["tenants", "webhooks", "metaErrors", "audit"] as Tab[]).map((k) => (
+        {(["tenants", "plans", "webhooks", "metaErrors", "audit"] as Tab[]).map((k) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t(`admin.tab_${k}`)}</button>
         ))}
       </div>
       {tab === "tenants" && <Tenants />}
+      {tab === "plans" && <Plans />}
       {tab === "webhooks" && <Webhooks />}
       {tab === "metaErrors" && <MetaErrors />}
       {tab === "audit" && <Audit />}
@@ -181,6 +183,8 @@ function TenantPanel({ id, onBack }: { id: string; onBack: () => void }) {
         {t("admin.deliveries24")}:{" "}
         {deliveries.length ? deliveries.map(([k, v]) => `${k} ${v}`).join(", ") : t("admin.none")}
       </p>
+
+      {d.subscription && <TenantPlan id={id} sub={d.subscription} />}
 
       {d.status !== "closed" && (
         <form className="card inline-form" onSubmit={act}>
@@ -438,6 +442,146 @@ function Audit() {
         </table>
       </div>
       <More q={list} />
+    </>
+  );
+}
+
+function TenantPlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetail["subscription"]> }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [days, setDays] = useState("7");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const extend = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    try {
+      await api("POST", `/internal/admin/tenants/${id}/extend-trial`, { days: Number(days), reason });
+      setReason("");
+      await qc.invalidateQueries({ queryKey: ["admin", "tenant", id] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  return (
+    <>
+      <p className="small">
+        {t("admin.subscription", {
+          status: t(`admin.sub_${sub.status}`), plan: sub.plan_code ?? t("admin.noPlan"),
+          date: new Date(sub.current_period_end).toLocaleDateString(),
+        })}
+        {!sub.usable && <> · <strong className="danger-text">{t("admin.sendingStopped")}</strong></>}
+      </p>
+      {sub.status === "trialing" && (
+        <form className="card inline-form" onSubmit={extend}>
+          <label className="field">
+            {t("admin.extendDays")}
+            <input type="number" min={1} max={90} value={days} onChange={(e) => setDays(e.target.value)} required />
+          </label>
+          <label className="field grow">
+            {t("admin.extendReason")}
+            <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={500} />
+          </label>
+          <button>{t("admin.extendTrial")}</button>
+        </form>
+      )}
+      {error && <div className="error">{error}</div>}
+    </>
+  );
+}
+
+const blankPlan = { code: "", name: "", price: "", seat: "", numbers: "1", seats: "3", razorpay: "", order: "0", active: true };
+
+// Plans are set here because prices are decided by Ecogo, not fixed in code. Each plan also
+// needs a Razorpay plan with the same monthly amount, created in the Razorpay dashboard.
+function Plans() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const plans = useQuery({
+    queryKey: ["admin", "plans"],
+    queryFn: async () => (await api<{ data: Plan[] }>("GET", "/internal/admin/plans")).data,
+  });
+  const [form, setForm] = useState<typeof blankPlan | null>(null);
+  const [error, setError] = useState("");
+  const edit = (p: Plan) =>
+    setForm({
+      code: p.code, name: p.name, price: String(p.price_minor / 100), seat: String(p.extra_seat_minor / 100),
+      numbers: String(p.included_numbers), seats: String(p.included_seats), razorpay: p.razorpay_plan_id ?? "",
+      order: String(p.sort_order), active: p.is_active,
+    });
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!form) return;
+    setError("");
+    const price = rupeesToPaise(form.price), seat = rupeesToPaise(form.seat || "0");
+    if (price === null || seat === null) {
+      setError(t("admin.badPrice"));
+      return;
+    }
+    try {
+      await api("PUT", `/internal/admin/plans/${encodeURIComponent(form.code.trim())}`, {
+        name: form.name, price_minor: price, extra_seat_minor: seat, included_numbers: Number(form.numbers),
+        included_seats: Number(form.seats), razorpay_plan_id: form.razorpay.trim() || null, sort_order: Number(form.order),
+        is_active: form.active,
+      });
+      setForm(null);
+      await qc.invalidateQueries({ queryKey: ["admin", "plans"] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  const set = (k: keyof typeof blankPlan) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form!, [k]: k === "active" ? e.target.checked : e.target.value });
+
+  return (
+    <>
+      <p className="muted small">{t("admin.plansHelp")}</p>
+      <div className="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{t("admin.plan")}</th>
+              <th>{t("admin.price")}</th>
+              <th>{t("admin.includes")}</th>
+              <th>{t("admin.razorpayPlan")}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {plans.data?.map((p) => (
+              <tr key={p.code}>
+                <td>{p.name} <span className="muted small">{p.code}</span> {!p.is_active && <span className="pill">{t("admin.hidden")}</span>}</td>
+                <td>{formatPaise(p.price_minor)}<div className="muted small">{t("admin.extraSeat", { price: formatPaise(p.extra_seat_minor) })}</div></td>
+                <td className="small">{t("admin.includesValue", { numbers: p.included_numbers, seats: p.included_seats })}</td>
+                <td className="small">{p.razorpay_plan_id ?? <span className="danger-text">{t("admin.notPayable")}</span>}</td>
+                <td><button className="link" onClick={() => edit(p)}>{t("admin.edit")}</button></td>
+              </tr>
+            ))}
+            {plans.data?.length === 0 && <tr><td colSpan={5} className="muted">{t("admin.noPlans")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {!form && <button className="primary" onClick={() => setForm(blankPlan)}>{t("admin.newPlan")}</button>}
+      {form && (
+        <form className="card form" onSubmit={save}>
+          <div className="plan-form">
+            <label className="field">{t("admin.planCode")}<input value={form.code} onChange={set("code")} required pattern="[a-z][a-z0-9_]{1,31}" /></label>
+            <label className="field">{t("admin.planName")}<input value={form.name} onChange={set("name")} required maxLength={60} /></label>
+            <label className="field">{t("admin.pricePerMonth")}<input inputMode="decimal" value={form.price} onChange={set("price")} required /></label>
+            <label className="field">{t("admin.extraSeatPrice")}<input inputMode="decimal" value={form.seat} onChange={set("seat")} /></label>
+            <label className="field">{t("admin.includedNumbers")}<input type="number" min={1} value={form.numbers} onChange={set("numbers")} required /></label>
+            <label className="field">{t("admin.includedSeats")}<input type="number" min={1} value={form.seats} onChange={set("seats")} required /></label>
+            <label className="field">{t("admin.razorpayPlan")}<input value={form.razorpay} onChange={set("razorpay")} placeholder="plan_…" /></label>
+            <label className="field">{t("admin.sortOrder")}<input type="number" value={form.order} onChange={set("order")} /></label>
+            <label className="field check"><input type="checkbox" checked={form.active} onChange={set("active")} /> {t("admin.showToCustomers")}</label>
+          </div>
+          {error && <div className="error">{error}</div>}
+          <div className="actions">
+            <button type="button" onClick={() => setForm(null)}>{t("common.cancel")}</button>
+            <button className="primary">{t("admin.savePlan")}</button>
+          </div>
+        </form>
+      )}
     </>
   );
 }

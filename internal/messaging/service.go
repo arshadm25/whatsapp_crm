@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/credentials"
 	"github.com/arshadm25/whatsapp_crm/internal/crypto/envelope"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
@@ -196,6 +197,9 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) error {
 		cached *Replay
 	)
 	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
+		if err := billing.Check(ctx, q, s.now()); err != nil {
+			return err
+		}
 		if key != "" {
 			hash := sha256.Sum256(raw)
 			cached, err = ClaimIdempotencyKey(ctx, q, p.TenantID, key, hash[:], s.now())

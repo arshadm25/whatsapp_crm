@@ -63,6 +63,12 @@ app.kubernetes.io/component: {{ .component }}
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: s3-access-key } }
 - name: ECOGO_S3_SECRET_KEY
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: s3-secret-key } }
+- name: ECOGO_RAZORPAY_KEY_ID
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: razorpay-key-id, optional: true } }
+- name: ECOGO_RAZORPAY_KEY_SECRET
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: razorpay-key-secret, optional: true } }
+- name: ECOGO_RAZORPAY_WEBHOOK_SECRET
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: razorpay-webhook-secret, optional: true } }
 {{- end }}
 {{- end -}}
 

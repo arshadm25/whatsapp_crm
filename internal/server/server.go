@@ -13,6 +13,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/admin"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
@@ -46,6 +47,7 @@ type APIDeps struct {
 	Campaigns  *campaigns.Service
 	Analytics  *analytics.Service
 	Admin      *admin.Service
+	Billing    *billing.Service
 	Events     http.Handler
 }
 
@@ -57,6 +59,8 @@ func NewAPI(d APIDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID, middleware.RealIP, httpx.Logger(d.Log), middleware.Recoverer)
 	health(r, d.DB)
+	// Razorpay signs its deliveries; there is no session or CSRF token.
+	r.Post("/webhooks/razorpay", d.Billing.Webhook)
 
 	r.Route("/internal", func(r chi.Router) {
 		r.Use(d.Auth.CSRF)
@@ -72,6 +76,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/campaigns", d.Campaigns.InternalRoutes)
 			r.Route("/analytics", d.Analytics.InternalRoutes)
 			r.Route("/team", d.Auth.TeamRoutes)
+			r.Route("/billing", d.Billing.InternalRoutes)
 			r.Method(http.MethodGet, "/events", d.Events)
 		})
 		// The admin console spans workspaces, so it needs a session but no tenant.

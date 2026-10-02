@@ -24,6 +24,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -241,6 +242,9 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 		cached *messaging.Replay
 	)
 	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
+		if err := billing.Check(ctx, q, now); err != nil {
+			return err
+		}
 		if key != "" {
 			hash := sha256.Sum256(raw)
 			if cached, err = messaging.ClaimIdempotencyKey(ctx, q, p.TenantID, key, hash[:], now); err != nil || cached != nil {

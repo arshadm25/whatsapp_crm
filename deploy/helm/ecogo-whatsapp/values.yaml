@@ -55,6 +55,7 @@ config:
 #   meta-webhook-verify-token  any random string; also entered as the Verify token in the Meta app
 #   smtp-password
 #   s3-access-key, s3-secret-key  MinIO credentials for the media bucket
+#   razorpay-key-id, razorpay-key-secret, razorpay-webhook-secret  optional until billing takes payment
 existingSecret: ecogo-whatsapp
 
 api:

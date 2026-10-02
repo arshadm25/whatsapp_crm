@@ -19,7 +19,8 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 | D8 client webhooks: `/v1/webhook-endpoints` with a signing secret shown once, `message.received`, `message.status`, `template.status` and `number.quality` events signed with `Ecogo-Signature`, retries for about 24 hours, delivery log with retry on the Developers screen | Done |
 | D6 Contacts: `/v1/contacts` (upsert by number, filters by tag, consent and search, PATCH for tags, blocking and consent), append-only consent records, STOP and START replies, CSV import with number normalisation, Contacts screen | Done (export and erasure later) |
 | D7 Campaigns: `/v1/campaigns` (create with `Idempotency-Key`, list, report, cancel), audience by tags or contact IDs with blocked, opted-out and never-opted-in contacts skipped and reported, template values filled from contact fields with fallbacks, sending throttled to the campaign's rate and the number's messaging limit, live delivery counts, Campaigns screen with audience preview and per-recipient report | Done |
-| D9 Analytics: daily usage rollups by number, pricing category, country and source (so WhatsApp Business app traffic shows apart from API and campaigns), refreshed hourly and on view; Analytics screen with sent, delivered, read, failed and received counts, a per-day chart and an estimate of Meta's charges for billable messages | Done (billing next) |
+| D9 Billing: every workspace starts on a 14-day trial; plans and prices (in rupees) are set by platform admins in the console; owners choose a plan on Settings, Billing and pay on Razorpay's page, with the first charge at the end of the trial; Razorpay subscription webhooks at `/webhooks/razorpay` keep the status in step; plan changes apply from the next cycle and cancelling keeps the paid month; sending and new campaigns stop when the plan has ended or 7 days after a failed charge; admins can extend a trial | Done (seat add-ons and invoices later) |
+| D9 Analytics: daily usage rollups by number, pricing category, country and source (so WhatsApp Business app traffic shows apart from API and campaigns), refreshed hourly and on view; Analytics screen with sent, delivered, read, failed and received counts, a per-day chart and an estimate of Meta's charges for billable messages | Done |
 | Media: `POST /v1/media` with WhatsApp's type and size limits, `GET /v1/media/{id}` with a 15-minute signed download link, sending uploaded files, copying inbound files from Meta into the MinIO bucket, attachments and previews in the inbox | Done |
 | D4 Templates: list, create and edit through Meta review, delete by name, sync from Meta (also at the end of onboarding) | Done |
 | Dashboard: Templates list and editor, Send a message test screen | Done |
@@ -45,6 +46,8 @@ internal/
   contacts/           D6: /v1/contacts, tags, consent records, CSV import
   campaigns/          D7: /v1/campaigns and the campaign run worker
   analytics/          D9: usage rollups, the hourly rollup job and the analytics report
+  billing/            D9: trials, plans, Razorpay subscriptions and their webhooks
+  razorpay/           the only package that calls Razorpay
   devportal/          D8: API keys and their authentication and rate limits
   webhooks/           D8: client webhook endpoints, event outbox and signed deliveries
   metaclient/         the only package that calls Meta's Graph API

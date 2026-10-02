@@ -25,6 +25,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/admin"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
@@ -42,6 +43,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
+	"github.com/arshadm25/whatsapp_crm/internal/razorpay"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
 	"github.com/arshadm25/whatsapp_crm/internal/storage"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
@@ -123,7 +125,9 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
-		Events:     hub,
+		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
+			cfg.Razorpay.WebhookSecret, log),
+		Events: hub,
 	})
 	return serve(ctx, cfg.HTTPAddr, h, log)
 }

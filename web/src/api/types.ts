@@ -367,6 +367,7 @@ export interface AdminTenantDetail extends AdminTenant {
   received_30d: number;
   last_message_at: string | null;
   webhook_deliveries_24h: Record<string, number>;
+  subscription: Subscription | null;
 }
 
 export interface AdminConversation {
@@ -407,4 +408,37 @@ export interface AuditEntry {
   reason: string | null;
   ip: string | null;
   occurred_at: string;
+}
+
+// D9 billing.
+export interface Plan {
+  code: string;
+  name: string;
+  price_minor: number;
+  currency: string;
+  included_numbers: number;
+  included_seats: number;
+  extra_seat_minor: number;
+  razorpay_plan_id?: string | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface Subscription {
+  status: "trialing" | "active" | "past_due" | "cancelled";
+  plan_code: string | null;
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  usable: boolean;
+  payment_pending: boolean;
+}
+
+export interface BillingOverview {
+  subscription: Subscription;
+  plan: Plan | null;
+  plans: Plan[];
+  connected_numbers: number;
+  seats: number;
+  payments_enabled: boolean;
 }

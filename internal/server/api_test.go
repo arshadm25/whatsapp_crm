@@ -26,6 +26,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/admin"
 	"github.com/arshadm25/whatsapp_crm/internal/analytics"
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/campaigns"
 	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/contacts"
@@ -43,6 +44,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
+	"github.com/arshadm25/whatsapp_crm/internal/razorpay"
 	"github.com/arshadm25/whatsapp_crm/internal/server"
 	"github.com/arshadm25/whatsapp_crm/internal/storage"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
@@ -180,6 +182,7 @@ type harness struct {
 	// downloader copies inbound media from Meta.
 	downloader *media.DownloadWorker
 	campaigns  *campaigns.Worker
+	razorpay   *fakeRazorpay
 	keys       *envelope.Keyring
 	log        *slog.Logger
 }
@@ -190,6 +193,9 @@ func newHarness(t *testing.T) *harness {
 	fm := &fakeMeta{numbers: map[string]string{}, inbound: map[string][]byte{}}
 	metaSrv := httptest.NewServer(fm)
 	t.Cleanup(metaSrv.Close)
+	rp := &fakeRazorpay{}
+	rpSrv := httptest.NewServer(rp)
+	t.Cleanup(rpSrv.Close)
 
 	mk := make([]byte, 32)
 	_, _ = rand.Read(mk)
@@ -231,6 +237,7 @@ func newHarness(t *testing.T) *harness {
 		Campaigns:  campaigns.NewService(d, rc, log),
 		Analytics:  analytics.NewService(d, log),
 		Admin:      admin.NewService(d, log),
+		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)
@@ -248,6 +255,7 @@ func newHarness(t *testing.T) *harness {
 		events:     proc,
 		downloader: media.NewDownloadWorker(d, keys, meta, store, log),
 		campaigns:  runner,
+		razorpay:   rp,
 		keys:       keys,
 		log:        log,
 	}

@@ -42,6 +42,16 @@ type Config struct {
 	Mail Mail
 
 	Storage Storage
+
+	Razorpay Razorpay
+}
+
+// Razorpay takes payment for our plans (D9). Billing works without it, but nobody can pay.
+type Razorpay struct {
+	KeyID         string
+	KeySecret     string
+	WebhookSecret string
+	BaseURL       string // https://api.razorpay.com; overridden in tests
 }
 
 // Storage is where media files live: an S3-compatible bucket (MinIO in the cluster) when
@@ -94,6 +104,12 @@ func Load() (*Config, error) {
 			Username: os.Getenv("ECOGO_SMTP_USERNAME"),
 			Password: os.Getenv("ECOGO_SMTP_PASSWORD"),
 			From:     env("ECOGO_MAIL_FROM", "Ecogo WhatsApp <no-reply@ecogo.co.in>"),
+		},
+		Razorpay: Razorpay{
+			KeyID:         os.Getenv("ECOGO_RAZORPAY_KEY_ID"),
+			KeySecret:     os.Getenv("ECOGO_RAZORPAY_KEY_SECRET"),
+			WebhookSecret: os.Getenv("ECOGO_RAZORPAY_WEBHOOK_SECRET"),
+			BaseURL:       strings.TrimRight(env("ECOGO_RAZORPAY_BASE_URL", "https://api.razorpay.com"), "/"),
 		},
 		Storage: Storage{
 			Endpoint:  os.Getenv("ECOGO_S3_ENDPOINT"),
