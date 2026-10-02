@@ -102,7 +102,15 @@ func (c *Client) do(ctx context.Context, method, path, token string, query url.V
 // send runs a prepared Graph request and decodes the response or the Graph error.
 func (c *Client) send(ctx context.Context, req *http.Request, method, path, token string, out any) error {
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		token = "Bearer " + token
+	}
+	return c.sendWithAuth(ctx, req, method, path, token, out)
+}
+
+// sendWithAuth is send with a complete Authorization header value.
+func (c *Client) sendWithAuth(ctx context.Context, req *http.Request, method, path, authorization string, out any) error {
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

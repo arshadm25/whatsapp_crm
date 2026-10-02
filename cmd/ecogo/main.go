@@ -113,7 +113,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Log:        log,
 		Auth:       auth.NewService(d, keys, cfg, mailer.NewSMTP(cfg.Mail), log),
 		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
-		Numbers:    numbers.NewService(d, log),
+		Numbers:    numbers.NewService(d, keys, meta, log),
 		Messaging:  messaging.NewService(d, keys, meta, rc, log),
 		Templates:  templates.NewService(d, keys, meta, log),
 		Inbox:      inbox.NewService(d, log),

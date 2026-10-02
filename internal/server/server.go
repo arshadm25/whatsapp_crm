@@ -69,6 +69,7 @@ func NewAPI(d APIDeps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(d.Auth.RequireSession, auth.RequireTenant)
 			r.Route("/onboarding", d.Onboarding.Routes)
+			r.Route("/numbers", d.Numbers.InternalRoutes)
 			r.Route("/templates", d.Templates.InternalRoutes)
 			r.Route("/inbox", d.Inbox.InternalRoutes)
 			r.Route("/developers", d.Developers.InternalRoutes)
