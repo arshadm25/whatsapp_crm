@@ -374,3 +374,105 @@ func TestExtraSeats(t *testing.T) {
 		t.Fatalf("after seats ended = %+v", ov.Subscription)
 	}
 }
+
+// page fetches a page as the client and returns its status and body.
+func (c *client) page(path string) (int, string) {
+	c.h.t.Helper()
+	resp, err := c.http.Get(c.h.api.URL + path)
+	if err != nil {
+		c.h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(raw)
+}
+
+func TestInvoices(t *testing.T) {
+	h := newHarness(t)
+	owner := h.newClient()
+	owner.signup("owner@example.com", "Sharma Sweets")
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	staff.do("PUT", "/internal/admin/plans/team", map[string]any{"name": "Team", "price_minor": 118000, "included_numbers": 3,
+		"included_seats": 2, "extra_seat_minor": 23600, "is_active": true, "razorpay_plan_id": "plan_team",
+		"extra_seat_razorpay_plan_id": "plan_seat"}, http.StatusOK, nil)
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "team"}, http.StatusOK, nil)
+
+	charge := func(evt, sub, planID, pay string, amount int64) {
+		now := time.Now()
+		body, _ := json.Marshal(map[string]any{"event": "subscription.charged", "payload": map[string]any{
+			"subscription": map[string]any{"entity": map[string]any{"id": sub, "plan_id": planID, "status": "active", "quantity": 2,
+				"current_start": now.Unix(), "current_end": now.Add(30 * 24 * time.Hour).Unix()}},
+			"payment": map[string]any{"entity": map[string]any{"id": pay, "amount": amount, "currency": "INR"}}}})
+		m := hmac.New(sha256.New, []byte("whsec"))
+		m.Write(body)
+		req, _ := http.NewRequest("POST", h.api.URL+"/webhooks/razorpay", bytes.NewReader(body))
+		req.Header.Set("X-Razorpay-Signature", hex.EncodeToString(m.Sum(nil)))
+		req.Header.Set("X-Razorpay-Event-Id", evt)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("charge %s: %v %v", evt, err, resp)
+		}
+		resp.Body.Close()
+	}
+	var list struct {
+		Data []struct {
+			ID          string `json:"id"`
+			Number      string `json:"number"`
+			Description string `json:"description"`
+			TotalMinor  int64  `json:"total_minor"`
+		} `json:"data"`
+	}
+
+	// Without billing details the buyer is the workspace and the supply is in Ecogo's own state.
+	charge("evt_1", "sub_1", "plan_team", "pay_1", 118000)
+	charge("evt_1b", "sub_1", "plan_team", "pay_1", 118000) // the same payment is invoiced once
+	owner.do("GET", "/internal/billing/invoices", nil, http.StatusOK, &list)
+	fy := billing.FinancialYear(time.Now())
+	if len(list.Data) != 1 || list.Data[0].Number != "ECO/"+fy+"/000001" || list.Data[0].TotalMinor != 118000 || list.Data[0].Description != "Ecogo WhatsApp: Team plan" {
+		t.Fatalf("invoices = %+v", list.Data)
+	}
+	status, page := owner.page("/internal/billing/invoices/" + list.Data[0].ID + "/view")
+	for _, want := range []string{"Sharma Sweets", "GSTIN 32AABCE1234F1Z5", "CGST @ 9%", "SGST @ 9%", "1,000.00", "180.00", "1,180.00", "998439"} {
+		if status != http.StatusOK || !strings.Contains(page, want) {
+			t.Fatalf("invoice page (%d) lacks %q:\n%s", status, want, page)
+		}
+	}
+
+	// Billing details: a GSTIN fixes the state; another state pays IGST.
+	profile := map[string]string{"legal_name": "Sharma Sweets Pvt Ltd", "gstin": "27AAPFU0939F1ZV", "address": "Pune, Maharashtra"}
+	owner.do("PUT", "/internal/billing/profile", map[string]string{"legal_name": "X", "gstin": "bad", "address": "Y"}, http.StatusBadRequest, nil)
+	owner.do("PUT", "/internal/billing/profile", map[string]string{"legal_name": "X", "address": "Y", "state_code": "99x"}, http.StatusBadRequest, nil)
+	owner.do("PUT", "/internal/billing/profile", profile, http.StatusOK, nil)
+	var got struct {
+		Profile   billing.Profile `json:"profile"`
+		Invoicing bool            `json:"invoicing"`
+	}
+	owner.do("GET", "/internal/billing/profile", nil, http.StatusOK, &got)
+	if got.Profile.StateCode != "27" || !got.Invoicing {
+		t.Fatalf("profile = %+v", got)
+	}
+	// A seat subscription's charge is invoiced as well.
+	charge("evt_2", "sub_1", "plan_team", "pay_2", 118000)
+	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": 2}, http.StatusOK, nil)
+	charge("evt_3", "sub_2", "plan_seat", "pay_3", 47200)
+	owner.do("GET", "/internal/billing/invoices", nil, http.StatusOK, &list)
+	if len(list.Data) != 3 || list.Data[0].Number != "ECO/"+fy+"/000003" || list.Data[0].Description != "Ecogo WhatsApp: 2 extra team seats" {
+		t.Fatalf("invoices = %+v", list.Data)
+	}
+	_, page = owner.page("/internal/billing/invoices/" + list.Data[1].ID + "/view")
+	for _, want := range []string{"Sharma Sweets Pvt Ltd", "GSTIN 27AAPFU0939F1ZV", "IGST @ 18%", "180.00"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("IGST invoice lacks %q:\n%s", want, page)
+		}
+	}
+	if strings.Contains(page, "CGST") {
+		t.Fatalf("interstate invoice has CGST:\n%s", page)
+	}
+
+	// An invoice is private to its workspace.
+	other := h.newClient()
+	other.signup("other@example.com", "Other Shop")
+	if status, _ := other.page("/internal/billing/invoices/" + list.Data[0].ID + "/view"); status != http.StatusNotFound {
+		t.Fatalf("other workspace sees the invoice: %d", status)
+	}
+}

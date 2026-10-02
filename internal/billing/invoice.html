@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tax invoice {{.Number}}</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; color: #111; max-width: 780px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .muted { color: #555; }
+  .row { display: flex; gap: 24px; flex-wrap: wrap; margin: 20px 0; }
+  .row > div { flex: 1 1 280px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
+  th.n, td.n { text-align: right; white-space: nowrap; }
+  tfoot td { border-bottom: 0; }
+  tfoot tr.total td { font-weight: 700; border-top: 2px solid #111; }
+  .print { margin-top: 24px; }
+  @media print { .print { display: none; } body { margin: 0; } }
+</style>
+</head>
+<body>
+<h1>Tax invoice</h1>
+<div class="muted">No. {{.Number}} &middot; {{date .IssuedAt}}</div>
+
+<div class="row">
+  <div>
+    <strong>{{.Seller.Name}}</strong><br>
+    {{if .Seller.Address}}{{.Seller.Address}}<br>{{end}}
+    GSTIN {{.Seller.GSTIN}}
+  </div>
+  <div>
+    <div class="muted">Billed to</div>
+    <strong>{{.Buyer.Name}}</strong><br>
+    {{if .Buyer.Address}}{{.Buyer.Address}}<br>{{end}}
+    {{if .Buyer.GSTIN}}GSTIN {{.Buyer.GSTIN}}{{else}}<span class="muted">GSTIN not provided</span>{{end}}<br>
+    <span class="muted">Place of supply: state code {{.PlaceOfSupply}}</span>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>Description</th>{{if .SAC}}<th>SAC</th>{{end}}<th class="n">Amount (₹)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>{{.Description}}{{if .PeriodStart}}{{if .PeriodEnd}}<div class="muted">{{date (deref .PeriodStart)}} to {{date (deref .PeriodEnd)}}</div>{{end}}{{end}}</td>
+      {{if .SAC}}<td>{{.SAC}}</td>{{end}}
+      <td class="n">{{inr .TaxableMinor}}</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    {{if .Intra}}
+    <tr><td colspan="{{if .SAC}}2{{else}}1{{end}}">CGST @ {{halfrate .GstRateBp}}%</td><td class="n">{{inr .CgstMinor}}</td></tr>
+    <tr><td colspan="{{if .SAC}}2{{else}}1{{end}}">SGST @ {{halfrate .GstRateBp}}%</td><td class="n">{{inr .SgstMinor}}</td></tr>
+    {{else}}
+    <tr><td colspan="{{if .SAC}}2{{else}}1{{end}}">IGST @ {{rate .GstRateBp}}%</td><td class="n">{{inr .IgstMinor}}</td></tr>
+    {{end}}
+    <tr class="total"><td colspan="{{if .SAC}}2{{else}}1{{end}}">Total (paid by card, UPI or netbanking through Razorpay)</td><td class="n">{{inr .TotalMinor}}</td></tr>
+  </tfoot>
+</table>
+
+<p class="muted">Payment reference {{.RazorpayPaymentID}}. This is a computer-generated invoice.</p>
+<button class="print" onclick="window.print()">Print or save as PDF</button>
+</body>
+</html>

@@ -1304,6 +1304,15 @@ type AuditLog struct {
 	OccurredAt time.Time
 }
 
+type BillingProfile struct {
+	TenantID  uuid.UUID
+	LegalName string
+	Gstin     *string
+	StateCode string
+	Address   string
+	UpdatedAt time.Time
+}
+
 type Campaign struct {
 	ID             uuid.UUID
 	TenantID       uuid.UUID
@@ -1420,6 +1429,32 @@ type Invite struct {
 	ExpiresAt  time.Time
 	AcceptedAt *time.Time
 	CreatedAt  time.Time
+}
+
+type Invoice struct {
+	ID                uuid.UUID
+	TenantID          uuid.UUID
+	Number            string
+	RazorpayPaymentID string
+	Description       string
+	PeriodStart       *time.Time
+	PeriodEnd         *time.Time
+	Sac               *string
+	TotalMinor        int64
+	TaxableMinor      int64
+	GstRateBp         int32
+	CgstMinor         int64
+	SgstMinor         int64
+	IgstMinor         int64
+	PlaceOfSupply     string
+	Seller            []byte
+	Buyer             []byte
+	IssuedAt          time.Time
+}
+
+type InvoiceCounter struct {
+	Fy   string
+	Last int32
 }
 
 type Medium struct {

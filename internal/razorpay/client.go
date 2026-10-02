@@ -109,6 +109,13 @@ type Subscription struct {
 	Notes        map[string]string `json:"notes"`
 }
 
+// Payment is the part of Razorpay's payment entity we use; Amount is in paise.
+type Payment struct {
+	ID       string `json:"id"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+}
+
 type NewSubscription struct {
 	PlanID     string
 	CustomerID string
@@ -190,5 +197,9 @@ type Event struct {
 		Subscription *struct {
 			Entity Subscription `json:"entity"`
 		} `json:"subscription"`
+		// Payment is set on subscription.charged: the charge this event is about.
+		Payment *struct {
+			Entity Payment `json:"entity"`
+		} `json:"payment"`
 	} `json:"payload"`
 }
