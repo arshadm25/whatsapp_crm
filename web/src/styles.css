@@ -211,3 +211,11 @@ fieldset.field input { font: inherit; padding: 0.55rem 0.7rem; border: 1px solid
 .key-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .key-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 0.4rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
 tr.muted td { color: var(--muted); }
+.event-picks { flex: 1 1 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.8rem 0.6rem; display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; }
+.event-picks legend { font-size: 0.9rem; padding: 0 0.3rem; }
+.check { display: flex; gap: 0.4rem; align-items: center; font-size: 0.9rem; }
+.endpoint { margin-bottom: 0.75rem; }
+.endpoint-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.endpoint-head code { overflow-wrap: anywhere; }
+.endpoint-head .actions { display: flex; gap: 0.6rem; align-items: center; }
+.endpoint .table-wrap { margin-top: 0.75rem; }

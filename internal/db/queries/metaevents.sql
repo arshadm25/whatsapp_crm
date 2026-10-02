@@ -71,17 +71,19 @@ WHERE id = @id AND message_status_rank(@status) > message_status_rank(status);
 INSERT INTO message_status_events (tenant_id, message_id, status, error_code, error_title, occurred_at, raw)
 VALUES ($1, $2, $3, $4, $5, $6, $7);
 
--- name: UpdateTemplateStatusByMetaID :execrows
+-- name: UpdateTemplateStatusByMetaID :many
 UPDATE templates
 SET status = @status, rejected_reason = @rejected_reason, status_updated_at = now(), updated_at = now()
-WHERE meta_template_id = @meta_template_id;
+WHERE meta_template_id = @meta_template_id
+RETURNING *;
 
--- name: UpdatePhoneLimitTierByDisplay :execrows
+-- name: UpdatePhoneLimitTierByDisplay :many
 UPDATE phone_numbers p
 SET messaging_limit_tier = @tier, updated_at = now()
 FROM whatsapp_accounts w
 WHERE w.id = p.whatsapp_account_id AND w.waba_id = @waba_id
-  AND regexp_replace(p.display_phone_number, '[^0-9]', '', 'g') = @display_digits::text;
+  AND regexp_replace(p.display_phone_number, '[^0-9]', '', 'g') = @display_digits::text
+RETURNING p.*;
 
 -- name: RevokeWhatsAppAccount :exec
 UPDATE whatsapp_accounts SET status = 'revoked', disconnected_at = now(), updated_at = now() WHERE id = $1;

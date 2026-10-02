@@ -20,7 +20,10 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
+	"github.com/arshadm25/whatsapp_crm/internal/messaging"
+	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
+	"github.com/arshadm25/whatsapp_crm/internal/webhooks"
 )
 
 // Processor is the River worker that applies one webhook delivery.
@@ -192,7 +195,7 @@ func (p *Processor) messages(ctx context.Context, entry Entry, raw json.RawMessa
 			}
 		}
 		for _, s := range v.Statuses {
-			if err := p.applyStatus(ctx, q, tenantID, phone, s); err != nil {
+			if err := p.applyStatus(ctx, q, tx, tenantID, phone, s); err != nil {
 				return err
 			}
 		}
@@ -254,6 +257,9 @@ func (p *Processor) storeMessage(ctx context.Context, q *dbq.Queries, tx pgx.Tx,
 	if err := p.queueMediaDownload(ctx, tx, tenantID, msgID, h); err != nil {
 		return err
 	}
+	if err := messaging.EmitEvent(ctx, q, tx, p.Jobs, tenantID, msgID, webhooks.MessageReceived); err != nil {
+		return err
+	}
 	if echo {
 		return q.TouchConversationOutbound(ctx, dbq.TouchConversationOutboundParams{ID: conv.ID, At: at, Preview: preview(h)})
 	}
@@ -267,15 +273,11 @@ func (p *Processor) queueMediaDownload(ctx context.Context, tx pgx.Tx, tenantID,
 	if ref == nil || ref.ID == "" {
 		return nil
 	}
-	ins := p.Jobs
-	if ins == nil {
-		c, err := river.ClientFromContextSafely[pgx.Tx](ctx)
-		if err != nil {
-			return err
-		}
-		ins = c
+	ins, err := jobs.From(ctx, p.Jobs)
+	if err != nil {
+		return err
 	}
-	_, err := ins.InsertTx(ctx, tx, media.DownloadArgs{
+	_, err = ins.InsertTx(ctx, tx, media.DownloadArgs{
 		TenantID: tenantID, MessageID: messageID, MetaMediaID: ref.ID, Filename: ref.Filename,
 	}, nil)
 	return err
@@ -283,7 +285,7 @@ func (p *Processor) queueMediaDownload(ctx context.Context, tx pgx.Tx, tenantID,
 
 // applyStatus records a delivery status for one of our outbound messages and moves the
 // message forward if the status ranks higher than its current one.
-func (p *Processor) applyStatus(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, phone dbq.PhoneNumber, s Status) error {
+func (p *Processor) applyStatus(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID, phone dbq.PhoneNumber, s Status) error {
 	st := dbq.MessageStatus(s.Status)
 	switch st {
 	case dbq.MessageStatusSent, dbq.MessageStatusDelivered, dbq.MessageStatusRead, dbq.MessageStatusFailed:
@@ -318,14 +320,19 @@ func (p *Processor) applyStatus(ctx context.Context, q *dbq.Queries, tenantID uu
 	if s.Pricing != nil {
 		params.PricingCategory, params.PricingBillable = nonEmpty(s.Pricing.Category), s.Pricing.Billable
 	}
-	if _, err := q.AdvanceMessageStatus(ctx, params); err != nil {
+	moved, err := q.AdvanceMessageStatus(ctx, params)
+	if err != nil {
 		return err
 	}
 	rawStatus, _ := json.Marshal(s)
-	return q.InsertMessageStatusEvent(ctx, dbq.InsertMessageStatusEventParams{
+	err = q.InsertMessageStatusEvent(ctx, dbq.InsertMessageStatusEventParams{
 		TenantID: tenantID, MessageID: msg.ID, Status: st, ErrorCode: code, ErrorTitle: title,
 		OccurredAt: unixTime(s.Timestamp, time.Now().UTC()), Raw: rawStatus,
 	})
+	if err != nil || moved == 0 {
+		return err
+	}
+	return messaging.EmitEvent(ctx, q, tx, p.Jobs, tenantID, msg.ID, webhooks.MessageStatus)
 }
 
 // statusWaitLimit bounds how long a status for an unknown wamid is retried.
@@ -350,9 +357,14 @@ func (p *Processor) templateStatus(ctx context.Context, entry Entry, raw json.Ra
 		reason = v.Reason
 	}
 	id := v.MessageTemplateID.String()
-	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, _ uuid.UUID) error {
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
 		// A template created outside Ecogo is not in our table yet; a template sync picks it up.
-		_, err := q.UpdateTemplateStatusByMetaID(ctx, dbq.UpdateTemplateStatusByMetaIDParams{Status: st, RejectedReason: reason, MetaTemplateID: &id})
+		rows, err := q.UpdateTemplateStatusByMetaID(ctx, dbq.UpdateTemplateStatusByMetaIDParams{Status: st, RejectedReason: reason, MetaTemplateID: &id})
+		for _, t := range rows {
+			if err == nil {
+				err = webhooks.Emit(ctx, q, tx, p.Jobs, tenantID, webhooks.TemplateStatus, nil, templates.View(t))
+			}
+		}
 		return err
 	})
 }
@@ -368,10 +380,15 @@ func (p *Processor) quality(ctx context.Context, entry Entry, raw json.RawMessag
 		}
 		return -1
 	}, v.DisplayPhoneNumber)
-	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, _ uuid.UUID) error {
-		_, err := q.UpdatePhoneLimitTierByDisplay(ctx, dbq.UpdatePhoneLimitTierByDisplayParams{
+	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
+		rows, err := q.UpdatePhoneLimitTierByDisplay(ctx, dbq.UpdatePhoneLimitTierByDisplayParams{
 			Tier: &v.CurrentLimit, WabaID: entry.ID, DisplayDigits: digits,
 		})
+		for _, ph := range rows {
+			if err == nil {
+				err = webhooks.Emit(ctx, q, tx, p.Jobs, tenantID, webhooks.NumberQuality, &ph.ID, numbers.View(ph, entry.ID))
+			}
+		}
 		return err
 	})
 }

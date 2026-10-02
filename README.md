@@ -13,9 +13,10 @@ contract in [`api/openapi.yaml`](api/openapi.yaml).
 | D1 Sign-up, login, sessions, email verification | Done (invites, roles screen and 2FA later) |
 | D2 Connect WhatsApp with Embedded Signup v4, standard and coexistence | Done |
 | D5 Phone numbers list (`GET /v1/phone-numbers`) | Done (profile and health sync later) |
-| Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import, client webhooks later) |
+| Meta webhook receiver (`ingest`) and event processing: inbound messages, statuses, template results, limit changes, access removal, coexistence echoes and contact sync | Done (history import later) |
 | Sending messages (`POST /v1/messages`): opt-out and 24-hour window checks, `Idempotency-Key`, send worker with Meta error mapping, `GET /v1/messages/{id}`, mark as read | Done (API keys later) |
-| D8 API keys: create, list and revoke on the Developers screen; `Authorization: Bearer eco_live_…` on every `/v1` endpoint, optionally limited to one number; 60 requests per second per key with `X-RateLimit-*` headers and 429 | Done (client webhooks next; sandbox keys later) |
+| D8 API keys: create, list and revoke on the Developers screen; `Authorization: Bearer eco_live_…` on every `/v1` endpoint, optionally limited to one number; 60 requests per second per key with `X-RateLimit-*` headers and 429 | Done (sandbox keys later) |
+| D8 client webhooks: `/v1/webhook-endpoints` with a signing secret shown once, `message.received`, `message.status`, `template.status` and `number.quality` events signed with `Ecogo-Signature`, retries for about 24 hours, delivery log with retry on the Developers screen | Done |
 | Media: `POST /v1/media` with WhatsApp's type and size limits, `GET /v1/media/{id}` with a 15-minute signed download link, sending uploaded files, copying inbound files from Meta into the MinIO bucket, attachments and previews in the inbox | Done |
 | D4 Templates: list, create and edit through Meta review, delete by name, sync from Meta (also at the end of onboarding) | Done |
 | Dashboard: Templates list and editor, Send a message test screen | Done |
@@ -38,6 +39,7 @@ internal/
   events/             live updates: Postgres LISTEN/NOTIFY to Server-Sent Events
   contacts/           D6: contact representation (more with the contacts slice)
   devportal/          D8: API keys and their authentication and rate limits
+  webhooks/           D8: client webhook endpoints, event outbox and signed deliveries
   metaclient/         the only package that calls Meta's Graph API
   metaevents/         Meta webhooks: signature check and enqueue (ingest), processing (worker)
   crypto/envelope/    AES-256-GCM envelope encryption for Meta tokens and PINs

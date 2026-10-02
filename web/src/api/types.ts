@@ -167,3 +167,31 @@ export interface APIKey {
 export interface CreatedAPIKey extends APIKey {
   key: string;
 }
+
+export type WebhookEventType = "message.received" | "message.status" | "template.status" | "number.quality";
+
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  description: string | null;
+  event_types: WebhookEventType[];
+  phone_number_id: string | null;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface CreatedWebhookEndpoint extends WebhookEndpoint {
+  secret: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  event_id: string;
+  event_type: WebhookEventType;
+  status: "pending" | "succeeded" | "retrying" | "dead";
+  attempt_count: number;
+  last_response_code: number | null;
+  last_error: string | null;
+  next_attempt_at: string | null;
+  created_at: string;
+}

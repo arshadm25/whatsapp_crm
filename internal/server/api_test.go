@@ -43,6 +43,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/storage"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
 	"github.com/arshadm25/whatsapp_crm/internal/testdb"
+	"github.com/arshadm25/whatsapp_crm/internal/webhooks"
 )
 
 // fakeMeta stands in for graph.facebook.com.
@@ -174,6 +175,8 @@ type harness struct {
 	events *metaevents.Processor
 	// downloader copies inbound media from Meta.
 	downloader *media.DownloadWorker
+	keys       *envelope.Keyring
+	log        *slog.Logger
 }
 
 func newHarness(t *testing.T) *harness {
@@ -218,18 +221,23 @@ func newHarness(t *testing.T) *harness {
 		Media:      media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
 		Developers: devportal.NewService(d, log),
 		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(5), log),
+		Webhooks:   webhooks.NewService(d, keys, rc, log),
 		Events:     hub,
 	})
 	api := httptest.NewServer(h)
 	t.Cleanup(api.Close)
 	proc := metaevents.NewProcessor(d, log)
 	proc.Jobs = rc
+	sender := messaging.NewWorker(d, keys, meta, media.NewUploader(store, meta), log)
+	sender.Jobs = rc
 	return &harness{
 		t: t, db: d, meta: fm, api: api,
 		worker:     onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
-		sender:     messaging.NewWorker(d, keys, meta, media.NewUploader(store, meta), log),
+		sender:     sender,
 		events:     proc,
 		downloader: media.NewDownloadWorker(d, keys, meta, store, log),
+		keys:       keys,
+		log:        log,
 	}
 }
 

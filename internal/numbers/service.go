@@ -46,7 +46,7 @@ type PhoneNumber struct {
 	LastSyncedAt       *time.Time `json:"last_synced_at"`
 }
 
-func view(p dbq.PhoneNumber, wabaID string) PhoneNumber {
+func View(p dbq.PhoneNumber, wabaID string) PhoneNumber {
 	v := PhoneNumber{
 		ID: p.ID, MetaPhoneNumberID: p.PhoneNumberID, WhatsappAccountID: p.WhatsappAccountID, WabaID: wabaID,
 		DisplayPhoneNumber: p.DisplayPhoneNumber, VerifiedName: p.VerifiedName, NameStatus: p.NameStatus,
@@ -66,7 +66,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		rows, err := q.ListPhoneNumbers(r.Context())
 		for _, row := range rows {
-			out = append(out, view(row.PhoneNumber, row.WabaID))
+			out = append(out, View(row.PhoneNumber, row.WabaID))
 		}
 		return err
 	})
@@ -86,7 +86,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 	var out PhoneNumber
 	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		row, err := q.GetPhoneNumber(r.Context(), id)
-		out = view(row.PhoneNumber, row.WabaID)
+		out = View(row.PhoneNumber, row.WabaID)
 		return err
 	})
 	if db.IsNotFound(err) {

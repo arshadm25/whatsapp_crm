@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers } from "../api/hooks";
 import type { APIKey, CreatedAPIKey } from "../api/types";
+import Webhooks from "../components/Webhooks";
 
 export default function Developers() {
   const { t } = useTranslation();
@@ -137,6 +138,7 @@ export default function Developers() {
           </table>
         </div>
       )}
+      <Webhooks />
     </section>
   );
 }
