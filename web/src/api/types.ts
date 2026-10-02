@@ -177,6 +177,7 @@ export interface APIKey {
   id: string;
   name: string;
   prefix: string;
+  mode: "live" | "sandbox";
   phone_number_id: string | null;
   last_used_at: string | null;
   revoked_at: string | null;

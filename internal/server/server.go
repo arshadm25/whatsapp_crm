@@ -90,6 +90,8 @@ func NewAPI(d APIDeps) http.Handler {
 	r.Route("/v1", func(r chi.Router) {
 		// Signed download links work without a session.
 		r.Get("/media/{id}/content", d.Media.Content())
+		r.Get("/openapi.yaml", devportal.OpenAPISpec)
+		r.Get("/docs", devportal.Docs)
 		r.Group(func(r chi.Router) {
 			// API keys for integrations; the dashboard's session cookie and CSRF token otherwise.
 			r.Use(d.Keys.Middleware(func(next http.Handler) http.Handler {

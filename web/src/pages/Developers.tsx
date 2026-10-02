@@ -19,6 +19,7 @@ export default function Developers() {
   });
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [mode, setMode] = useState<"live" | "sandbox">("live");
   const [created, setCreated] = useState<CreatedAPIKey | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,7 +30,7 @@ export default function Developers() {
     setBusy(true);
     setError("");
     try {
-      const k = await api<CreatedAPIKey>("POST", "/internal/developers/api-keys", { name, phone_number_id: phone || null });
+      const k = await api<CreatedAPIKey>("POST", "/internal/developers/api-keys", { name, phone_number_id: phone || null, mode });
       setCreated(k);
       setCopied(false);
       setName("");
@@ -72,6 +73,7 @@ export default function Developers() {
         <h1>{t("developers.title")}</h1>
       </div>
       <p className="muted">{t("developers.intro")}</p>
+      <p><a href="/v1/docs" target="_blank" rel="noreferrer">{t("developers.apiDocs")}</a></p>
 
       <h2>{t("developers.keys")}</h2>
       {created && (
@@ -98,6 +100,13 @@ export default function Developers() {
             ))}
           </select>
         </label>
+        <label className="field">
+          {t("developers.mode")}
+          <select value={mode} onChange={(e) => setMode(e.target.value as "live" | "sandbox")}>
+            <option value="live">{t("developers.modeLive")}</option>
+            <option value="sandbox">{t("developers.modeSandbox")}</option>
+          </select>
+        </label>
         <div className="actions">
           <button className="primary" disabled={busy || !name.trim()}>{t("developers.create")}</button>
         </div>
@@ -121,7 +130,7 @@ export default function Developers() {
               {keys.data.map((k) => (
                 <tr key={k.id} className={k.revoked_at ? "muted" : ""}>
                   <td>{k.name}</td>
-                  <td><code>{k.prefix}…</code></td>
+                  <td><code>{k.prefix}…</code> {k.mode === "sandbox" && <span className="pill">{t("developers.sandbox")}</span>}</td>
                   <td>{numberLabel(k.phone_number_id)}</td>
                   <td>{when(k.last_used_at)}</td>
                   <td>{when(k.created_at)}</td>

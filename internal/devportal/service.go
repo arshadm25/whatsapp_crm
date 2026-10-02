@@ -37,6 +37,7 @@ type APIKey struct {
 	ID            uuid.UUID  `json:"id"`
 	Name          string     `json:"name"`
 	Prefix        string     `json:"prefix"`
+	Mode          string     `json:"mode"`
 	PhoneNumberID *uuid.UUID `json:"phone_number_id"`
 	LastUsedAt    *time.Time `json:"last_used_at"`
 	RevokedAt     *time.Time `json:"revoked_at"`
@@ -44,7 +45,7 @@ type APIKey struct {
 }
 
 func keyView(k dbq.ApiKey) APIKey {
-	return APIKey{ID: k.ID, Name: k.Name, Prefix: k.Prefix, PhoneNumberID: k.PhoneNumberID,
+	return APIKey{ID: k.ID, Name: k.Name, Prefix: k.Prefix, Mode: string(k.Mode), PhoneNumberID: k.PhoneNumberID,
 		LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt, CreatedAt: k.CreatedAt}
 }
 
@@ -76,6 +77,7 @@ func (s *Service) createKey(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
 		Name          string     `json:"name"`
 		PhoneNumberID *uuid.UUID `json:"phone_number_id"`
+		Mode          string     `json:"mode"`
 	}
 	if err := httpx.Decode(r, &req); err != nil {
 		return err
@@ -84,7 +86,15 @@ func (s *Service) createKey(w http.ResponseWriter, r *http.Request) error {
 	if req.Name == "" || utf8.RuneCountInString(req.Name) > 80 {
 		return httpx.BadRequest("name", "Give the key a name of up to 80 characters, such as the system that will use it.")
 	}
-	key, prefix, hash := newKey()
+	mode := dbq.ApiKeyModeLive
+	switch req.Mode {
+	case "", "live":
+	case "sandbox":
+		mode = dbq.ApiKeyModeSandbox
+	default:
+		return httpx.BadRequest("mode", "Mode must be live or sandbox.")
+	}
+	key, prefix, hash := newKey(mode)
 	var k dbq.ApiKey
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		if req.PhoneNumberID != nil {
@@ -98,7 +108,7 @@ func (s *Service) createKey(w http.ResponseWriter, r *http.Request) error {
 		var err error
 		k, err = q.InsertAPIKey(r.Context(), dbq.InsertAPIKeyParams{
 			ID: db.NewID(), TenantID: p.TenantID, Name: req.Name, Prefix: prefix, KeyHash: hash,
-			Mode: dbq.ApiKeyModeLive, PhoneNumberID: req.PhoneNumberID, CreatedBy: p.User(),
+			Mode: mode, PhoneNumberID: req.PhoneNumberID, CreatedBy: p.User(),
 		})
 		return err
 	})

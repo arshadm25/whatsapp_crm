@@ -31,6 +31,8 @@ type Principal struct {
 	Role      dbq.MemberRole
 
 	APIKeyID uuid.UUID // set when the request used an API key
+	// Sandbox marks an eco_test_ key: it may build requests, but nothing reaches Meta or is stored.
+	Sandbox bool
 	// KeyPhoneNumberID limits an API key to one phone number.
 	KeyPhoneNumberID *uuid.UUID
 

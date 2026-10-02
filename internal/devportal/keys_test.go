@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 )
 
 func TestNewKey(t *testing.T) {
-	k1, p1, h1 := newKey()
-	k2, _, _ := newKey()
+	k1, p1, h1 := newKey(dbq.ApiKeyModeLive)
+	k2, _, _ := newKey(dbq.ApiKeyModeLive)
 	if k1 == k2 || !strings.HasPrefix(k1, p1) || len(p1) != len("eco_live_")+4 || string(h1) != string(hashKey(k1)) {
 		t.Fatalf("keys %q %q prefix %q", k1, k2, p1)
 	}
@@ -36,5 +38,12 @@ func TestLimiter(t *testing.T) {
 	now = now.Add(500 * time.Millisecond)
 	if ok, _, _ := l.Take(k); !ok {
 		t.Fatal("token not refilled")
+	}
+}
+
+func TestNewSandboxKey(t *testing.T) {
+	k, p, _ := newKey(dbq.ApiKeyModeSandbox)
+	if !strings.HasPrefix(k, "eco_test_") || !strings.HasPrefix(k, p) {
+		t.Fatalf("key %q prefix %q", k, p)
 	}
 }

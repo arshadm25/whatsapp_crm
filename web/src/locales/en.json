@@ -290,7 +290,12 @@
     "delivery_pending": "Pending",
     "delivery_succeeded": "Delivered",
     "delivery_retrying": "Retrying",
-    "delivery_dead": "Failed"
+    "delivery_dead": "Failed",
+    "mode": "Key type",
+    "modeLive": "Live (sends real messages)",
+    "modeSandbox": "Sandbox (test only, sends nothing)",
+    "sandbox": "Sandbox",
+    "apiDocs": "API documentation"
   },
   "contacts": {
     "title": "Contacts",
