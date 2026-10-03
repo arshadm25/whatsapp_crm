@@ -37,7 +37,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/minio:latest
+          image: ghcr.io/arshadm25/minio:mirror   # copy made by deploy/ecogo-mirror-minio.sh; quay.io/minio is gone
           args: [server, /data, --console-address, ":9001"]
           env:
             - { name: MINIO_ROOT_USER, valueFrom: { secretKeyRef: { name: minio-root, key: user } } }
