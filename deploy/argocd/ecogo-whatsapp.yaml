@@ -1,0 +1,56 @@
+# Argo CD deploys the production branch, which CI moves to every green commit of main
+# (.github/workflows/ci.yml, job release). Applied once by deploy/ecogo-argocd-setup.sh, which
+# fills valuesObject with the live release's values; change settings later by patching the
+# Application (see the README), not with helm upgrade.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ecogo-whatsapp
+  namespace: argocd
+spec:
+  description: Ecogo WhatsApp platform. Deploys only into the ecogo-whatsapp namespace.
+  sourceRepos:
+    - https://github.com/arshadm25/whatsapp_crm.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: ecogo-whatsapp
+  # Nothing cluster-wide: the chart has only namespaced resources.
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecogo-whatsapp
+  namespace: argocd
+  # No resources-finalizer: deleting this Application leaves the running app and its database alone.
+spec:
+  project: ecogo-whatsapp
+  source:
+    repoURL: https://github.com/arshadm25/whatsapp_crm.git
+    targetRevision: production
+    path: deploy/helm/ecogo-whatsapp
+    helm:
+      releaseName: ecogo-whatsapp
+      # Images are tagged with the commit they were built from, the same commit production points at.
+      parameters:
+        - name: image.tag
+          value: $ARGOCD_APP_REVISION
+          forceString: true
+        - name: webImage.tag
+          value: $ARGOCD_APP_REVISION
+          forceString: true
+      valuesObject: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ecogo-whatsapp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    # The migrate Job is a PreSync hook: when it fails, the sync stops and the old pods keep serving.
+    retry:
+      limit: 3
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

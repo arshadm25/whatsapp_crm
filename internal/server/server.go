@@ -175,6 +175,7 @@ func health(r chi.Router, d *db.DB, m *metrics.Metrics) {
 func publicConfig(c *config.Config) http.HandlerFunc {
 	body := map[string]any{
 		"environment": c.Env,
+		"version":     c.Version,
 		"meta": map[string]string{
 			"app_id":            c.Meta.AppID,
 			"config_id":         c.Meta.ConfigID,

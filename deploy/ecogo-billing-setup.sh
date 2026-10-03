@@ -22,18 +22,24 @@ unset RZP_ID RZP_SECRET RZP_HOOK
 read "GSTIN?Seller GSTIN (15 characters): "
 read "SAC?SAC code printed on invoices (ask your accountant, often 998439 or 998314): "
 read "ADDR?Registered address printed on invoices (one line): "
-VALS=$(mktemp)
-q() { printf "%s" "$1" | sed "s/'/''/g"; }
-cat > "$VALS" <<YAML
+if k -n argocd get application ecogo-whatsapp >/dev/null 2>&1; then
+  # Argo CD owns the release (deploy/ecogo-argocd-setup.sh): change its values; it rolls the pods.
+  j() { printf "%s" "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+  k -n argocd patch application ecogo-whatsapp --type merge -p "{\"spec\":{\"source\":{\"helm\":{\"valuesObject\":{\"config\":{\"sellerGstin\":\"$(j "$GSTIN")\",\"sellerSac\":\"$(j "$SAC")\",\"sellerAddress\":\"$(j "$ADDR")\"}}}}}}"
+else
+  VALS=$(mktemp)
+  q() { printf "%s" "$1" | sed "s/'/''/g"; }
+  cat > "$VALS" <<YAML
 config:
   sellerGstin: '$(q "$GSTIN")'
   sellerSac: '$(q "$SAC")'
   sellerAddress: '$(q "$ADDR")'
 YAML
-cd "$(dirname "$0")/.."
-h upgrade ecogo-whatsapp deploy/helm/ecogo-whatsapp -n $NS --reuse-values -f "$VALS"
-rm -f "$VALS"
-k -n $NS rollout restart deploy/ecogo-whatsapp-api deploy/ecogo-whatsapp-worker
+  cd "$(dirname "$0")/.."
+  h upgrade ecogo-whatsapp deploy/helm/ecogo-whatsapp -n $NS --reuse-values -f "$VALS"
+  rm -f "$VALS"
+  k -n $NS rollout restart deploy/ecogo-whatsapp-api deploy/ecogo-whatsapp-worker
+fi
 
 cat <<'TXT'
 

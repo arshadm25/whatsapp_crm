@@ -92,3 +92,32 @@ jobs:
           context: web
           push: ${{ github.event_name == 'push' }}
           tags: ghcr.io/${{ github.repository }}-web:${{ github.sha }}
+
+  # Every green build of main moves the production branch to its commit. Argo CD in the cluster
+  # deploys whatever production points at (deploy/argocd), so nothing here holds cluster
+  # credentials. Rollbacks and redeploys use the Deploy workflow.
+  release:
+    if: github.event_name == 'push'
+    needs: [images]
+    runs-on: ubuntu-latest
+    concurrency: { group: production, cancel-in-progress: false }
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Move production to this commit
+        id: move
+        run: |
+          # Only move forward: a slower run for an older commit must not undo a newer deploy.
+          if git fetch -q origin production && ! git merge-base --is-ancestor FETCH_HEAD "$GITHUB_SHA"; then
+            echo "production is at $(git rev-parse FETCH_HEAD), which is not behind $GITHUB_SHA; leaving it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git push origin "$GITHUB_SHA:refs/heads/production"
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+          echo "production -> $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Wait until production serves this commit
+        if: steps.move.outputs.moved == 'true' && vars.PRODUCTION_URL != ''
+        run: deploy/argocd/wait-for-version.sh "${{ vars.PRODUCTION_URL }}" "$GITHUB_SHA"

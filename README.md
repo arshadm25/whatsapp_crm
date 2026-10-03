@@ -120,6 +120,25 @@ for decryption during rotation.
 
 ## Deploying
 
+Production deploys itself. Every green build of `main` moves the `production` branch to that
+commit (CI job `release`), and Argo CD in the cluster syncs `deploy/helm/ecogo-whatsapp` from
+`production` with both images tagged by the same commit (`deploy/argocd/ecogo-whatsapp.yaml`).
+GitHub holds no cluster credentials. The migrate Job is a PreSync hook: if a migration fails the
+sync stops and the running pods stay on the previous version. With the repository variable
+`PRODUCTION_URL` set, CI then waits until `/internal/config` reports the new commit and goes red
+if it never does.
+
+* **Roll back or redeploy:** Actions > Deploy > Run workflow, with the commit to put live
+  (blank = latest `main`). Migrations are not undone, so a rollback must be to code that works
+  with the newer schema. The next merge to `main` deploys again, so fix or revert on `main` first.
+* **Change a setting** (production values live in the Argo CD Application, not in this repo):
+  `kubectl -n argocd patch application ecogo-whatsapp --type merge -p
+  '{"spec":{"source":{"helm":{"valuesObject":{"config":{"logLevel":"debug"}}}}}}'`.
+  Do not run `helm upgrade` on the release any more; Argo CD would undo it.
+* **First-time switch** from a Helm-managed release: `deploy/ecogo-argocd-setup.sh`.
+
+A staging release (not automated) can still be installed by hand:
+
 ```sh
 helm upgrade --install ecogo-whatsapp-staging deploy/helm/ecogo-whatsapp \
   -n ecogo-whatsapp-staging --set environment=staging \
