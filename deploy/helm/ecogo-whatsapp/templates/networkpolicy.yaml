@@ -116,5 +116,9 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: cloudnative-pg
+        # The Barman Cloud plugin runs in the operator's namespace.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
 {{- end }}
 {{- end }}

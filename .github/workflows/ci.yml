@@ -65,6 +65,15 @@ jobs:
           echo 'config: {metaAppId: 887891217083520}' > /tmp/ids.yaml
           helm template ci deploy/helm/ecogo-whatsapp -f /tmp/ids.yaml \
             | grep -A1 ECOGO_META_APP_ID | grep -q '"887891217083520"'
+      # Backups render for both methods; the default stays the built-in one until the plugin is installed.
+      - run: |
+          echo 'postgres: {cnpg: {backup: {enabled: true}}}' > /tmp/old.yaml
+          echo 'postgres: {cnpg: {backup: {enabled: true, method: plugin}}}' > /tmp/plugin.yaml
+          helm template ci deploy/helm/ecogo-whatsapp -f /tmp/old.yaml | grep -q barmanObjectStore
+          helm template ci deploy/helm/ecogo-whatsapp -f /tmp/plugin.yaml > /tmp/plugin-out.yaml
+          grep -q 'kind: ObjectStore' /tmp/plugin-out.yaml
+          grep -q 'method: plugin' /tmp/plugin-out.yaml
+          ! grep -q barmanObjectStore: /tmp/plugin-out.yaml
 
   # Images are pushed to GitHub Container Registry on main only.
   images:

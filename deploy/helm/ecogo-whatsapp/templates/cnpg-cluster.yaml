@@ -1,5 +1,7 @@
 {{- if .Values.postgres.cnpg.enabled }}
 {{- $pg := .Values.postgres.cnpg }}
+{{- /* --reuse-values keeps no entry for a key added later, so fall back to the default here. */}}
+{{- $method := $pg.backup.method | default "barmanObjectStore" }}
 # PostgreSQL 16 via the CloudNativePG operator: a primary and a streaming replica with
 # automatic failover. ecogo_owner owns the schema (BYPASSRLS for the lookup functions);
 # ecogo_app is what the services use and is subject to row-level security.
@@ -41,7 +43,15 @@ spec:
         bypassrls: false
         passwordSecret:
           name: {{ $pg.appSecret }}
-  {{- if $pg.backup.enabled }}
+  {{- if and $pg.backup.enabled (eq $method "plugin") }}
+  # Backups and WAL archiving go through the Barman Cloud plugin (operator namespace cnpg-system).
+  # The old in-tree barmanObjectStore is deprecated and removed in CloudNativePG 1.31.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ .Release.Name }}-pg-backup
+  {{- else if $pg.backup.enabled }}
   backup:
     retentionPolicy: {{ $pg.backup.retentionPolicy }}
     barmanObjectStore:
@@ -59,6 +69,34 @@ spec:
       data:
         encryption: {{ . }}
       {{- end }}
+  {{- end }}
+{{- if $pg.backup.enabled }}
+{{- if eq $method "plugin" }}
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ .Release.Name }}-pg-backup
+  labels:
+    {{- include "ecogo.labels" . | nindent 4 }}
+spec:
+  retentionPolicy: {{ $pg.backup.retentionPolicy | quote }}
+  configuration:
+    destinationPath: {{ $pg.backup.destinationPath }}
+    endpointURL: {{ $pg.backup.endpointURL }}
+    s3Credentials:
+      accessKeyId: { name: {{ $pg.backup.credentialsSecret }}, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: {{ $pg.backup.credentialsSecret }}, key: ACCESS_SECRET_KEY }
+    wal:
+      compression: gzip
+      {{- with $pg.backup.encryption }}
+      encryption: {{ . }}
+      {{- end }}
+    {{- with $pg.backup.encryption }}
+    data:
+      encryption: {{ . }}
+    {{- end }}
+{{- end }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
@@ -66,7 +104,12 @@ metadata:
   name: {{ .Release.Name }}-pg-nightly
 spec:
   schedule: "0 0 2 * * *"
+  {{- if eq $method "plugin" }}
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  {{- end }}
   cluster:
     name: {{ .Release.Name }}-pg
-  {{- end }}
+{{- end }}
 {{- end }}
