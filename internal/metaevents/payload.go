@@ -3,7 +3,8 @@
 // The ingest deployment only verifies the X-Hub-Signature-256 header and enqueues the raw
 // payload as one River job, so Meta always gets a fast 200. The worker routes each change to
 // its tenant and applies it: inbound messages, delivery statuses, template review results,
-// number limit changes, account removal, and the coexistence echoes and contact sync.
+// number limit changes, account removal, and the coexistence echoes, contact sync and chat
+// history import.
 package metaevents
 
 import (
@@ -174,6 +175,39 @@ type StateSyncValue struct {
 			PhoneNumber string `json:"phone_number"`
 		} `json:"contact"`
 	} `json:"state_sync"`
+}
+
+// HistoryValue is the value of "history": chat history a coexistence number's WhatsApp Business
+// app shares after onboarding, sent in chunks. Each thread is one customer's chat; its messages
+// are the customer's and the business's, oldest first. A business that declines to share history
+// gets one entry with errors and no threads.
+type HistoryValue struct {
+	Metadata struct {
+		PhoneNumberID string `json:"phone_number_id"`
+	} `json:"metadata"`
+	History []struct {
+		Metadata struct {
+			Phase      int `json:"phase"`
+			ChunkOrder int `json:"chunk_order"`
+			Progress   int `json:"progress"`
+		} `json:"metadata"`
+		Threads []struct {
+			ID       string            `json:"id"` // the customer's WhatsApp ID
+			Messages []json.RawMessage `json:"messages"`
+		} `json:"threads"`
+		Errors []struct {
+			Code    int    `json:"code"`
+			Title   string `json:"title"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	} `json:"history"`
+}
+
+// HistoryContext is the "history_context" of a history message: its delivery status at sync time.
+type HistoryContext struct {
+	HistoryContext *struct {
+		Status string `json:"status"` // PENDING, SENT, DELIVERED, READ, PLAYED, ERROR
+	} `json:"history_context"`
 }
 
 // unixTime parses Meta's string Unix timestamps; it returns fallback when the value is missing.

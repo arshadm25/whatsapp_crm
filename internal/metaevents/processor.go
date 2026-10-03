@@ -152,9 +152,9 @@ func (p *Processor) apply(ctx context.Context, entry Entry, change Change) error
 		return p.stateSync(ctx, entry, change.Value)
 	case "flows":
 		return p.flowStatus(ctx, entry, change.Value)
+	case "history":
+		return p.history(ctx, entry, change.Value)
 	default:
-		// history (coexistence chat import) and other fields are stored in meta_webhook_events
-		// and applied by later slices.
 		p.log.Info("meta event: field not handled yet", "field", change.Field, "waba_id", entry.ID)
 		return nil
 	}
@@ -559,6 +559,110 @@ func (p *Processor) accountUpdate(ctx context.Context, entry Entry, raw json.Raw
 			WhatsappAccountID: acct.ID, Status: dbq.ConnectionStatusRevoked,
 		})
 	})
+}
+
+// history imports a coexistence number's earlier chats into the inbox. Imported messages are
+// past events: they do not count as unread, reopen a conversation, run bots or keywords, or go
+// to the client's webhooks. A wamid we already hold (from a live webhook) is skipped.
+func (p *Processor) history(ctx context.Context, entry Entry, raw json.RawMessage) error {
+	var v HistoryValue
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return p.inTenant(ctx, v.Metadata.PhoneNumberID, entry.ID, func(q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID) error {
+		phone, err := q.GetPhoneNumberByMetaID(ctx, v.Metadata.PhoneNumberID)
+		if db.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		for _, chunk := range v.History {
+			for _, e := range chunk.Errors {
+				p.log.Warn("meta event: chat history not shared", "phone_number_id", v.Metadata.PhoneNumberID, "code", e.Code, "title", e.Title)
+			}
+			for _, th := range chunk.Threads {
+				if !waID.MatchString(th.ID) {
+					continue
+				}
+				for _, m := range th.Messages {
+					if err := p.storeHistoryMessage(ctx, q, tx, tenantID, phone, th.ID, m); err != nil {
+						return err
+					}
+				}
+			}
+			p.log.Info("meta event: chat history imported", "phone_number_id", v.Metadata.PhoneNumberID,
+				"phase", chunk.Metadata.Phase, "chunk", chunk.Metadata.ChunkOrder, "progress", chunk.Metadata.Progress, "threads", len(chunk.Threads))
+		}
+		return nil
+	})
+}
+
+func (p *Processor) storeHistoryMessage(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID, phone dbq.PhoneNumber,
+	customer string, raw json.RawMessage) error {
+	var h MessageHeader
+	if err := json.Unmarshal(raw, &h); err != nil || h.ID == "" {
+		return nil
+	}
+	var hc HistoryContext
+	_ = json.Unmarshal(raw, &hc)
+	at := unixTime(h.Timestamp, time.Now().UTC())
+	inbound := h.From == customer
+	direction, origin, status := dbq.MessageDirectionInbound, dbq.MessageOriginCustomer, dbq.MessageStatusReceived
+	if !inbound {
+		direction, origin, status = dbq.MessageDirectionOutbound, dbq.MessageOriginPhoneApp, dbq.MessageStatusSent
+		if hc.HistoryContext != nil {
+			status = historyStatus(hc.HistoryContext.Status)
+		}
+	}
+
+	contact, err := q.UpsertContactFromWhatsApp(ctx, dbq.UpsertContactFromWhatsAppParams{ID: db.NewID(), TenantID: tenantID, WaID: customer})
+	if err != nil {
+		return err
+	}
+	conv, err := q.UpsertConversation(ctx, dbq.UpsertConversationParams{
+		ID: db.NewID(), TenantID: tenantID, PhoneNumberID: phone.ID, ContactID: contact.ID,
+	})
+	if err != nil {
+		return err
+	}
+	typ := dbq.MessageType(h.Type)
+	if !typ.Valid() {
+		typ = dbq.MessageTypeUnsupported
+	}
+	var replyTo *string
+	if h.Context != nil {
+		replyTo = nonEmpty(h.Context.ID)
+	}
+	msgID, err := q.InsertWhatsAppMessage(ctx, dbq.InsertWhatsAppMessageParams{
+		ID: db.NewID(), TenantID: tenantID, ConversationID: conv.ID, PhoneNumberID: phone.ID, ContactID: contact.ID,
+		Direction: direction, Origin: origin, Wamid: &h.ID, Type: typ, Content: raw,
+		ReplyToWamid: replyTo, Status: status, MetaTimestamp: &at,
+	})
+	if db.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := p.queueMediaDownload(ctx, tx, tenantID, msgID, h); err != nil {
+		return err
+	}
+	return q.TouchConversationHistory(ctx, dbq.TouchConversationHistoryParams{ID: conv.ID, At: at, Preview: preview(h), Inbound: inbound})
+}
+
+// historyStatus maps a history message's status to ours; anything unknown counts as sent.
+func historyStatus(s string) dbq.MessageStatus {
+	switch strings.ToUpper(s) {
+	case "DELIVERED":
+		return dbq.MessageStatusDelivered
+	case "READ", "PLAYED":
+		return dbq.MessageStatusRead
+	case "ERROR":
+		return dbq.MessageStatusFailed
+	default:
+		return dbq.MessageStatusSent
+	}
 }
 
 // stateSync imports contacts from a coexistence number's WhatsApp Business app. Removals are

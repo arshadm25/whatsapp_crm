@@ -56,6 +56,19 @@ SET last_message_at = greatest(coalesce(last_message_at, @at::timestamptz), @at:
     updated_at = now()
 WHERE id = @id;
 
+-- name: TouchConversationHistory :exec
+-- Records an imported history message: it moves the last-message time and preview forward,
+-- and an inbound one the 24-hour window, but leaves unread count and status alone.
+UPDATE conversations
+SET last_inbound_at = CASE WHEN @inbound::boolean
+                           THEN greatest(coalesce(last_inbound_at, @at::timestamptz), @at::timestamptz)
+                           ELSE last_inbound_at END,
+    last_message_at = greatest(coalesce(last_message_at, @at::timestamptz), @at::timestamptz),
+    last_message_preview = CASE WHEN last_message_at IS NULL OR last_message_at <= @at::timestamptz
+                                THEN @preview::text ELSE last_message_preview END,
+    updated_at = now()
+WHERE id = @id;
+
 -- name: GetMessageByWamid :one
 SELECT * FROM messages WHERE wamid = $1;
 
