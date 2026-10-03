@@ -205,7 +205,11 @@ function Progress({ id, onRestart }: { id: string; onRestart: () => void }) {
                 <div key={step} className={cls}>
                   <span className="dot">{cls === "done" ? <Icon name="check" size="xs" /> : cls === "failed" ? <Icon name="x" size="xs" /> : i + 1}</span>
                   <b>{t(`connect.steps.${step}`)}</b>
-                  <span className="muted">{state}</span>
+                  <span className="muted">
+                    {cls === "done" && s.step_times?.[step]
+                      ? t("connect.doneAt", { time: new Date(s.step_times[step]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })
+                      : state}
+                  </span>
                 </div>
               );
             })}

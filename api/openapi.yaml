@@ -1952,6 +1952,21 @@ components:
         is_coexistence: { type: boolean }
         status: { type: string, enum: [pending, connected, disconnected, revoked, error] }
         last_synced_at: { type: [string, 'null'], format: date-time }
+        registered_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the number was registered with the Cloud API.
+        previous_quality_rating: { type: [string, 'null'], enum: [green, yellow, red, unknown, null] }
+        quality_changed_at: { type: [string, 'null'], format: date-time }
+        quality_dropped:
+          type: boolean
+          description: The quality rating fell (green to yellow or red, yellow to red) in the last 7 days.
+        daily_limit:
+          type: integer
+          description: The messaging limit in customers per 24 hours; -1 when unlimited. List and GET only.
+        limit_used_today:
+          type: integer
+          description: Customers this number sent a template in the last 24 hours. List and GET only.
 
     BusinessProfile:
       type: object

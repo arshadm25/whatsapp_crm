@@ -1721,6 +1721,7 @@ type OnboardingSession struct {
 	Attempts      int32
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	StepTimes     []byte
 }
 
 type PhoneNumber struct {
@@ -1742,6 +1743,8 @@ type PhoneNumber struct {
 	LastSyncedAt           *time.Time
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	PreviousQualityRating  *QualityRating
+	QualityChangedAt       *time.Time
 }
 
 type Plan struct {

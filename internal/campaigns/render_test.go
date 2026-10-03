@@ -67,12 +67,3 @@ func TestCheckVariables(t *testing.T) {
 		t.Error("location header accepted")
 	}
 }
-
-func TestDailyLimit(t *testing.T) {
-	s := func(v string) *string { return &v }
-	for tier, want := range map[*string]int32{nil: 250, s("TIER_2K"): 2000, s("TIER_UNLIMITED"): -1, s("TIER_NEW"): 250} {
-		if got := dailyLimit(tier); got != want {
-			t.Errorf("dailyLimit(%v) = %d, want %d", tier, got, want)
-		}
-	}
-}

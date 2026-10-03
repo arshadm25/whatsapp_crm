@@ -38,6 +38,8 @@ export interface OnboardingSession {
   attempts: number;
   created_at: string;
   updated_at: string;
+  // When the session first reached each step.
+  step_times?: Record<string, string>;
 }
 
 export interface PhoneNumber {
@@ -53,6 +55,14 @@ export interface PhoneNumber {
   is_coexistence: boolean;
   status: "pending" | "connected" | "disconnected" | "revoked" | "error";
   last_synced_at: string | null;
+  registered_at?: string | null;
+  previous_quality_rating?: PhoneNumber["quality_rating"] | null;
+  quality_changed_at?: string | null;
+  // True when the rating fell in the last 7 days.
+  quality_dropped?: boolean;
+  // Messaging limit (-1 for unlimited) and customers sent a template in the last 24 hours.
+  daily_limit?: number;
+  limit_used_today?: number;
 }
 
 export interface BusinessProfile {

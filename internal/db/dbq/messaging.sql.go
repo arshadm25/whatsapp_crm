@@ -215,7 +215,7 @@ func (q *Queries) GetMessageView(ctx context.Context, id uuid.UUID) (GetMessageV
 }
 
 const getSendingNumber = `-- name: GetSendingNumber :one
-SELECT p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at, w.id, w.tenant_id, w.waba_id, w.business_id, w.name, w.currency, w.timezone_id, w.onboarding_flow, w.status, w.webhooks_subscribed_at, w.connected_at, w.disconnected_at, w.created_at, w.updated_at, w.credit_line_allocation_id, w.credit_line_attached_at, w.credit_line_error
+SELECT p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at, p.previous_quality_rating, p.quality_changed_at, w.id, w.tenant_id, w.waba_id, w.business_id, w.name, w.currency, w.timezone_id, w.onboarding_flow, w.status, w.webhooks_subscribed_at, w.connected_at, w.disconnected_at, w.created_at, w.updated_at, w.credit_line_allocation_id, w.credit_line_attached_at, w.credit_line_error
 FROM phone_numbers p JOIN whatsapp_accounts w ON w.id = p.whatsapp_account_id
 WHERE p.id = $1
 `
@@ -247,6 +247,8 @@ func (q *Queries) GetSendingNumber(ctx context.Context, id uuid.UUID) (GetSendin
 		&i.PhoneNumber.LastSyncedAt,
 		&i.PhoneNumber.CreatedAt,
 		&i.PhoneNumber.UpdatedAt,
+		&i.PhoneNumber.PreviousQualityRating,
+		&i.PhoneNumber.QualityChangedAt,
 		&i.WhatsappAccount.ID,
 		&i.WhatsappAccount.TenantID,
 		&i.WhatsappAccount.WabaID,

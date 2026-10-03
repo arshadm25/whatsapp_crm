@@ -22,7 +22,7 @@ func (q *Queries) DisconnectPhoneNumber(ctx context.Context, id uuid.UUID) error
 }
 
 const getPhoneNumber = `-- name: GetPhoneNumber :one
-SELECT p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at, w.waba_id
+SELECT p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at, p.previous_quality_rating, p.quality_changed_at, w.waba_id
 FROM phone_numbers p JOIN whatsapp_accounts w ON w.id = p.whatsapp_account_id
 WHERE p.id = $1
 `
@@ -54,13 +54,15 @@ func (q *Queries) GetPhoneNumber(ctx context.Context, id uuid.UUID) (GetPhoneNum
 		&i.PhoneNumber.LastSyncedAt,
 		&i.PhoneNumber.CreatedAt,
 		&i.PhoneNumber.UpdatedAt,
+		&i.PhoneNumber.PreviousQualityRating,
+		&i.PhoneNumber.QualityChangedAt,
 		&i.WabaID,
 	)
 	return i, err
 }
 
 const listPhoneNumbers = `-- name: ListPhoneNumbers :many
-SELECT p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at, w.waba_id
+SELECT p.id, p.tenant_id, p.whatsapp_account_id, p.phone_number_id, p.display_phone_number, p.verified_name, p.name_status, p.quality_rating, p.messaging_limit_tier, p.code_verification_status, p.is_coexistence, p.registered_at, p.two_step_pin_enc, p.status, p.business_profile, p.last_synced_at, p.created_at, p.updated_at, p.previous_quality_rating, p.quality_changed_at, w.waba_id
 FROM phone_numbers p JOIN whatsapp_accounts w ON w.id = p.whatsapp_account_id
 ORDER BY p.created_at
 `
@@ -98,6 +100,8 @@ func (q *Queries) ListPhoneNumbers(ctx context.Context) ([]ListPhoneNumbersRow, 
 			&i.PhoneNumber.LastSyncedAt,
 			&i.PhoneNumber.CreatedAt,
 			&i.PhoneNumber.UpdatedAt,
+			&i.PhoneNumber.PreviousQualityRating,
+			&i.PhoneNumber.QualityChangedAt,
 			&i.WabaID,
 		); err != nil {
 			return nil, err
@@ -108,4 +112,95 @@ func (q *Queries) ListPhoneNumbers(ctx context.Context) ([]ListPhoneNumbersRow, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const numbersUsageToday = `-- name: NumbersUsageToday :many
+SELECT phone_number_id, count(DISTINCT contact_id)::int AS used FROM messages
+WHERE direction = 'outbound' AND type = 'template' AND status <> 'failed'
+  AND created_at > now() - interval '24 hours'
+GROUP BY phone_number_id
+`
+
+type NumbersUsageTodayRow struct {
+	PhoneNumberID uuid.UUID
+	Used          int32
+}
+
+// Distinct customers each number sent a template in the last 24 hours: what Meta's messaging
+// limit counts.
+func (q *Queries) NumbersUsageToday(ctx context.Context) ([]NumbersUsageTodayRow, error) {
+	rows, err := q.db.Query(ctx, numbersUsageToday)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NumbersUsageTodayRow
+	for rows.Next() {
+		var i NumbersUsageTodayRow
+		if err := rows.Scan(&i.PhoneNumberID, &i.Used); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updatePhoneNumberFromMeta = `-- name: UpdatePhoneNumberFromMeta :one
+UPDATE phone_numbers
+SET display_phone_number = $1, verified_name = $2,
+    name_status = $3, quality_rating = $4,
+    messaging_limit_tier = $5,
+    code_verification_status = $6, last_synced_at = now(), updated_at = now()
+WHERE phone_number_id = $7
+RETURNING id, tenant_id, whatsapp_account_id, phone_number_id, display_phone_number, verified_name, name_status, quality_rating, messaging_limit_tier, code_verification_status, is_coexistence, registered_at, two_step_pin_enc, status, business_profile, last_synced_at, created_at, updated_at, previous_quality_rating, quality_changed_at
+`
+
+type UpdatePhoneNumberFromMetaParams struct {
+	DisplayPhoneNumber     string
+	VerifiedName           *string
+	NameStatus             *string
+	QualityRating          QualityRating
+	MessagingLimitTier     *string
+	CodeVerificationStatus *string
+	PhoneNumberID          string
+}
+
+// Refreshes a number with what Meta reports now. Rows of other workspaces are not visible.
+func (q *Queries) UpdatePhoneNumberFromMeta(ctx context.Context, arg UpdatePhoneNumberFromMetaParams) (PhoneNumber, error) {
+	row := q.db.QueryRow(ctx, updatePhoneNumberFromMeta,
+		arg.DisplayPhoneNumber,
+		arg.VerifiedName,
+		arg.NameStatus,
+		arg.QualityRating,
+		arg.MessagingLimitTier,
+		arg.CodeVerificationStatus,
+		arg.PhoneNumberID,
+	)
+	var i PhoneNumber
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.WhatsappAccountID,
+		&i.PhoneNumberID,
+		&i.DisplayPhoneNumber,
+		&i.VerifiedName,
+		&i.NameStatus,
+		&i.QualityRating,
+		&i.MessagingLimitTier,
+		&i.CodeVerificationStatus,
+		&i.IsCoexistence,
+		&i.RegisteredAt,
+		&i.TwoStepPinEnc,
+		&i.Status,
+		&i.BusinessProfile,
+		&i.LastSyncedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PreviousQualityRating,
+		&i.QualityChangedAt,
+	)
+	return i, err
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
+	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 )
 
 // RunArgs is the River job that starts a campaign and then queues one batch of its messages.
@@ -38,26 +39,6 @@ const (
 	// limitWait is how long a campaign waits when the number's messaging limit is used up.
 	limitWait = 15 * time.Minute
 )
-
-// tierLimits is how many customers Meta lets a number start conversations with in 24 hours.
-var tierLimits = map[string]int32{
-	"TIER_250": 250, "TIER_1K": 1000, "TIER_2K": 2000, "TIER_10K": 10000, "TIER_100K": 100000,
-}
-
-// dailyLimit returns the number's messaging limit; -1 means unlimited. A number Meta has not
-// reported a tier for yet gets the starting limit.
-func dailyLimit(tier *string) int32 {
-	if tier == nil {
-		return 250
-	}
-	if *tier == "TIER_UNLIMITED" {
-		return -1
-	}
-	if n, ok := tierLimits[*tier]; ok {
-		return n
-	}
-	return 250
-}
 
 type Worker struct {
 	river.WorkerDefaults[RunArgs]
@@ -155,7 +136,7 @@ func (w *Worker) batch(ctx context.Context, q *dbq.Queries, tx pgx.Tx, ins jobs.
 		rate = *c.SendRatePerMin
 	}
 	size := min(rate, maxBatch)
-	if limit := dailyLimit(num.PhoneNumber.MessagingLimitTier); limit >= 0 {
+	if limit := numbers.DailyLimit(num.PhoneNumber.MessagingLimitTier); limit >= 0 {
 		used, err := q.BusinessInitiatedToday(ctx, c.PhoneNumberID)
 		if err != nil {
 			return time.Time{}, err
