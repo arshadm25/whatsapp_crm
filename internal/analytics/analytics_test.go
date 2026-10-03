@@ -41,3 +41,17 @@ func TestDateRange(t *testing.T) {
 		}
 	}
 }
+
+func TestMedian(t *testing.T) {
+	if median(nil) != nil {
+		t.Fatal("median of nothing")
+	}
+	for _, c := range []struct {
+		in   []float64
+		want float64
+	}{{[]float64{5}, 5}, {[]float64{9, 1, 5}, 5}, {[]float64{4, 1, 3, 2}, 2.5}} {
+		if got := *median(c.in); got != c.want {
+			t.Errorf("median(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}

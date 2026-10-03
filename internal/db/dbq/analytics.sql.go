@@ -13,6 +13,126 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const agentAssignments = `-- name: AgentAssignments :many
+SELECT assignee_user_id::uuid AS user_id, count(*)::int AS assigned,
+       (count(*) FILTER (WHERE status = 'closed'))::int AS resolved
+FROM conversations
+WHERE assignee_user_id IS NOT NULL AND coalesce(last_message_at, created_at) >= $1::timestamptz
+  AND created_at < $2
+GROUP BY assignee_user_id
+`
+
+type AgentAssignmentsParams struct {
+	Start time.Time
+	EndAt time.Time
+}
+
+type AgentAssignmentsRow struct {
+	UserID   uuid.UUID
+	Assigned int32
+	Resolved int32
+}
+
+// Conversations assigned to each team member that were active in the period, and how many are closed.
+func (q *Queries) AgentAssignments(ctx context.Context, arg AgentAssignmentsParams) ([]AgentAssignmentsRow, error) {
+	rows, err := q.db.Query(ctx, agentAssignments, arg.Start, arg.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentAssignmentsRow
+	for rows.Next() {
+		var i AgentAssignmentsRow
+		if err := rows.Scan(&i.UserID, &i.Assigned, &i.Resolved); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const agentChats = `-- name: AgentChats :many
+SELECT sent_by_user_id::uuid AS user_id, count(DISTINCT conversation_id)::int AS chats, count(*)::int AS messages
+FROM messages
+WHERE direction = 'outbound' AND sent_by_user_id IS NOT NULL AND created_at >= $1 AND created_at < $2
+GROUP BY sent_by_user_id
+`
+
+type AgentChatsParams struct {
+	Start time.Time
+	EndAt time.Time
+}
+
+type AgentChatsRow struct {
+	UserID   uuid.UUID
+	Chats    int32
+	Messages int32
+}
+
+// Conversations each team member replied in.
+func (q *Queries) AgentChats(ctx context.Context, arg AgentChatsParams) ([]AgentChatsRow, error) {
+	rows, err := q.db.Query(ctx, agentChats, arg.Start, arg.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentChatsRow
+	for rows.Next() {
+		var i AgentChatsRow
+		if err := rows.Scan(&i.UserID, &i.Chats, &i.Messages); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const conversationsByNumber = `-- name: ConversationsByNumber :many
+SELECT phone_number_id, count(DISTINCT conversation_id)::int AS conversations
+FROM messages
+WHERE created_at >= $1 AND created_at < $2
+  AND ($3::uuid IS NULL OR phone_number_id = $3)
+GROUP BY phone_number_id
+`
+
+type ConversationsByNumberParams struct {
+	Start         time.Time
+	EndAt         time.Time
+	PhoneNumberID *uuid.UUID
+}
+
+type ConversationsByNumberRow struct {
+	PhoneNumberID uuid.UUID
+	Conversations int32
+}
+
+// Conversations with at least one message in the period, per number.
+func (q *Queries) ConversationsByNumber(ctx context.Context, arg ConversationsByNumberParams) ([]ConversationsByNumberRow, error) {
+	rows, err := q.db.Query(ctx, conversationsByNumber, arg.Start, arg.EndAt, arg.PhoneNumberID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConversationsByNumberRow
+	for rows.Next() {
+		var i ConversationsByNumberRow
+		if err := rows.Scan(&i.PhoneNumberID, &i.Conversations); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteUsageDay = `-- name: DeleteUsageDay :exec
 DELETE FROM usage_daily WHERE day = $1
 `
@@ -20,6 +140,56 @@ DELETE FROM usage_daily WHERE day = $1
 func (q *Queries) DeleteUsageDay(ctx context.Context, day pgtype.Date) error {
 	_, err := q.db.Exec(ctx, deleteUsageDay, day)
 	return err
+}
+
+const firstResponses = `-- name: FirstResponses :many
+WITH turns AS (
+    SELECT m.conversation_id, m.created_at, m.direction,
+           lag(m.direction) OVER (PARTITION BY m.conversation_id ORDER BY m.created_at, m.id) AS prev_dir
+    FROM messages m
+    WHERE m.created_at >= $1 AND m.created_at < $2
+)
+SELECT r.sent_by_user_id, extract(epoch FROM r.created_at - t.created_at)::float8 AS seconds
+FROM turns t
+CROSS JOIN LATERAL (
+    SELECT o.created_at, o.sent_by_user_id FROM messages o
+    WHERE o.conversation_id = t.conversation_id AND o.direction = 'outbound' AND o.created_at > t.created_at
+    ORDER BY o.created_at LIMIT 1
+) r
+WHERE t.direction = 'inbound' AND (t.prev_dir IS NULL OR t.prev_dir = 'outbound')
+`
+
+type FirstResponsesParams struct {
+	Start time.Time
+	EndAt time.Time
+}
+
+type FirstResponsesRow struct {
+	SentByUserID *uuid.UUID
+	Seconds      float64
+}
+
+// How long each customer waited for a first reply. A customer's turn starts with an inbound
+// message that follows an outbound one (or opens the conversation); the reply is the next
+// outbound message, by a team member (sent_by_user_id) or by a bot or the API (NULL).
+func (q *Queries) FirstResponses(ctx context.Context, arg FirstResponsesParams) ([]FirstResponsesRow, error) {
+	rows, err := q.db.Query(ctx, firstResponses, arg.Start, arg.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirstResponsesRow
+	for rows.Next() {
+		var i FirstResponsesRow
+		if err := rows.Scan(&i.SentByUserID, &i.Seconds); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const insertUsage = `-- name: InsertUsage :exec
