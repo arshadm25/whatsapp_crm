@@ -249,6 +249,17 @@ export interface WebhookDelivery {
   created_at: string;
 }
 
+export interface DeveloperStats {
+  api_calls: number;
+  api_errors: number;
+  api_error_rate: number | null;
+  by_key: { api_key_id: string; calls: number; errors: number }[];
+  webhook_deliveries: number;
+  webhook_succeeded: number;
+  webhook_success_rate: number | null;
+  by_endpoint: { endpoint_id: string; deliveries: number; succeeded: number; failed: number; pending: number }[];
+}
+
 export interface Tag {
   id: string;
   name: string;

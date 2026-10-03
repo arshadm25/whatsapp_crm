@@ -7,9 +7,62 @@ package dbq
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+const aPIUsageSince = `-- name: APIUsageSince :many
+SELECT api_key_id, sum(calls)::int AS calls, sum(errors)::int AS errors
+FROM api_usage_hourly
+WHERE hour >= date_trunc('hour', $1::timestamptz)
+GROUP BY api_key_id
+`
+
+type APIUsageSinceRow struct {
+	ApiKeyID uuid.UUID
+	Calls    int32
+	Errors   int32
+}
+
+// Calls and errors per key since a time (whole hours).
+func (q *Queries) APIUsageSince(ctx context.Context, since time.Time) ([]APIUsageSinceRow, error) {
+	rows, err := q.db.Query(ctx, aPIUsageSince, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []APIUsageSinceRow
+	for rows.Next() {
+		var i APIUsageSinceRow
+		if err := rows.Scan(&i.ApiKeyID, &i.Calls, &i.Errors); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countAPICall = `-- name: CountAPICall :exec
+INSERT INTO api_usage_hourly (tenant_id, api_key_id, hour, calls, errors)
+VALUES ($1, $2, date_trunc('hour', now()), 1, CASE WHEN $3::bool THEN 1 ELSE 0 END)
+ON CONFLICT (api_key_id, hour) DO UPDATE
+SET calls = api_usage_hourly.calls + 1, errors = api_usage_hourly.errors + EXCLUDED.errors
+`
+
+type CountAPICallParams struct {
+	TenantID uuid.UUID
+	ApiKeyID uuid.UUID
+	Failed   bool
+}
+
+func (q *Queries) CountAPICall(ctx context.Context, arg CountAPICallParams) error {
+	_, err := q.db.Exec(ctx, countAPICall, arg.TenantID, arg.ApiKeyID, arg.Failed)
+	return err
+}
 
 const insertAPIKey = `-- name: InsertAPIKey :one
 INSERT INTO api_keys (id, tenant_id, name, prefix, key_hash, mode, phone_number_id, created_by)

@@ -24,6 +24,70 @@ func (q *Queries) DeleteWebhookEndpoint(ctx context.Context, id uuid.UUID) (int6
 	return result.RowsAffected(), nil
 }
 
+const deliveryStatsSince = `-- name: DeliveryStatsSince :many
+SELECT endpoint_id, status, count(*)::int AS n
+FROM webhook_deliveries
+WHERE created_at >= $1
+GROUP BY endpoint_id, status
+`
+
+type DeliveryStatsSinceRow struct {
+	EndpointID uuid.UUID
+	Status     DeliveryStatus
+	N          int32
+}
+
+// Deliveries created since a time, by endpoint and status.
+func (q *Queries) DeliveryStatsSince(ctx context.Context, since time.Time) ([]DeliveryStatsSinceRow, error) {
+	rows, err := q.db.Query(ctx, deliveryStatsSince, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeliveryStatsSinceRow
+	for rows.Next() {
+		var i DeliveryStatsSinceRow
+		if err := rows.Scan(&i.EndpointID, &i.Status, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDelivery = `-- name: GetDelivery :one
+SELECT id, tenant_id, endpoint_id, event_id, event_type, payload, status, attempt_count, next_attempt_at, last_response_code, last_error, last_attempt_at, created_at FROM webhook_deliveries WHERE id = $1 AND endpoint_id = $2
+`
+
+type GetDeliveryParams struct {
+	ID         uuid.UUID
+	EndpointID uuid.UUID
+}
+
+func (q *Queries) GetDelivery(ctx context.Context, arg GetDeliveryParams) (WebhookDelivery, error) {
+	row := q.db.QueryRow(ctx, getDelivery, arg.ID, arg.EndpointID)
+	var i WebhookDelivery
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.EndpointID,
+		&i.EventID,
+		&i.EventType,
+		&i.Payload,
+		&i.Status,
+		&i.AttemptCount,
+		&i.NextAttemptAt,
+		&i.LastResponseCode,
+		&i.LastError,
+		&i.LastAttemptAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getDeliveryForSend = `-- name: GetDeliveryForSend :one
 SELECT d.id, d.tenant_id, d.endpoint_id, d.event_id, d.event_type, d.payload, d.status, d.attempt_count, d.next_attempt_at, d.last_response_code, d.last_error, d.last_attempt_at, d.created_at, e.id, e.tenant_id, e.url, e.description, e.secret_ciphertext, e.event_types, e.phone_number_id, e.is_enabled, e.disabled_reason, e.created_at
 FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id = d.endpoint_id
@@ -306,4 +370,18 @@ func (q *Queries) RequeueDelivery(ctx context.Context, arg RequeueDeliveryParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setWebhookSecret = `-- name: SetWebhookSecret :exec
+UPDATE webhook_endpoints SET secret_ciphertext = $1 WHERE id = $2
+`
+
+type SetWebhookSecretParams struct {
+	SecretCiphertext []byte
+	ID               uuid.UUID
+}
+
+func (q *Queries) SetWebhookSecret(ctx context.Context, arg SetWebhookSecretParams) error {
+	_, err := q.db.Exec(ctx, setWebhookSecret, arg.SecretCiphertext, arg.ID)
+	return err
 }

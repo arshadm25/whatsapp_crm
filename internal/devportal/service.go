@@ -30,6 +30,7 @@ func (s *Service) InternalRoutes(r chi.Router) {
 	r.Get("/api-keys", httpx.Handler(s.log, s.listKeys))
 	r.Post("/api-keys", httpx.Handler(s.log, s.createKey))
 	r.Delete("/api-keys/{id}", httpx.Handler(s.log, s.revokeKey))
+	r.Get("/stats", httpx.Handler(s.log, s.stats))
 }
 
 // APIKey is an API key as the dashboard lists it; the key itself is never stored.

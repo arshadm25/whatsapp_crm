@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers } from "../api/hooks";
-import type { APIKey, CreatedAPIKey } from "../api/types";
+import type { APIKey, CreatedAPIKey, DeveloperStats } from "../api/types";
 import Webhooks from "../components/Webhooks";
 import Icon from "../components/Icon";
 import { ago, shortDate } from "../lib/time";
@@ -21,6 +21,13 @@ export default function Developers() {
     queryFn: async () => (await api<{ data: APIKey[] }>("GET", "/internal/developers/api-keys")).data,
     enabled: allowed,
   });
+  const stats = useQuery({
+    queryKey: ["developer-stats"],
+    queryFn: () => api<DeveloperStats>("GET", "/internal/developers/stats"),
+    enabled: allowed,
+    refetchInterval: 60_000,
+  });
+  const callsFor = (id: string) => stats.data?.by_key.find((k) => k.api_key_id === id)?.calls ?? 0;
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -114,6 +121,24 @@ export default function Developers() {
           <button className="primary" onClick={() => setCreating(!creating)}><Icon name="plus" size="s" />{t("developers.createKey")}</button>
         </div>
       </div>
+      {stats.data && (
+        <div className="grid g4" style={{ marginBottom: 16 }}>
+          <div className="card stat">
+            <div className="sh"><span className="sl">{t("developers.apiCalls")}</span><span className="ic"><Icon name="activity" size="s" /></span></div>
+            <span className="sv">{stats.data.api_calls.toLocaleString()}</span>
+            <span className="sf">
+              {stats.data.api_error_rate == null
+                ? t("developers.last24h")
+                : t("developers.errorRate", { pct: stats.data.api_error_rate.toFixed(1) })}
+            </span>
+          </div>
+          <div className="card stat">
+            <div className="sh"><span className="sl">{t("developers.webhookSuccess")}</span><span className="ic bl"><Icon name="zap" size="s" /></span></div>
+            <span className="sv">{stats.data.webhook_success_rate == null ? "—" : `${stats.data.webhook_success_rate.toFixed(1)}%`}</span>
+            <span className="sf">{t("developers.deliveriesCount", { count: stats.data.webhook_deliveries })}</span>
+          </div>
+        </div>
+      )}
       <div className="split">
         <div className="stack">
           {created && (
@@ -166,6 +191,7 @@ export default function Developers() {
                       <th>{t("developers.keyName")}</th>
                       <th>{t("developers.key")}</th>
                       <th>{t("developers.scope")}</th>
+                      <th className="r">{t("developers.calls24h")}</th>
                       <th>{t("developers.lastUsed")}</th>
                       <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
                     </tr>
@@ -181,6 +207,7 @@ export default function Developers() {
                         </td>
                         <td className="k">{k.prefix}••••</td>
                         <td><span className="chip gy">{k.mode === "sandbox" ? t("developers.sandbox") : numberLabel(k.phone_number_id)}</span></td>
+                        <td className="r num-t">{callsFor(k.id).toLocaleString()}</td>
                         <td>{k.last_used_at ? ago(k.last_used_at, t) : t("developers.never")}</td>
                         <td className="r">
                           {k.revoked_at ? (
