@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
+import ErrorBoundary from "./ErrorBoundary";
 import { useInboxCounts, useLiveEvents, useMe, usePhoneNumbers } from "../api/hooks";
 import type { BillingOverview, Me } from "../api/types";
 import { daysLeft } from "../lib/billing";
@@ -179,7 +180,9 @@ export default function Layout() {
             </div>
           )}
           {me.tenant?.role === "owner" && <PlanBanner />}
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>
