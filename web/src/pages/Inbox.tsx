@@ -154,7 +154,11 @@ function Thread({ id }: { id: string }) {
     return items.sort((a, b) => a.at.localeCompare(b.at));
   }, [messages, notes.data, msgs.hasNextPage]);
 
-  useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [newest]);
+  // A block body, not an expression: newer Chrome returns a Promise from scrollIntoView, and
+  // React would call that Promise as the effect's cleanup and crash the page.
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [newest]);
 
   // Opening a conversation with unread messages shows blue ticks to the customer.
   const c = conv.data;
