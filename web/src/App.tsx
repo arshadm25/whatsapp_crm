@@ -72,8 +72,15 @@ export default function App() {
         <Route path="knowledge" element={<Knowledge />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="settings" element={<Settings />} />
-        <Route path="admin" element={<Admin />} />
       </Route>
+      <Route
+        path="/admin/:tab?"
+        element={
+          <RequireAuth>
+            <Admin />
+          </RequireAuth>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
