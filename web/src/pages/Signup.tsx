@@ -42,6 +42,9 @@ export default function Signup() {
       <Field label={t("auth.email")} type="email" autoComplete="email" required value={form.email} onChange={set("email")} error={fieldError("email")} />
       <Field label={t("auth.password")} type="password" autoComplete="new-password" required minLength={10} hint={t("auth.passwordHint")} value={form.password} onChange={set("password")} error={fieldError("password")} />
       {error && !error.param && <div className="error">{error.message}</div>}
+      <p className="muted small">
+        {t("auth.agreeBefore")} <Link to="/terms">{t("auth.agreeTerms")}</Link> {t("auth.agreeAnd")} <Link to="/privacy">{t("auth.agreePrivacy")}</Link>.
+      </p>
       <button className="primary" disabled={busy}>{t("auth.signup")}</button>
     </AuthCard>
   );
