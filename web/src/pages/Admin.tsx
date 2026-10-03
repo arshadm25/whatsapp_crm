@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
@@ -11,6 +11,7 @@ import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
 import MetaFeesAdmin, { PaymentMode } from "./AdminMetaFees";
 import Icon from "../components/Icon";
+import AdminShell, { ADMIN_TABS, adminPath, type AdminTab } from "../components/AdminShell";
 import { ago, initials } from "../lib/time";
 
 function message(e: unknown, fallback: string) {
@@ -19,6 +20,12 @@ function message(e: unknown, fallback: string) {
 
 const when = (s: string | null) => (s ? new Date(s).toLocaleString() : "—");
 const PILL: Record<AdminTenant["status"], string> = { active: "ok", suspended: "er", closed: "" };
+
+function Quality({ q }: { q: AdminListedTenant["worst_quality"] }) {
+  const { t } = useTranslation();
+  if (!q) return <span className="muted">—</span>;
+  return <span className={`pill ${q === "green" ? "ok" : q === "yellow" ? "wa" : "er"}`}>{t(`numbers.quality_${q}`)}</span>;
+}
 
 // usePaged walks an admin list by its next_cursor.
 function usePaged<T>(key: string, path: string, params: URLSearchParams) {
@@ -42,40 +49,38 @@ function More({ q }: { q: { hasNextPage: boolean; isFetchingNextPage: boolean; f
   );
 }
 
-type Tab = "overview" | "tenants" | "plans" | "invoices" | "metaFees" | "webhooks" | "metaErrors" | "deletions" | "audit";
-const TABS: Tab[] = ["overview", "tenants", "plans", "invoices", "metaFees", "webhooks", "metaErrors", "deletions", "audit"];
+type Tab = AdminTab;
 
 export default function Admin() {
   const { t } = useTranslation();
   const me = useMe().data!;
-  const [tab, setTab] = useState<Tab>("overview");
-  const [openTenant, setOpenTenant] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const params = useParams();
+  const [search] = useSearchParams();
+  const tab = (params.tab ?? "overview") as Tab;
   if (!me.user.is_platform_admin) return <Navigate to="/" replace />;
+  if (!ADMIN_TABS.includes(tab)) return <Navigate to="/admin" replace />;
+  const goTab = (k: Tab) => navigate(adminPath(k));
   if (!me.user.two_factor_enabled) {
     return (
-      <section>
+      <AdminShell>
         <h1>{t("admin.title")}</h1>
         <div className="card notice">
           {t("admin.needs2fa")} <Link to="/settings">{t("admin.openSettings")}</Link>
         </div>
-      </section>
+      </AdminShell>
     );
   }
   return (
-    <section>
+    <AdminShell>
       <div className="page-head">
         <div>
-          <h1>{t("admin.title")}</h1>
-          <p className="sub">{t("admin.intro")}</p>
+          <h1>{tab === "overview" ? t("admin.title") : t(`admin.tab_${tab}`)}</h1>
+          {tab === "overview" && <p className="sub">{t("admin.intro")}</p>}
         </div>
       </div>
-      <div className="segmented tabs">
-        {TABS.map((k) => (
-          <button key={k} className={tab === k ? "on" : ""} onClick={() => { setTab(k); setOpenTenant(null); }}>{t(`admin.tab_${k}`)}</button>
-        ))}
-      </div>
-      {tab === "overview" && <Overview goTab={setTab} openTenant={(id) => { setOpenTenant(id); setTab("tenants"); }} />}
-      {tab === "tenants" && <Tenants initial={openTenant} />}
+      {tab === "overview" && <Overview goTab={goTab} openTenant={(id) => navigate(`/admin/tenants?open=${encodeURIComponent(id)}`)} />}
+      {tab === "tenants" && <Tenants key={search.toString()} initial={search.get("open")} initialQuery={search.get("q") ?? ""} />}
       {tab === "plans" && <Plans />}
       {tab === "invoices" && <Invoices />}
       {tab === "metaFees" && <MetaFeesAdmin />}
@@ -83,7 +88,7 @@ export default function Admin() {
       {tab === "metaErrors" && <MetaErrors />}
       {tab === "deletions" && <Deletions />}
       {tab === "audit" && <Audit />}
-    </section>
+    </AdminShell>
   );
 }
 
@@ -92,7 +97,7 @@ export default function Admin() {
 function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: (id: string) => void }) {
   const { t } = useTranslation();
   const [hours, setHours] = useState("24");
-  const tenants = usePaged<AdminTenant>("tenants", "/internal/admin/tenants", new URLSearchParams({ limit: "50" }));
+  const tenants = usePaged<AdminListedTenant>("tenants", "/internal/admin/tenants", new URLSearchParams({ limit: "50" }));
   // Counts across every workspace and error, not only the loaded pages.
   const ov = useQuery({
     queryKey: ["admin-overview", hours],
@@ -185,21 +190,27 @@ function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: 
             <thead>
               <tr>
                 <th>{t("admin.workspace")}</th>
+                <th>{t("admin.plan")}</th>
+                <th className="r">{t("admin.numbers")}</th>
+                <th className="r">{t("admin.messages30")}</th>
+                <th>{t("admin.quality")}</th>
                 <th>{t("admin.status")}</th>
-                <th>{t("admin.created")}</th>
                 <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
               </tr>
             </thead>
             <tbody>
               {tenants.rows.slice(0, 8).map((w) => (
                 <tr key={w.id} onClick={() => openTenant(w.id)}>
-                  <td><div className="who"><span className="av">{initials(w.name)}</span><span><b>{w.name}</b><small>{w.slug}</small></span></div></td>
+                  <td><div className="who"><span className="av">{initials(w.name)}</span><span><b>{w.name}</b><small>{w.waba_id ? `WABA ${w.waba_id}` : w.slug}</small></span></div></td>
+                  <td>{w.plan_code ?? (w.subscription_status === "trialing" ? t("admin.trial") : "—")}</td>
+                  <td className="r num-t">{w.number_count}</td>
+                  <td className="r num-t">{w.messages_30d.toLocaleString()}</td>
+                  <td><Quality q={w.worst_quality} /></td>
                   <td><span className={`pill ${PILL[w.status]}`}>{t(`admin.status_${w.status}`)}</span></td>
-                  <td>{new Date(w.created_at).toLocaleDateString()}</td>
                   <td className="r"><button className="sm">{t("admin.open")}</button></td>
                 </tr>
               ))}
-              {tenants.isSuccess && tenants.rows.length === 0 && <tr><td colSpan={4} className="muted">{t("admin.noTenants")}</td></tr>}
+              {tenants.isSuccess && tenants.rows.length === 0 && <tr><td colSpan={7} className="muted">{t("admin.noTenants")}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -225,9 +236,9 @@ function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: 
   );
 }
 
-function Tenants({ initial = null }: { initial?: string | null }) {
+function Tenants({ initial = null, initialQuery = "" }: { initial?: string | null; initialQuery?: string }) {
   const { t } = useTranslation();
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery);
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState<string | null>(initial);
   const params = new URLSearchParams({ limit: "50" });
@@ -276,9 +287,7 @@ function Tenants({ initial = null }: { initial?: string | null }) {
                 <td className="r num-t">{w.number_count}</td>
                 <td className="r num-t">{w.messages_30d.toLocaleString()}</td>
                 <td>
-                  {w.worst_quality
-                    ? <span className={`pill ${w.worst_quality === "green" ? "ok" : w.worst_quality === "yellow" ? "wa" : "er"}`}>{t(`numbers.quality_${w.worst_quality}`)}</span>
-                    : <span className="muted">—</span>}
+                  <Quality q={w.worst_quality} />
                 </td>
                 <td><span className={`pill ${PILL[w.status]}`}>{t(`admin.status_${w.status}`)}</span></td>
                 <td className="small">{new Date(w.created_at).toLocaleDateString()}</td>

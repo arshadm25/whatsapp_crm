@@ -888,6 +888,25 @@
     "requiredTitle": "Turn on two-step verification",
     "requiredLead": "{{workspace}} requires two-step verification for everyone. Set it up with an authenticator app to continue."
   },
+  "adminNav": {
+    "tag": "Admin",
+    "main": "Admin console",
+    "group_platform": "Platform",
+    "group_billing": "Billing",
+    "group_health": "Health",
+    "group_compliance": "Compliance",
+    "allNormal": "All systems normal",
+    "webhookFailures_one": "{{formattedCount}} webhook failed",
+    "webhookFailures_other": "{{formattedCount}} webhooks failed",
+    "webhooksLastHour_one": "{{formattedCount}} webhook from Meta in the last hour",
+    "webhooksLastHour_other": "{{formattedCount}} webhooks from Meta in the last hour",
+    "backToWorkspace": "Back to my workspace",
+    "staff": "Ecogo staff",
+    "search": "Search workspaces by name or slug",
+    "env_production": "Production",
+    "env_staging": "Staging",
+    "env_development": "Development"
+  },
   "admin": {
     "title": "Platform overview",
     "needs2fa": "Turn on two-step verification before using the admin console.",

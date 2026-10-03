@@ -227,6 +227,28 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .top .sp { flex: 1; }
 .top .num { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-weight: 500; color: var(--text-2); text-decoration: none; }
 .content { width: 100%; max-width: 1240px; padding: 28px 32px 48px; min-width: 0; }
+/* Admin console: a dark staff sidebar in either theme, so it never reads as a customer workspace */
+.staff .sidebar { background: #0b0f19; border-right-color: #1d2433; color: #d1d5dc; }
+.staff .sidebar .btag { background: #1d2433; color: #d1d5dc; }
+.staff .sidebar .gl { color: #6a7282; }
+.staff .sidebar nav a { color: #b4bcc8; }
+.staff .sidebar nav a:hover { background: #161d2b; color: #fff; }
+.staff .sidebar nav a.active { background: #1d2433; color: #fff; }
+.staff .sidebar nav a.active .i { color: #5ee9b5; }
+.staff .sidebar .cnt, .staff .sidebar nav a.active .cnt { background: #283142; color: #f3f4f6; }
+.staff .sidebar .cnt.am, .staff .sidebar nav a.active .cnt.am { background: #fe9a00; color: #1a1300; }
+.staff .conn { background: #121826; border-color: #1d2433; color: #99a1af; }
+.staff .conn b, .staff .me b { color: #f3f4f6; }
+.staff .me small { color: #99a1af; }
+.staff .ib.gh { color: #99a1af; }
+.staff .back { display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; color: #99a1af; text-decoration: none; }
+.staff .back:hover { color: #fff; }
+.staff .back .i { transform: scaleX(-1); }
+.staff .sidebar nav { flex: 1; }
+.staff .conn { margin-top: 0; }
+.top .search { display: flex; align-items: center; gap: 8px; flex: 0 1 420px; min-height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--muted); }
+.top .search input { border: 0; background: transparent; min-height: 0; padding: 0; width: 100%; box-shadow: none; }
+.top .search input:focus { outline: none; box-shadow: none; }
 .narrow { max-width: 720px; }
 .page-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 24px; }
 .page-head h1 { margin: 0; }
