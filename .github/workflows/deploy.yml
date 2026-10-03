@@ -49,5 +49,4 @@ jobs:
           git push --force origin "${{ steps.commit.outputs.sha }}:refs/heads/production"
           echo "production -> ${{ steps.commit.outputs.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Wait until production serves it
-        if: vars.PRODUCTION_URL != ''
-        run: deploy/argocd/wait-for-version.sh "${{ vars.PRODUCTION_URL }}" "${{ steps.commit.outputs.sha }}"
+        run: deploy/argocd/wait-for-version.sh "${{ vars.PRODUCTION_URL || 'https://whatsapp.ecogo.co.in' }}" "${{ steps.commit.outputs.sha }}"

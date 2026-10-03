@@ -124,9 +124,9 @@ Production deploys itself. Every green build of `main` moves the `production` br
 commit (CI job `release`), and Argo CD in the cluster syncs `deploy/helm/ecogo-whatsapp` from
 `production` with both images tagged by the same commit (`deploy/argocd/ecogo-whatsapp.yaml`).
 GitHub holds no cluster credentials. The migrate Job is a PreSync hook: if a migration fails the
-sync stops and the running pods stay on the previous version. With the repository variable
-`PRODUCTION_URL` set, CI then waits until `/internal/config` reports the new commit and goes red
-if it never does.
+sync stops and the running pods stay on the previous version. CI then waits until `/internal/config` reports the new commit and goes red
+if it never does (the repository variable `PRODUCTION_URL` overrides
+`https://whatsapp.ecogo.co.in`).
 
 * **Roll back or redeploy:** Actions > Deploy > Run workflow, with the commit to put live
   (blank = latest `main`). Migrations are not undone, so a rollback must be to code that works
