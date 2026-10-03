@@ -262,6 +262,37 @@ func (q *Queries) SetAccountPhoneNumbersStatus(ctx context.Context, arg SetAccou
 	return err
 }
 
+const touchConversationHistory = `-- name: TouchConversationHistory :exec
+UPDATE conversations
+SET last_inbound_at = CASE WHEN $1::boolean
+                           THEN greatest(coalesce(last_inbound_at, $2::timestamptz), $2::timestamptz)
+                           ELSE last_inbound_at END,
+    last_message_at = greatest(coalesce(last_message_at, $2::timestamptz), $2::timestamptz),
+    last_message_preview = CASE WHEN last_message_at IS NULL OR last_message_at <= $2::timestamptz
+                                THEN $3::text ELSE last_message_preview END,
+    updated_at = now()
+WHERE id = $4
+`
+
+type TouchConversationHistoryParams struct {
+	Inbound bool
+	At      time.Time
+	Preview string
+	ID      uuid.UUID
+}
+
+// Records an imported history message: it moves the last-message time and preview forward,
+// and an inbound one the 24-hour window, but leaves unread count and status alone.
+func (q *Queries) TouchConversationHistory(ctx context.Context, arg TouchConversationHistoryParams) error {
+	_, err := q.db.Exec(ctx, touchConversationHistory,
+		arg.Inbound,
+		arg.At,
+		arg.Preview,
+		arg.ID,
+	)
+	return err
+}
+
 const touchConversationInbound = `-- name: TouchConversationInbound :exec
 UPDATE conversations
 SET last_inbound_at = greatest(coalesce(last_inbound_at, $1::timestamptz), $1::timestamptz),

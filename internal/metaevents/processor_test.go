@@ -381,3 +381,56 @@ func TestUnknownNumberIsStoredButNotApplied(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestCoexistenceHistoryImport(t *testing.T) {
+	f := newFixture(t)
+	old := time.Now().Add(-72 * time.Hour).Unix()
+	// A live message arrives first; the history chunk repeats it and must not duplicate it.
+	f.deliver(inboundText("wamid.LIVE1", "919000000004", "Asha", "Is the shop open?", old+60))
+	f.deliver(envelope("history", fmt.Sprintf(`{"messaging_product":"whatsapp",
+		"metadata":{"display_phone_number":"919876543210","phone_number_id":%q},
+		"history":[{"metadata":{"phase":0,"chunk_order":1,"progress":100},"threads":[{"id":"919000000004","messages":[
+			{"from":"919000000004","id":"wamid.HIST1","timestamp":"%d","type":"text","text":{"body":"Hello"},"history_context":{"status":"READ"}},
+			{"from":"919876543210","id":"wamid.HIST2","timestamp":"%d","type":"text","text":{"body":"Hi Asha"},"history_context":{"status":"READ"}},
+			{"from":"919000000004","id":"wamid.LIVE1","timestamp":"%d","type":"text","text":{"body":"Is the shop open?"},"history_context":{"status":"READ"}}
+		]}]},{"errors":[{"code":2593109,"title":"History sharing declined"}]}]}`, phoneID, old, old+30, old+60)))
+
+	ctx := context.Background()
+	f.query(func(q *dbq.Queries, tx pgx.Tx) error {
+		in, err := q.GetMessageByWamid(ctx, ptr("wamid.HIST1"))
+		if err != nil {
+			return err
+		}
+		if in.Direction != dbq.MessageDirectionInbound || in.Origin != dbq.MessageOriginCustomer || in.Status != dbq.MessageStatusReceived {
+			t.Errorf("history inbound = %+v", in)
+		}
+		out, err := q.GetMessageByWamid(ctx, ptr("wamid.HIST2"))
+		if err != nil {
+			return err
+		}
+		if out.Direction != dbq.MessageDirectionOutbound || out.Origin != dbq.MessageOriginPhoneApp || out.Status != dbq.MessageStatusRead {
+			t.Errorf("history outbound = %+v", out)
+		}
+		if out.ConversationID != in.ConversationID {
+			t.Error("history messages of one thread landed in different conversations")
+		}
+		var n, unread int
+		var preview string
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM messages WHERE conversation_id = $1", in.ConversationID).Scan(&n); err != nil {
+			return err
+		}
+		if n != 3 {
+			t.Errorf("conversation has %d messages, want 3", n)
+		}
+		if err := tx.QueryRow(ctx, "SELECT unread_count, last_message_preview FROM conversations WHERE id = $1", in.ConversationID).Scan(&unread, &preview); err != nil {
+			return err
+		}
+		if unread != 1 {
+			t.Errorf("unread = %d, want 1 (only the live message)", unread)
+		}
+		if preview != "Is the shop open?" {
+			t.Errorf("preview = %q, older history replaced the newest message", preview)
+		}
+		return nil
+	})
+}
