@@ -62,8 +62,12 @@ export default function SendMessage() {
 
   return (
     <section className="narrow">
-      <h1>{t("send.title")}</h1>
-      <p className="muted">{t("send.intro")}</p>
+      <div className="page-head">
+        <div>
+          <h1>{t("send.title")}</h1>
+          <p className="sub">{t("send.intro")}</p>
+        </div>
+      </div>
       <div className="card form">
         {connected.length > 1 && (
           <label className="field">

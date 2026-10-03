@@ -122,7 +122,7 @@ export default function Developers() {
         </div>
       </div>
       {stats.data && (
-        <div className="grid g4" style={{ marginBottom: 16 }}>
+        <div className="grid g4">
           <div className="card stat">
             <div className="sh"><span className="sl">{t("developers.apiCalls")}</span><span className="ic"><Icon name="activity" size="s" /></span></div>
             <span className="sv">{stats.data.api_calls.toLocaleString()}</span>

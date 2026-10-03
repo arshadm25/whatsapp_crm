@@ -58,8 +58,12 @@ export default function Knowledge() {
 
   return (
     <section>
-      <div className="page-head"><h1>{t("knowledge.title")}</h1></div>
-      <p className="muted">{t("knowledge.lead")}</p>
+      <div className="page-head">
+        <div>
+          <h1>{t("knowledge.title")}</h1>
+          <p className="sub">{t("knowledge.lead")}</p>
+        </div>
+      </div>
       {u && !u.configured && <div className="card notice">{t("knowledge.notConfigured")}</div>}
       {u && (u.limit === 0 ? (
         <div className="card notice">{t("knowledge.noAllowance")}</div>
@@ -243,8 +247,10 @@ function TestBox() {
     <>
       <h3>{t("knowledge.testTitle")}</h3>
       <form className="card form" onSubmit={ask}>
-        <div className="row">
-          <input aria-label={t("knowledge.testTitle")} value={question} maxLength={1000} placeholder={t("knowledge.testPlaceholder")} onChange={(e) => setQuestion(e.target.value)} />
+        <div className="ask-row">
+          <label className="field">
+            <input aria-label={t("knowledge.testTitle")} value={question} maxLength={1000} placeholder={t("knowledge.testPlaceholder")} onChange={(e) => setQuestion(e.target.value)} />
+          </label>
           <button className="primary" disabled={busy || !question.trim()}>{t("knowledge.ask")}</button>
         </div>
         {error && <div className="error">{error}</div>}

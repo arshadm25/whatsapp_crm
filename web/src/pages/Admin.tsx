@@ -572,7 +572,7 @@ function Invoices() {
       <div className="filters">
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t("admin.from")} />
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label={t("admin.to")} />
-        <a href={`/internal/admin/invoices.csv${qs}`}>{t("admin.downloadCsv")}</a>
+        <a className="button end" href={`/internal/admin/invoices.csv${qs}`}>{t("admin.downloadCsv")}</a>
       </div>
       {list.data && <p className="muted small">{t("admin.invoiceTotal", { count: list.data.data.length, total: formatPaise(list.data.total_minor) })}{list.data.truncated ? ` ${t("admin.invoiceTruncated")}` : ""}</p>}
       <div className="card table-wrap">
@@ -673,7 +673,7 @@ function MetaErrors() {
         {code != null && <button type="button" className="link" onClick={() => setCode(null)}>{t("admin.clearCode", { code })}</button>}
       </div>
       {!!groups.data?.length && (
-        <div className="card flush" style={{ marginBottom: 16 }}>
+        <div className="card flush">
           <div className="chd"><div><h2>{t("admin.errorsByCode")}</h2><p>{t("admin.errorsByCodeWindow", { count: hours })}</p></div></div>
           {groups.data.map((g) => (
             <button
@@ -788,7 +788,7 @@ function Audit() {
           <option value="">{t("admin.allActors")}</option>
           {["user", "platform_admin", "api_key", "system", "meta"].map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
-        <a href={`/internal/admin/audit-log.csv${actor ? `?actor_type=${actor}` : ""}`}>{t("admin.downloadCsv")}</a>
+        <a className="button end" href={`/internal/admin/audit-log.csv${actor ? `?actor_type=${actor}` : ""}`}>{t("admin.downloadCsv")}</a>
       </div>
       <div className="card table-wrap">
         <table>
@@ -909,7 +909,10 @@ function Plans() {
 
   return (
     <>
-      <p className="muted small">{t("admin.plansHelp")}</p>
+      <div className="toolbar">
+        <p className="muted small">{t("admin.plansHelp")}</p>
+        {!form && <button className="primary" onClick={() => setForm(blankPlan)}>{t("admin.newPlan")}</button>}
+      </div>
       <div className="card table-wrap">
         <table>
           <thead>
@@ -935,7 +938,6 @@ function Plans() {
           </tbody>
         </table>
       </div>
-      {!form && <button className="primary" onClick={() => setForm(blankPlan)}>{t("admin.newPlan")}</button>}
       {form && (
         <form className="card form" onSubmit={save}>
           <div className="plan-form">

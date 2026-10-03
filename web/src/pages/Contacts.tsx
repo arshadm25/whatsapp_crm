@@ -211,7 +211,7 @@ export default function Contacts() {
         </div>
         {selected && <ContactDetail id={selected} onClose={() => setSelected(null)} />}
       </div>
-      <div className="banner ok" style={{ marginTop: 16 }}>
+      <div className="banner ok">
         <Icon name="shield" size="s" />
         <div><b>{t("contacts.optOutTitle")}</b><span>{t("contacts.optOutText")}</span></div>
       </div>
