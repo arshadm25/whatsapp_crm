@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers } from "../api/hooks";
 import type { Template, TemplateCategory } from "../api/types";
-import { buildComponents, placeholders, toTemplateName } from "../lib/templates";
+import { buildComponents, placeholders, toTemplateName, type MediaFormat } from "../lib/templates";
 import Icon from "../components/Icon";
 import { initials } from "../lib/time";
 
@@ -33,7 +33,10 @@ export default function NewTemplate() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState<TemplateCategory>("utility");
   const [language, setLanguage] = useState("en");
+  const [headerType, setHeaderType] = useState<"none" | "TEXT" | MediaFormat>("none");
   const [header, setHeader] = useState("");
+  const [sample, setSample] = useState<{ handle: string; name: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [body, setBody] = useState("");
   const [footer, setFooter] = useState("");
   const [replies, setReplies] = useState<string[]>([]);
@@ -43,7 +46,7 @@ export default function NewTemplate() {
 
   const accountId = account || accounts[0]?.[0] || "";
   const vars = [
-    ...placeholders(header).map((v) => ({ key: `h:${v}`, v, label: t("templates.headerVar", { v }) })),
+    ...(headerType === "TEXT" ? placeholders(header) : []).map((v) => ({ key: `h:${v}`, v, label: t("templates.headerVar", { v }) })),
     ...placeholders(body).map((v) => ({ key: `b:${v}`, v, label: t("templates.bodyVar", { v }) })),
   ];
 
@@ -61,8 +64,26 @@ export default function NewTemplate() {
     setBody((b) => `${b}${b && !b.endsWith(" ") ? " " : ""}{{${next}}}`);
   };
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const media = headerType !== "none" && headerType !== "TEXT";
+  const uploadSample = async (file: File | undefined) => {
+    if (!file || !media) return;
+    setUploading(true);
+    setError("");
+    setSample(null);
+    try {
+      const form = new FormData();
+      form.append("whatsapp_account_id", accountId);
+      form.append("file", file);
+      const r = await api<{ handle: string }>("POST", "/internal/templates/header-samples", form);
+      setSample({ handle: r.handle, name: file.name });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : t("common.error"));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const save = async (draft: boolean) => {
     setBusy(true);
     setError("");
     try {
@@ -71,7 +92,15 @@ export default function NewTemplate() {
         name,
         language,
         category,
-        components: buildComponents({ header, body, footer, quickReplies: replies, samples }),
+        draft,
+        components: buildComponents({
+          header: headerType === "TEXT" ? header : "",
+          headerMedia: media && sample ? { format: headerType, handle: sample.handle } : undefined,
+          body,
+          footer,
+          quickReplies: replies,
+          samples,
+        }),
       });
       await qc.invalidateQueries({ queryKey: ["templates"] });
       navigate("/templates");
@@ -80,6 +109,11 @@ export default function NewTemplate() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void save(false);
   };
 
   const fill = (text: string, prefix: "h" | "b") =>
@@ -110,7 +144,8 @@ export default function NewTemplate() {
         </div>
         <div className="actions">
           <Link className="button" to="/templates">{t("common.cancel")}</Link>
-          <button className="primary" form="new-template" disabled={busy || !accountId || !body.trim()}>
+          <button type="button" disabled={busy || !accountId || !name || !body.trim()} onClick={() => save(true)}>{t("templates.saveDraft")}</button>
+          <button className="primary" form="new-template" disabled={busy || !accountId || !body.trim() || (media && !sample)}>
             <Icon name="send" size="s" />{busy ? t("templates.submitting") : t("templates.submit")}
           </button>
         </div>
@@ -157,10 +192,36 @@ export default function NewTemplate() {
 
           <div className="sec">
             <h3><span className="stepn">2</span>{t("templates.content")}</h3>
-            <label className="field">
-              <span>{t("templates.headerLabel")} <span className="hint">{t("templates.optional")}</span></span>
-              <input value={header} onChange={(e) => setHeader(e.target.value)} maxLength={60} />
-            </label>
+            <div className="grid g2">
+              <label className="field">
+                <span>{t("templates.headerType")} <span className="hint">{t("templates.optional")}</span></span>
+                <select value={headerType} onChange={(e) => { setHeaderType(e.target.value as typeof headerType); setSample(null); }}>
+                  {(["none", "TEXT", "IMAGE", "VIDEO", "DOCUMENT"] as const).map((h) => (
+                    <option key={h} value={h}>{t(`templates.header_${h}`)}</option>
+                  ))}
+                </select>
+              </label>
+              {headerType === "TEXT" && (
+                <label className="field">
+                  {t("templates.headerLabel")}
+                  <input value={header} onChange={(e) => setHeader(e.target.value)} maxLength={60} required />
+                </label>
+              )}
+              {media && (
+                <label className="field">
+                  {t("templates.headerSample")}
+                  <input
+                    type="file"
+                    accept={headerType === "IMAGE" ? "image/jpeg,image/png" : headerType === "VIDEO" ? "video/mp4" : "application/pdf"}
+                    onChange={(e) => uploadSample(e.target.files?.[0])}
+                    disabled={!accountId || uploading}
+                  />
+                  <span className="hint">
+                    {uploading ? t("templates.uploading") : sample ? t("templates.sampleReady", { name: sample.name }) : t("templates.sampleHint")}
+                  </span>
+                </label>
+              )}
+            </div>
             <label className="field">
               {t("templates.body")}
               <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} maxLength={1024} required />
@@ -227,7 +288,8 @@ export default function NewTemplate() {
                 </div>
                 <div className="phone-body">
                   <div className="pbubble">
-                    {header && <span className="ph">{fill(header, "h")}</span>}
+                    {headerType === "TEXT" && header && <span className="ph">{fill(header, "h")}</span>}
+                    {media && <span className="ph muted">{t(`templates.header_${headerType}`)}{sample ? ` · ${sample.name}` : ""}</span>}
                     {body ? fill(body, "b") : <span className="muted">{t("templates.previewEmpty")}</span>}
                     {footer && <span className="pf">{footer}</span>}
                     <span className="pt">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>

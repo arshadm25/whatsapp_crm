@@ -26,6 +26,7 @@ type Meta interface {
 	CreateTemplate(ctx context.Context, token, wabaID string, body map[string]any) (*metaclient.CreatedTemplate, error)
 	EditTemplate(ctx context.Context, token, templateID string, body map[string]any) error
 	DeleteTemplate(ctx context.Context, token, wabaID, name string) error
+	ResumableUpload(ctx context.Context, token, mimeType, filename string, data []byte) (string, error)
 }
 
 // metaStatuses maps Meta's template statuses and review events to ours. Statuses missing here

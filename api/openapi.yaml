@@ -393,7 +393,9 @@ paths:
       tags: [Templates]
       operationId: editTemplate
       summary: Edit a template and resubmit it
-      description: Meta allows editing approved templates a limited number of times; rejected or paused templates can be edited and resubmitted.
+      description: |
+        Meta allows editing approved templates a limited number of times; rejected or paused
+        templates can be edited and resubmitted. A draft is edited here only and stays a draft.
       parameters:
         - $ref: '#/components/parameters/TemplateId'
       requestBody:
@@ -414,6 +416,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Template' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [Templates]
+      operationId: deleteTemplateDraft
+      summary: Delete a draft
+      description: Only drafts; delete a submitted template at Meta with `DELETE /templates/by-name/{name}`.
+      parameters:
+        - $ref: '#/components/parameters/TemplateId'
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /templates/{template_id}/submit:
+    post:
+      tags: [Templates]
+      operationId: submitTemplateDraft
+      summary: Submit a draft to Meta for review
+      parameters:
+        - $ref: '#/components/parameters/TemplateId'
+      responses:
+        '200':
+          description: Submitted; the status is now Meta's (usually pending)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Unprocessable' }
 
   /templates/by-name/{name}:
@@ -1877,6 +1907,13 @@ components:
           type: array
           minItems: 1
           items: { $ref: '#/components/schemas/TemplateComponent' }
+          description: |
+            An image, video or document header needs a sample in `example.header_handle`: upload
+            the file in the dashboard's template editor, which returns the handle from Meta.
+        draft:
+          type: boolean
+          default: false
+          description: Save without submitting to Meta; submit later with `POST /templates/{template_id}/submit`.
 
     Template:
       type: object

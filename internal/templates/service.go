@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -45,6 +46,8 @@ func (s *Service) Routes(r chi.Router) {
 		r.Use(auth.RequireRole(dbq.MemberRoleOwner, dbq.MemberRoleAdmin))
 		r.Post("/", httpx.Handler(s.log, s.create))
 		r.Patch("/{id}", httpx.Handler(s.log, s.edit))
+		r.Delete("/{id}", httpx.Handler(s.log, s.deleteDraft))
+		r.Post("/{id}/submit", httpx.Handler(s.log, s.submit))
 		r.Delete("/by-name/{name}", httpx.Handler(s.log, s.deleteByName))
 	})
 }
@@ -53,6 +56,7 @@ func (s *Service) Routes(r chi.Router) {
 func (s *Service) InternalRoutes(r chi.Router) {
 	r.Use(auth.RequireRole(dbq.MemberRoleOwner, dbq.MemberRoleAdmin))
 	r.Post("/sync", httpx.Handler(s.log, s.sync))
+	r.Post("/header-samples", httpx.Handler(s.log, s.headerSample))
 }
 
 // Template matches the Template schema in api/openapi.yaml.
@@ -177,6 +181,9 @@ type createRequest struct {
 	Category          string            `json:"category"`
 	ParameterFormat   string            `json:"parameter_format"`
 	Components        []json.RawMessage `json:"components"`
+	// Draft saves the template without submitting it to Meta; submit it later with
+	// POST /v1/templates/{id}/submit.
+	Draft bool `json:"draft"`
 }
 
 var (
@@ -212,19 +219,67 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	if req.Draft {
+		var t dbq.Template
+		err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+			if _, err := q.GetWhatsAppAccount(r.Context(), req.WhatsappAccountID); err != nil {
+				return err
+			}
+			t, err = q.InsertTemplateDraft(r.Context(), dbq.InsertTemplateDraftParams{
+				ID: db.NewID(), TenantID: p.TenantID, WhatsappAccountID: req.WhatsappAccountID, Name: req.Name,
+				Language: req.Language, Category: cat, ParameterFormat: format, Components: comps, CreatedBy: p.User(),
+			})
+			return err
+		})
+		if db.IsNotFound(err) {
+			// No account, or a template with this name and language already exists.
+			return s.draftConflict(r, p.TenantID, req.WhatsappAccountID)
+		}
+		if err != nil {
+			return err
+		}
+		httpx.JSON(w, http.StatusCreated, View(t))
+		return nil
+	}
 	acct, token, err := s.accountToken(r.Context(), p.TenantID, req.WhatsappAccountID)
 	if err != nil {
 		return err
 	}
+	t, err := s.submitToMeta(r.Context(), p, acct, token, req.Name, req.Language, cat, format, comps)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusCreated, View(t))
+	return nil
+}
+
+func (s *Service) draftConflict(r *http.Request, tenantID, accountID uuid.UUID) error {
+	err := s.db.InTenant(r.Context(), tenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		_, err := q.GetWhatsAppAccount(r.Context(), accountID)
+		return err
+	})
+	if db.IsNotFound(err) {
+		return &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Message: "WhatsApp account not found.", Param: "whatsapp_account_id"}
+	}
+	if err != nil {
+		return err
+	}
+	return httpx.NewError(http.StatusConflict, "conflict", "A template with this name and language already exists.")
+}
+
+// submitToMeta creates the template at Meta for review and stores Meta's answer. A draft with
+// the same name and language becomes the submitted template.
+func (s *Service) submitToMeta(ctx context.Context, p auth.Principal, acct dbq.WhatsappAccount, token, name, language string,
+	cat dbq.TemplateCategory, format string, comps json.RawMessage) (dbq.Template, error) {
 	body := map[string]any{
-		"name": req.Name, "language": req.Language, "category": strings.ToUpper(req.Category), "components": comps,
+		"name": name, "language": language, "category": strings.ToUpper(string(cat)), "components": comps,
 	}
 	if format == "named" {
 		body["parameter_format"] = "NAMED"
 	}
-	created, err := s.meta.CreateTemplate(metaclient.WithTenant(r.Context(), p.TenantID.String()), token, acct.WabaID, body)
+	created, err := s.meta.CreateTemplate(metaclient.WithTenant(ctx, p.TenantID.String()), token, acct.WabaID, body)
 	if err != nil {
-		return metaError(err)
+		return dbq.Template{}, metaError(err)
 	}
 	st, ok := StatusFromMeta(created.Status)
 	if !ok {
@@ -235,18 +290,127 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 	}
 	now := time.Now()
 	var t dbq.Template
-	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
-		t, err = q.UpsertTemplateFromMeta(r.Context(), dbq.UpsertTemplateFromMetaParams{
+	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		t, err = q.UpsertTemplateFromMeta(ctx, dbq.UpsertTemplateFromMetaParams{
 			ID: db.NewID(), TenantID: p.TenantID, WhatsappAccountID: acct.ID, MetaTemplateID: &created.ID,
-			Name: req.Name, Language: req.Language, Category: cat, Status: st, ParameterFormat: format,
+			Name: name, Language: language, Category: cat, Status: st, ParameterFormat: format,
 			Components: comps, CreatedBy: p.User(), SubmittedAt: &now,
 		})
 		return err
 	})
+	return t, err
+}
+
+// submit sends a draft to Meta for review.
+func (s *Service) submit(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		return httpx.ErrNotFound
+	}
+	var t dbq.Template
+	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		t, err = q.GetTemplate(r.Context(), id)
+		return err
+	})
+	if db.IsNotFound(err) || (err == nil && t.Status == dbq.TemplateStatusDeleted) {
+		return httpx.ErrNotFound
+	}
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusCreated, View(t))
+	if t.Status != dbq.TemplateStatusDraft {
+		return httpx.NewError(http.StatusConflict, "conflict", "This template was already submitted to Meta.")
+	}
+	acct, token, err := s.accountToken(r.Context(), p.TenantID, t.WhatsappAccountID)
+	if err != nil {
+		return err
+	}
+	if t, err = s.submitToMeta(r.Context(), p, acct, token, t.Name, t.Language, t.Category, t.ParameterFormat, t.Components); err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, View(t))
+	return nil
+}
+
+// deleteDraft removes a template that was never submitted. Submitted templates are deleted at
+// Meta by name with DELETE /v1/templates/by-name/{name}.
+func (s *Service) deleteDraft(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		return httpx.ErrNotFound
+	}
+	var t dbq.Template
+	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		if t, err = q.GetTemplate(r.Context(), id); err != nil {
+			return err
+		}
+		if t.Status != dbq.TemplateStatusDraft {
+			return httpx.NewError(http.StatusConflict, "conflict", "Only drafts can be deleted here; delete a submitted template by name.")
+		}
+		_, err = q.DeleteTemplateDraft(r.Context(), id)
+		return err
+	})
+	if db.IsNotFound(err) {
+		return httpx.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// sampleTypes are the files Meta takes as a header sample, with their size limits.
+var sampleTypes = map[string]struct {
+	format string
+	max    int64
+}{
+	"image/jpeg":      {"IMAGE", 5 << 20},
+	"image/png":       {"IMAGE", 5 << 20},
+	"video/mp4":       {"VIDEO", 16 << 20},
+	"application/pdf": {"DOCUMENT", 16 << 20},
+}
+
+// headerSample uploads a sample file for an image, video or document header and returns the
+// handle the header's example.header_handle needs.
+func (s *Service) headerSample(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, 17<<20)
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		return httpx.BadRequest("file", "Send the file as multipart form data, at most 16 MB.")
+	}
+	accountID, err := uuid.Parse(r.FormValue("whatsapp_account_id"))
+	if err != nil {
+		return httpx.BadRequest("whatsapp_account_id", "whatsapp_account_id is required.")
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		return httpx.BadRequest("file", "file is required.")
+	}
+	defer f.Close()
+	mime := hdr.Header.Get("Content-Type")
+	kind, ok := sampleTypes[mime]
+	if !ok {
+		return httpx.BadRequest("file", "Header samples must be JPEG or PNG images, MP4 videos or PDF documents.")
+	}
+	if hdr.Size > kind.max {
+		return httpx.BadRequest("file", "This file is too large for a "+strings.ToLower(kind.format)+" header.")
+	}
+	data := make([]byte, hdr.Size)
+	if _, err := io.ReadFull(f, data); err != nil {
+		return httpx.BadRequest("file", "Could not read the file.")
+	}
+	_, token, err := s.accountToken(r.Context(), p.TenantID, accountID)
+	if err != nil {
+		return err
+	}
+	handle, err := s.meta.ResumableUpload(metaclient.WithTenant(r.Context(), p.TenantID.String()), token, mime, hdr.Filename, data)
+	if err != nil {
+		return metaError(err)
+	}
+	httpx.JSON(w, http.StatusCreated, map[string]string{"handle": handle, "format": kind.format})
 	return nil
 }
 
@@ -273,7 +437,7 @@ func (s *Service) edit(w http.ResponseWriter, r *http.Request) error {
 		t, err = q.GetTemplate(r.Context(), id)
 		return err
 	})
-	if db.IsNotFound(err) || (err == nil && (t.Status == dbq.TemplateStatusDeleted || t.MetaTemplateID == nil)) {
+	if db.IsNotFound(err) || (err == nil && (t.Status == dbq.TemplateStatusDeleted || (t.MetaTemplateID == nil && t.Status != dbq.TemplateStatusDraft))) {
 		return httpx.ErrNotFound
 	}
 	if err != nil {
@@ -293,6 +457,17 @@ func (s *Service) edit(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		body["components"] = comps
+	}
+	if t.Status == dbq.TemplateStatusDraft {
+		err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+			t, err = q.UpdateTemplateDraft(r.Context(), dbq.UpdateTemplateDraftParams{ID: id, Category: cat, Components: comps})
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		httpx.JSON(w, http.StatusOK, View(t))
+		return nil
 	}
 	_, token, err := s.accountToken(r.Context(), p.TenantID, t.WhatsappAccountID)
 	if err != nil {
