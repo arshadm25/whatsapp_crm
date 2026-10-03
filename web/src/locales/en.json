@@ -256,6 +256,8 @@
   "common": {
     "loading": "Loading…",
     "error": "Something went wrong.",
+    "crashed": "This screen hit an error. Reloading usually fixes it; please send us the message below.",
+    "reload": "Reload",
     "comingSoonBody": "This screen is part of release 1 and is being built next.",
     "cancel": "Cancel",
     "loadMore": "Load more",
