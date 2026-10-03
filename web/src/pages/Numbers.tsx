@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +22,13 @@ export default function Numbers() {
   const role = useMe().data?.tenant?.role;
   const manager = role === "owner" || role === "admin";
   const [editing, setEditing] = useState<string | null>(null);
+  const profileCard = useRef<HTMLDivElement>(null);
+  // The profile card sits below the table, already showing the first number, so the button
+  // must bring it into view or a click looks like it did nothing.
+  const editProfile = (id: string) => {
+    setEditing(id);
+    requestAnimationFrame(() => profileCard.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const sync = useMutation({
@@ -153,7 +160,7 @@ export default function Numbers() {
                   <td className="r">
                     {manager && n.status === "connected" && (
                       <span className="actions" style={{ justifyContent: "flex-end" }}>
-                        <button className="sm" onClick={() => setEditing(n.id)}>{t("numbers.editProfile")}</button>
+                        <button className="sm" onClick={() => editProfile(n.id)}>{t("numbers.editProfile")}</button>
                         <button
                           className="sm bdg"
                           disabled={disconnect.isPending}
@@ -177,7 +184,7 @@ export default function Numbers() {
       )}
       {(editingNumber || topTier) && (
         <div className="split" style={{ marginTop: 16 }}>
-          <div className="stack">
+          <div className="stack" ref={profileCard}>
             {editingNumber && <NumberProfile key={editingNumber.id} number={editingNumber} canEdit={manager} />}
           </div>
           <aside className="stack">
