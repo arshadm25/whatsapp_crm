@@ -275,7 +275,7 @@
     "sync": "Sync from Meta",
     "syncing": "Syncing…",
     "synced": "{{count}} templates loaded from Meta.",
-    "empty": "No templates yet. Create one, or sync the ones you made in WhatsApp Manager.",
+    "empty": "No templates yet. Templates load from the WhatsApp accounts you connect on the Numbers page. Create one, or sync the ones you made in WhatsApp Manager.",
     "needNumber": "Connect a WhatsApp number first.",
     "account": "WhatsApp account",
     "name": "Name",

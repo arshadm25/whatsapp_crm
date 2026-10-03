@@ -531,11 +531,12 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	total := 0
+	total, synced := 0, 0
 	for _, a := range accts {
 		if a.Status != dbq.ConnectionStatusConnected {
 			continue
 		}
+		synced++
 		_, token, err := s.accountToken(r.Context(), p.TenantID, a.ID)
 		if err != nil {
 			return err
@@ -545,6 +546,11 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 			return metaError(err)
 		}
 		total += n
+	}
+	// Templates come only from WhatsApp accounts connected through Embedded Signup, so with
+	// none there is nothing to read; say so rather than reporting "0 templates loaded".
+	if synced == 0 {
+		return errNoConnectedAccount
 	}
 	httpx.JSON(w, http.StatusOK, map[string]int{"synced": total})
 	return nil
@@ -572,6 +578,9 @@ func (s *Service) accountToken(ctx context.Context, tenantID, accountID uuid.UUI
 	}
 	return acct, token, err
 }
+
+var errNoConnectedAccount = httpx.NewError(http.StatusUnprocessableEntity, "no_connected_account",
+	"No WhatsApp account is connected to this workspace. Connect a number from Numbers first; its templates load automatically.")
 
 var errNotConnected = httpx.NewError(http.StatusUnprocessableEntity, "number_not_connected",
 	"This WhatsApp account is not connected. Reconnect it from Numbers first.")
