@@ -7,6 +7,7 @@ import ErrorBoundary from "./ErrorBoundary";
 import { useInboxCounts, useLiveEvents, useMe, usePhoneNumbers } from "../api/hooks";
 import type { BillingOverview, Me } from "../api/types";
 import { daysLeft } from "../lib/billing";
+import LanguagePicker from "./LanguagePicker";
 import Icon, { type IconName } from "./Icon";
 import NotificationBell from "./NotificationBell";
 
@@ -134,6 +135,7 @@ export default function Layout() {
             ? `${connected.display_phone_number} · ${t("numbers.quality")} ${t(`numbers.quality_${connected.quality_rating}`)}`
             : t("nav.connectHint")}
         </Link>
+        <LanguagePicker />
         <div className="me">
           <span className="av">{initials(me.user.name || me.user.email)}</span>
           <span>

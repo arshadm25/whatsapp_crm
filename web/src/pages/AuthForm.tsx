@@ -2,6 +2,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import Icon, { type IconName } from "../components/Icon";
 import { COMPANY, LegalLinks } from "./Legal";
+import LanguagePicker from "../components/LanguagePicker";
 
 const FEATURES: { key: string; icon: IconName }[] = [
   { key: "Connect", icon: "zap" },
@@ -48,7 +49,10 @@ export function AuthCard({ title, children, onSubmit, footer }: {
           {children}
           <div className="auth-foot">{footer}</div>
         </form>
-        <LegalLinks />
+        <div className="auth-extras">
+          <LanguagePicker />
+          <LegalLinks />
+        </div>
       </main>
     </div>
   );
