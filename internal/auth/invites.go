@@ -167,7 +167,7 @@ func (s *Service) acceptInvite(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if sess == nil {
-		s.setSessionCookie(w, token)
+		s.setSessionCookie(w, token, false)
 	}
 	return s.writeMe(w, r, userID, tenantID, http.StatusOK)
 }

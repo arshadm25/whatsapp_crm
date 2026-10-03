@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
 import MetaFees from "../components/MetaFees";
-import type { BillingOverview, BillingProfile, Invite, Invoice, Me, Role, TeamMember, Workspace } from "../api/types";
+import type { BillingOverview, BillingProfile, Invite, Invoice, Me, NotificationSetting, Role, TeamMember, Workspace } from "../api/types";
 import { daysLeft, formatPaise, graceEnd } from "../lib/billing";
 import { gstStates } from "../lib/gst";
 import { assignable } from "../lib/team";
@@ -17,7 +17,7 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-type Tab = "workspace" | "team" | "billing" | "security" | "account";
+type Tab = "workspace" | "team" | "billing" | "security" | "notifications" | "account";
 
 function message(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
@@ -27,13 +27,15 @@ export default function Settings() {
   const { t } = useTranslation();
   const role = useMe().data?.tenant?.role;
   const manager = role === "owner" || role === "admin";
+  const asked = new URLSearchParams(window.location.search).get("tab");
   const [tab, setTab] = useState<Tab>(
-    new URLSearchParams(window.location.search).get("tab") === "billing" && role === "owner" ? "billing" : manager ? "team" : "account",
+    asked === "billing" && role === "owner" ? "billing" : asked === "notifications" ? "notifications" : manager ? "team" : "account",
   );
   const tabs: Tab[] = [
     ...(manager ? (["workspace", "team"] as Tab[]) : []),
     ...(role === "owner" ? (["billing"] as Tab[]) : []),
     "security",
+    "notifications",
     "account",
   ];
 
@@ -58,6 +60,7 @@ export default function Settings() {
           {tab === "workspace" && manager && <WorkspaceForm canEdit={role === "owner"} />}
           {tab === "billing" && role === "owner" && <Billing />}
           {tab === "security" && <Account part="security" />}
+          {tab === "notifications" && <Notifications />}
           {tab === "account" && <Account part="profile" />}
         </div>
       </div>
@@ -215,9 +218,14 @@ function Team({ onBilling }: { onBilling: () => void }) {
                   <td className="muted">{t("settings.sentAgo", { ago: ago(i.created_at, t) })}</td>
                   <td className="r">
                     {roles.includes(i.role) && (
-                      <button className="sm" onClick={() => run(() => api("DELETE", `/internal/team/invites/${i.id}`))}>
-                        {t("settings.revoke")}
-                      </button>
+                      <span className="actions" style={{ justifyContent: "flex-end" }}>
+                        <button className="sm" onClick={() => run(async () => setCreated(await api<Invite>("POST", `/internal/team/invites/${i.id}/resend`)))}>
+                          {t("settings.resend")}
+                        </button>
+                        <button className="sm" onClick={() => run(() => api("DELETE", `/internal/team/invites/${i.id}`))}>
+                          {t("settings.revoke")}
+                        </button>
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -299,6 +307,7 @@ function WorkspaceForm({ canEdit }: { canEdit: boolean }) {
   };
 
   return (
+    <>
     <form className="card form" onSubmit={save}>
       <fieldset disabled={!canEdit} className="plain">
         <label className="field">
@@ -340,6 +349,97 @@ function WorkspaceForm({ canEdit }: { canEdit: boolean }) {
         </div>
       )}
     </form>
+    <RequireTwoFactor workspace={ws.data} canEdit={canEdit} />
+    </>
+  );
+}
+
+// RequireTwoFactor is the owner's switch that makes every member use two-step verification.
+function RequireTwoFactor({ workspace, canEdit }: { workspace: Workspace; canEdit: boolean }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const me = useMe().data!;
+  const [error, setError] = useState("");
+  const toggle = async (required: boolean) => {
+    setError("");
+    try {
+      qc.setQueryData(["workspace"], await api<Workspace>("PUT", "/internal/team/workspace/two-factor", { required }));
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  return (
+    <div className="card form">
+      <h2>{t("settings.require2fa")}</h2>
+      <p className="muted small">{t("settings.require2faHint")}</p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={workspace.require_two_factor}
+          disabled={!canEdit || (!workspace.require_two_factor && !me.user.two_factor_enabled)}
+          onChange={(e) => toggle(e.target.checked)}
+        />
+        {t("settings.require2faLabel")}
+      </label>
+      {canEdit && !me.user.two_factor_enabled && <p className="muted small">{t("settings.require2faFirst")}</p>}
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
+// Notifications lets each member choose which notifications they get in the app and by email.
+function Notifications() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["notification-settings"],
+    queryFn: async () => (await api<{ data: NotificationSetting[] }>("GET", "/internal/notifications/settings")).data,
+  });
+  const [error, setError] = useState("");
+  if (!settings.data) return <div className="card muted">{t("common.loading")}</div>;
+
+  const change = async (next: NotificationSetting) => {
+    setError("");
+    try {
+      const saved = await api<{ data: NotificationSetting[] }>("PUT", "/internal/notifications/settings", { data: [next] });
+      qc.setQueryData(["notification-settings"], saved.data);
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+
+  return (
+    <div className="card flush">
+      <div className="chd"><div><h2>{t("settings.notifications")}</h2></div></div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{t("settings.notifyWhen")}</th>
+              <th>{t("settings.notifyInApp")}</th>
+              <th>{t("settings.notifyEmail")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {settings.data.map((s) => (
+              <tr key={s.kind}>
+                <td>
+                  <b>{t(`settings.notify_${s.kind}`)}</b>
+                  <div className="muted small">{t(`settings.notifyHint_${s.kind}`)}</div>
+                </td>
+                <td>
+                  <input type="checkbox" aria-label={t("settings.notifyInApp")} checked={s.in_app} onChange={(e) => change({ ...s, in_app: e.target.checked })} />
+                </td>
+                <td>
+                  <input type="checkbox" aria-label={t("settings.notifyEmail")} checked={s.email} onChange={(e) => change({ ...s, email: e.target.checked })} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </div>
   );
 }
 
@@ -412,7 +512,7 @@ function Account({ part }: { part: "profile" | "security" }) {
 }
 
 // TwoFactor turns authenticator-app codes on or off for the signed-in user.
-function TwoFactor() {
+export function TwoFactor() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const me = useMe().data!;

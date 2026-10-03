@@ -32,8 +32,8 @@ SELECT m.tenant_id::uuid AS tenant_id, m.tenant_name::text AS tenant_name, m.ten
 FROM user_memberships(@user_id::uuid) m;
 
 -- name: CreateSession :one
-INSERT INTO sessions (id, user_id, tenant_id, token_hash, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO sessions (id, user_id, tenant_id, token_hash, ip, user_agent, expires_at, persistent)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetSessionByTokenHash :one

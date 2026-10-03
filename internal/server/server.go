@@ -29,6 +29,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metafees"
 	"github.com/arshadm25/whatsapp_crm/internal/metrics"
+	"github.com/arshadm25/whatsapp_crm/internal/notifications"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/templates"
@@ -36,31 +37,32 @@ import (
 )
 
 type APIDeps struct {
-	Config     *config.Config
-	DB         *db.DB
-	Log        *slog.Logger
-	Auth       *auth.Service
-	Onboarding *onboarding.Service
-	Numbers    *numbers.Service
-	Messaging  *messaging.Service
-	Templates  *templates.Service
-	Inbox      *inbox.Service
-	Media      *media.Service
-	Developers *devportal.Service
-	Keys       *devportal.Authenticator
-	Webhooks   *webhooks.Service
-	Contacts   *contacts.Service
-	Campaigns  *campaigns.Service
-	Bots       *bots.Service
-	Flows      *flows.Service
-	AI         *ai.Service
-	Analytics  *analytics.Service
-	Admin      *admin.Service
-	Billing    *billing.Service
-	MetaFees   *metafees.Service
-	Events     http.Handler
-	Deletion   *deletion.Handler
-	Metrics    *metrics.Metrics // optional
+	Config        *config.Config
+	DB            *db.DB
+	Log           *slog.Logger
+	Auth          *auth.Service
+	Onboarding    *onboarding.Service
+	Numbers       *numbers.Service
+	Messaging     *messaging.Service
+	Templates     *templates.Service
+	Inbox         *inbox.Service
+	Media         *media.Service
+	Developers    *devportal.Service
+	Keys          *devportal.Authenticator
+	Webhooks      *webhooks.Service
+	Contacts      *contacts.Service
+	Campaigns     *campaigns.Service
+	Bots          *bots.Service
+	Flows         *flows.Service
+	AI            *ai.Service
+	Analytics     *analytics.Service
+	Notifications *notifications.Service
+	Admin         *admin.Service
+	Billing       *billing.Service
+	MetaFees      *metafees.Service
+	Events        http.Handler
+	Deletion      *deletion.Handler
+	Metrics       *metrics.Metrics // optional
 }
 
 // NewAPI returns the api router:
@@ -89,6 +91,7 @@ func NewAPI(d APIDeps) http.Handler {
 			r.Route("/campaigns", d.Campaigns.InternalRoutes)
 			r.Route("/analytics", d.Analytics.InternalRoutes)
 			r.Route("/team", d.Auth.TeamRoutes)
+			r.Route("/notifications", d.Notifications.Routes)
 			r.Route("/billing", d.Billing.InternalRoutes)
 			r.Route("/billing/meta-fees", d.MetaFees.Routes)
 			r.Method(http.MethodGet, "/events", d.Events)

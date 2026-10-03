@@ -59,3 +59,17 @@ DELETE FROM sessions WHERE user_id = @user_id AND id <> @keep_id;
 
 -- name: UpdateUserName :exec
 UPDATE users SET name = $2, updated_at = now() WHERE id = $1;
+
+-- name: RefreshInvite :one
+UPDATE invites SET token_hash = @token_hash, expires_at = @expires_at
+WHERE id = @id AND accepted_at IS NULL
+RETURNING *;
+
+-- name: SetRequireTwoFactor :exec
+UPDATE tenants SET require_two_factor = @require_two_factor, updated_at = now() WHERE id = @id;
+
+-- name: TenantRequiresTwoFactor :one
+SELECT require_two_factor FROM tenants WHERE id = $1;
+
+-- name: DeleteUserSessions :exec
+DELETE FROM sessions WHERE user_id = $1;

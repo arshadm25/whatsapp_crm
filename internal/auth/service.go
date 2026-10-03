@@ -51,6 +51,8 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/verify-email", httpx.Handler(s.log, s.verifyEmail))
 	r.Get("/invites/{token}", httpx.Handler(s.log, s.inviteInfo))
 	r.Post("/invites/accept", httpx.Handler(s.log, s.acceptInvite))
+	r.Post("/password/forgot", httpx.Handler(s.log, s.forgotPassword))
+	r.Post("/password/reset", httpx.Handler(s.log, s.resetPassword))
 	r.Group(func(r chi.Router) {
 		r.Use(s.RequireSession)
 		r.Post("/logout", httpx.Handler(s.log, s.logout))
@@ -131,13 +133,15 @@ func (s *Service) signup(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.sendVerification(r.Context(), userID, email, req.Name)
-	s.setSessionCookie(w, token)
+	s.setSessionCookie(w, token, false)
 	return s.writeMe(w, r, userID, tenantID, http.StatusCreated)
 }
 
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Remember keeps the session for 30 days, across browser restarts ("Keep me logged in").
+	Remember bool `json:"remember"`
 }
 
 var errBadLogin = httpx.NewError(http.StatusUnauthorized, "unauthorized", "Email or password is incorrect.")
@@ -187,7 +191,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 		}
 		if _, err := q.CreateSession(r.Context(), dbq.CreateSessionParams{
 			ID: db.NewID(), UserID: u.ID, TenantID: tenant, TokenHash: hashToken(token),
-			Ip: ip, UserAgent: ua, ExpiresAt: s.now().Add(s.cfg.SessionTTL),
+			Ip: ip, UserAgent: ua, ExpiresAt: s.now().Add(s.sessionTTL(req.Remember)), Persistent: req.Remember,
 		}); err != nil {
 			return err
 		}
@@ -199,7 +203,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	s.setSessionCookie(w, token)
+	s.setSessionCookie(w, token, req.Remember)
 	if needsCode {
 		httpx.JSON(w, http.StatusOK, map[string]any{"mfa_required": true})
 		return nil
@@ -329,6 +333,9 @@ type MeResponse struct {
 	} `json:"user"`
 	Tenant      *TenantInfo  `json:"tenant"`
 	Memberships []TenantInfo `json:"memberships"`
+	// TwoFactorSetupRequired is true when the workspace requires two-step verification and the
+	// user has not turned it on; nothing else in the workspace works until they do.
+	TwoFactorSetupRequired bool `json:"two_factor_setup_required"`
 }
 
 type TenantInfo struct {
@@ -364,7 +371,10 @@ func (s *Service) writeMe(w http.ResponseWriter, r *http.Request, userID, tenant
 				resp.Tenant = &ti
 			}
 		}
-		return nil
+		if resp.Tenant != nil && !resp.User.TwoFactorEnabled {
+			resp.TwoFactorSetupRequired, err = q.TenantRequiresTwoFactor(r.Context(), tenantID)
+		}
+		return err
 	})
 	if err != nil {
 		return err

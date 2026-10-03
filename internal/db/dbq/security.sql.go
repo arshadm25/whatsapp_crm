@@ -31,7 +31,7 @@ func (q *Queries) CountRecentAudit(ctx context.Context, arg CountRecentAuditPara
 }
 
 const getSessionAuth = `-- name: GetSessionAuth :one
-SELECT s.id, s.user_id, s.tenant_id, s.token_hash, s.mfa_passed, s.ip, s.user_agent, s.created_at, s.last_seen_at, s.expires_at, (u.totp_secret_enc IS NOT NULL)::boolean AS totp_enabled, u.is_platform_admin
+SELECT s.id, s.user_id, s.tenant_id, s.token_hash, s.mfa_passed, s.ip, s.user_agent, s.created_at, s.last_seen_at, s.expires_at, s.persistent, (u.totp_secret_enc IS NOT NULL)::boolean AS totp_enabled, u.is_platform_admin
 FROM sessions s JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
 `
@@ -57,6 +57,7 @@ func (q *Queries) GetSessionAuth(ctx context.Context, tokenHash []byte) (GetSess
 		&i.Session.CreatedAt,
 		&i.Session.LastSeenAt,
 		&i.Session.ExpiresAt,
+		&i.Session.Persistent,
 		&i.TotpEnabled,
 		&i.IsPlatformAdmin,
 	)

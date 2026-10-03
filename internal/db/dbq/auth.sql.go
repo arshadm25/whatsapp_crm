@@ -29,19 +29,20 @@ func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipPara
 }
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO sessions (id, user_id, tenant_id, token_hash, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, tenant_id, token_hash, mfa_passed, ip, user_agent, created_at, last_seen_at, expires_at
+INSERT INTO sessions (id, user_id, tenant_id, token_hash, ip, user_agent, expires_at, persistent)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, user_id, tenant_id, token_hash, mfa_passed, ip, user_agent, created_at, last_seen_at, expires_at, persistent
 `
 
 type CreateSessionParams struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	TenantID  *uuid.UUID
-	TokenHash []byte
-	Ip        *netip.Addr
-	UserAgent *string
-	ExpiresAt time.Time
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	TenantID   *uuid.UUID
+	TokenHash  []byte
+	Ip         *netip.Addr
+	UserAgent  *string
+	ExpiresAt  time.Time
+	Persistent bool
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
@@ -53,6 +54,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.Ip,
 		arg.UserAgent,
 		arg.ExpiresAt,
+		arg.Persistent,
 	)
 	var i Session
 	err := row.Scan(
@@ -66,6 +68,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.CreatedAt,
 		&i.LastSeenAt,
 		&i.ExpiresAt,
+		&i.Persistent,
 	)
 	return i, err
 }
@@ -73,7 +76,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO tenants (id, name, slug)
 VALUES ($1, $2, $3)
-RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since
+RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor
 `
 
 type CreateTenantParams struct {
@@ -99,6 +102,7 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Ten
 		&i.UpdatedAt,
 		&i.MetaPaymentMode,
 		&i.MetaPaymentModeSince,
+		&i.RequireTwoFactor,
 	)
 	return i, err
 }
@@ -150,7 +154,7 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT id, user_id, tenant_id, token_hash, mfa_passed, ip, user_agent, created_at, last_seen_at, expires_at FROM sessions WHERE token_hash = $1 AND expires_at > now()
+SELECT id, user_id, tenant_id, token_hash, mfa_passed, ip, user_agent, created_at, last_seen_at, expires_at, persistent FROM sessions WHERE token_hash = $1 AND expires_at > now()
 `
 
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error) {
@@ -167,12 +171,13 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 		&i.CreatedAt,
 		&i.LastSeenAt,
 		&i.ExpiresAt,
+		&i.Persistent,
 	)
 	return i, err
 }
 
 const getTenant = `-- name: GetTenant :one
-SELECT id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since FROM tenants WHERE id = $1
+SELECT id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor FROM tenants WHERE id = $1
 `
 
 func (q *Queries) GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error) {
@@ -192,6 +197,7 @@ func (q *Queries) GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error) {
 		&i.UpdatedAt,
 		&i.MetaPaymentMode,
 		&i.MetaPaymentModeSince,
+		&i.RequireTwoFactor,
 	)
 	return i, err
 }

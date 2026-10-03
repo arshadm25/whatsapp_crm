@@ -41,13 +41,13 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/flows"
 	"github.com/arshadm25/whatsapp_crm/internal/inbox"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
-	"github.com/arshadm25/whatsapp_crm/internal/mailer"
 	"github.com/arshadm25/whatsapp_crm/internal/media"
 	"github.com/arshadm25/whatsapp_crm/internal/messaging"
 	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 	"github.com/arshadm25/whatsapp_crm/internal/metaevents"
 	"github.com/arshadm25/whatsapp_crm/internal/metafees"
 	"github.com/arshadm25/whatsapp_crm/internal/metrics"
+	"github.com/arshadm25/whatsapp_crm/internal/notifications"
 	"github.com/arshadm25/whatsapp_crm/internal/numbers"
 	"github.com/arshadm25/whatsapp_crm/internal/onboarding"
 	"github.com/arshadm25/whatsapp_crm/internal/razorpay"
@@ -290,6 +290,7 @@ type harness struct {
 	reconciler *metafees.Reconciler
 	creditLine *metafees.CreditLineWorker
 	ai         *fakeAI
+	mail       *captureMail
 	razorpay   *fakeRazorpay
 	keys       *envelope.Keyring
 	log        *slog.Logger
@@ -330,31 +331,33 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(stopHub)
 	go hub.Run(hubCtx)
 	fai := &fakeAI{}
+	mail := &captureMail{}
 	agent := ai.NewAgent(fai, log)
 	h := server.NewAPI(server.APIDeps{
 		Config: cfg, DB: d, Log: log,
-		Auth:       auth.NewService(d, keys, cfg, mailer.Log{Logger: log}, log),
-		Onboarding: onboarding.NewService(d, keys, meta, rc, log),
-		Numbers:    numbers.NewService(d, keys, meta, log),
-		Messaging:  messaging.NewService(d, keys, meta, rc, log),
-		Templates:  templates.NewService(d, keys, meta, log),
-		Inbox:      inbox.NewService(d, log),
-		Media:      media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
-		Developers: devportal.NewService(d, log),
-		Keys:       devportal.NewAuthenticator(d, devportal.NewLimiter(5), log),
-		Webhooks:   webhooks.NewService(d, keys, rc, log),
-		Contacts:   contacts.NewService(d, log),
-		Campaigns:  campaigns.NewService(d, rc, log),
-		Bots:       bots.NewService(d, rc, log),
-		Flows:      flows.NewService(d, keys, meta, log),
-		MetaFees:   metafees.NewService(d, sellerCfg, 500, log),
-		AI:         ai.NewService(d, agent, rc, log).AllowPrivateURLs(),
-		Analytics:  analytics.NewService(d, log),
-		Admin:      admin.NewService(d, log),
-		Billing:    billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),
-		Events:     hub,
-		Deletion:   deletion.NewHandler(d, "app-secret", "https://app.example", log),
-		Metrics:    metrics.New(d),
+		Auth:          auth.NewService(d, keys, cfg, mail, log),
+		Onboarding:    onboarding.NewService(d, keys, meta, rc, log),
+		Numbers:       numbers.NewService(d, keys, meta, log),
+		Messaging:     messaging.NewService(d, keys, meta, rc, log),
+		Templates:     templates.NewService(d, keys, meta, log),
+		Inbox:         inbox.NewService(d, log),
+		Media:         media.NewService(d, store, media.NewSigner(cfg.AppSecret), log),
+		Developers:    devportal.NewService(d, log),
+		Keys:          devportal.NewAuthenticator(d, devportal.NewLimiter(5), log),
+		Webhooks:      webhooks.NewService(d, keys, rc, log),
+		Contacts:      contacts.NewService(d, log),
+		Campaigns:     campaigns.NewService(d, rc, log),
+		Bots:          bots.NewService(d, rc, log),
+		Flows:         flows.NewService(d, keys, meta, log),
+		MetaFees:      metafees.NewService(d, sellerCfg, 500, log),
+		AI:            ai.NewService(d, agent, rc, log).AllowPrivateURLs(),
+		Analytics:     analytics.NewService(d, log),
+		Notifications: notifications.NewService(d, log),
+		Admin:         admin.NewService(d, log),
+		Billing:       billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),
+		Events:        hub,
+		Deletion:      deletion.NewHandler(d, "app-secret", "https://app.example", log),
+		Metrics:       metrics.New(d),
 	})
 	api := httptest.NewServer(h)
 	t.Cleanup(api.Close)
@@ -380,6 +383,7 @@ func newHarness(t *testing.T) *harness {
 		reconciler: metafees.NewReconciler(d, keys, meta, log),
 		creditLine: metafees.NewCreditLineWorker(d, meta, config.CreditLine{Enabled: true, ID: "cl_1", Token: "partner-token"}, log),
 		ai:         fai,
+		mail:       mail,
 		razorpay:   rp,
 		keys:       keys,
 		log:        log,

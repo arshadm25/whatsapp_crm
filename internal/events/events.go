@@ -28,7 +28,7 @@ const Channel = "ecogo_events"
 // Event is one change, as sent to the dashboard.
 type Event struct {
 	TenantID       uuid.UUID  `json:"-"`
-	Type           string     `json:"type"` // message, conversation, template
+	Type           string     `json:"type"` // message, conversation, template, notification
 	ID             uuid.UUID  `json:"id"`
 	ConversationID *uuid.UUID `json:"conversation_id,omitempty"`
 }

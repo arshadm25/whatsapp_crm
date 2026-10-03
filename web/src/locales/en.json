@@ -61,7 +61,9 @@
     "featTemplates": "Templates and campaigns",
     "featTemplatesText": "Submit templates to Meta and track approval without leaving the app.",
     "twoFactorTitle": "Two-factor sign-in",
-    "twoFactorText": "If it's on for your account, we'll ask for your 6-digit code next."
+    "twoFactorText": "If it's on for your account, we'll ask for your 6-digit code next.",
+    "remember": "Keep me logged in",
+    "forgot": "Forgot password?"
   },
   "getStarted": {
     "title": "Welcome, {{name}}",
@@ -850,7 +852,25 @@
     "sentAgo": "Sent {{ago}}",
     "billingSub": "Your subscription with Ecogo",
     "manage": "Manage",
-    "metaFeesNote": "Meta message fees are billed by Meta directly."
+    "metaFeesNote": "Meta message fees are billed by Meta directly.",
+    "resend": "Resend",
+    "notifications": "Notifications",
+    "require2fa": "Require two-step verification",
+    "require2faHint": "Every member must sign in with a code from an authenticator app. Members without it are asked to set it up before they can use the workspace.",
+    "require2faLabel": "Require two-step verification for all members",
+    "require2faFirst": "Turn on two-step verification for your own account under Security first.",
+    "notifyWhen": "Notify me when",
+    "notifyInApp": "In app",
+    "notifyEmail": "Email",
+    "notify_conversation_assigned": "A conversation is assigned to me",
+    "notifyHint_conversation_assigned": "Someone assigns you a conversation in the inbox.",
+    "notify_template_reviewed": "Meta reviews my template",
+    "notifyHint_template_reviewed": "A template you created is approved, rejected, paused or disabled. Owners and admins get it for synced templates.",
+    "notify_number_quality": "A number's quality drops",
+    "notifyHint_number_quality": "Sent to owners and admins when Meta lowers a number's quality rating.",
+    "notify_campaign_finished": "My campaign finishes",
+    "notifyHint_campaign_finished": "A campaign you created completes or stops with an error.",
+    "tab_notifications": "Notifications"
   },
   "invite": {
     "title": "Join {{tenant}}",
@@ -864,7 +884,9 @@
     "lead": "Enter the 6-digit code from your authenticator app.",
     "code": "Code",
     "verify": "Verify",
-    "useOther": "Log out and use another account"
+    "useOther": "Log out and use another account",
+    "requiredTitle": "Turn on two-step verification",
+    "requiredLead": "{{workspace}} requires two-step verification for everyone. Set it up with an authenticator app to continue."
   },
   "admin": {
     "title": "Platform overview",
@@ -1345,5 +1367,23 @@
     "more": "Load more",
     "tabFlows": "Flows",
     "sendHelp": "To send a Flow, add a Flow step to a chatbot, or call POST /v1/messages with interactive type flow and flow_id {{id}}."
+  },
+  "notifications": {
+    "title": "Notifications",
+    "bell_one": "Notifications, {{count}} unread",
+    "bell_other": "Notifications, {{count}} unread",
+    "markAll": "Mark all read",
+    "empty": "Nothing new.",
+    "settingsLink": "Notification settings"
+  },
+  "reset": {
+    "forgotTitle": "Reset your password",
+    "forgotLead": "Enter your account email. We'll send a link to choose a new password.",
+    "send": "Send reset link",
+    "sent": "If {{email}} has an account, a reset link is on its way. It works for one hour.",
+    "backToLogin": "Back to log in",
+    "title": "Choose a new password",
+    "save": "Set password",
+    "done": "Your password is changed and you are logged out everywhere."
   }
 }

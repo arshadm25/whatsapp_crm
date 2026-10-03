@@ -23,6 +23,8 @@ import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 import AcceptInvite from "./pages/AcceptInvite";
 import TwoStep from "./pages/TwoStep";
+import TwoStepRequired from "./pages/TwoStepRequired";
+import { ForgotPassword, ResetPassword } from "./pages/ResetPassword";
 import Admin from "./pages/Admin";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -32,6 +34,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (me.isLoading) return <div className="center muted">{t("common.loading")}</div>;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (me.data.mfa_required) return <Navigate to="/2fa" replace state={{ from: location.pathname }} />;
+  if (me.data.two_factor_setup_required) return <Navigate to="/2fa-setup" replace />;
   return <>{children}</>;
 }
 
@@ -43,6 +46,9 @@ export default function App() {
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/invite" element={<AcceptInvite />} />
       <Route path="/2fa" element={<TwoStep />} />
+      <Route path="/2fa-setup" element={<TwoStepRequired />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         element={
           <RequireAuth>

@@ -125,7 +125,7 @@ func (q *Queries) AdminLastMessageAt(ctx context.Context) (time.Time, error) {
 }
 
 const adminListTenants = `-- name: AdminListTenants :many
-SELECT id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since FROM tenants
+SELECT id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor FROM tenants
 WHERE ($1::tenant_status IS NULL OR status = $1)
   AND ($2::text IS NULL OR name ILIKE '%' || $2 || '%' OR slug ILIKE '%' || $2 || '%')
   AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4::uuid))
@@ -170,6 +170,7 @@ func (q *Queries) AdminListTenants(ctx context.Context, arg AdminListTenantsPara
 			&i.UpdatedAt,
 			&i.MetaPaymentMode,
 			&i.MetaPaymentModeSince,
+			&i.RequireTwoFactor,
 		); err != nil {
 			return nil, err
 		}
@@ -228,7 +229,7 @@ func (q *Queries) AdminMetaErrors(ctx context.Context, arg AdminMetaErrorsParams
 
 const adminSetTenantStatus = `-- name: AdminSetTenantStatus :one
 UPDATE tenants SET status = $1, suspended_reason = $2, updated_at = now() WHERE id = $3
-RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since
+RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor
 `
 
 type AdminSetTenantStatusParams struct {
@@ -254,6 +255,7 @@ func (q *Queries) AdminSetTenantStatus(ctx context.Context, arg AdminSetTenantSt
 		&i.UpdatedAt,
 		&i.MetaPaymentMode,
 		&i.MetaPaymentModeSince,
+		&i.RequireTwoFactor,
 	)
 	return i, err
 }

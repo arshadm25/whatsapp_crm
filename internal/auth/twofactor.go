@@ -108,6 +108,15 @@ func (s *Service) disableTOTP(w http.ResponseWriter, r *http.Request) error {
 		if secret == "" {
 			return httpx.NewError(http.StatusConflict, "conflict", "Two-step verification is already off.")
 		}
+		if p.TenantID != uuid.Nil {
+			required, err := q.TenantRequiresTwoFactor(r.Context(), p.TenantID)
+			if err != nil {
+				return err
+			}
+			if required {
+				return httpx.NewError(http.StatusConflict, "conflict", "This workspace requires two-step verification, so it cannot be turned off.")
+			}
+		}
 		if !CheckTOTP(secret, req.Code, s.now()) {
 			return errBadCode
 		}

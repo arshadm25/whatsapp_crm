@@ -108,6 +108,15 @@ func (q *Queries) DeleteOtherSessions(ctx context.Context, arg DeleteOtherSessio
 	return err
 }
 
+const deleteUserSessions = `-- name: DeleteUserSessions :exec
+DELETE FROM sessions WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserSessions, userID)
+	return err
+}
+
 const getMemberRole = `-- name: GetMemberRole :one
 SELECT role FROM memberships WHERE user_id = $1
 `
@@ -291,6 +300,35 @@ func (q *Queries) MarkInviteAccepted(ctx context.Context, id uuid.UUID) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const refreshInvite = `-- name: RefreshInvite :one
+UPDATE invites SET token_hash = $1, expires_at = $2
+WHERE id = $3 AND accepted_at IS NULL
+RETURNING id, tenant_id, email, role, token_hash, invited_by, expires_at, accepted_at, created_at
+`
+
+type RefreshInviteParams struct {
+	TokenHash []byte
+	ExpiresAt time.Time
+	ID        uuid.UUID
+}
+
+func (q *Queries) RefreshInvite(ctx context.Context, arg RefreshInviteParams) (Invite, error) {
+	row := q.db.QueryRow(ctx, refreshInvite, arg.TokenHash, arg.ExpiresAt, arg.ID)
+	var i Invite
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Email,
+		&i.Role,
+		&i.TokenHash,
+		&i.InvitedBy,
+		&i.ExpiresAt,
+		&i.AcceptedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const setMemberRole = `-- name: SetMemberRole :exec
 UPDATE memberships SET role = $2 WHERE user_id = $1
 `
@@ -319,9 +357,34 @@ func (q *Queries) SetPassword(ctx context.Context, arg SetPasswordParams) error 
 	return err
 }
 
+const setRequireTwoFactor = `-- name: SetRequireTwoFactor :exec
+UPDATE tenants SET require_two_factor = $1, updated_at = now() WHERE id = $2
+`
+
+type SetRequireTwoFactorParams struct {
+	RequireTwoFactor bool
+	ID               uuid.UUID
+}
+
+func (q *Queries) SetRequireTwoFactor(ctx context.Context, arg SetRequireTwoFactorParams) error {
+	_, err := q.db.Exec(ctx, setRequireTwoFactor, arg.RequireTwoFactor, arg.ID)
+	return err
+}
+
+const tenantRequiresTwoFactor = `-- name: TenantRequiresTwoFactor :one
+SELECT require_two_factor FROM tenants WHERE id = $1
+`
+
+func (q *Queries) TenantRequiresTwoFactor(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, tenantRequiresTwoFactor, id)
+	var require_two_factor bool
+	err := row.Scan(&require_two_factor)
+	return require_two_factor, err
+}
+
 const updateTenantSettings = `-- name: UpdateTenantSettings :one
 UPDATE tenants SET name = $2, legal_name = $3, timezone = $4, message_retention_days = $5, updated_at = now() WHERE id = $1
-RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since
+RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor
 `
 
 type UpdateTenantSettingsParams struct {
@@ -355,6 +418,7 @@ func (q *Queries) UpdateTenantSettings(ctx context.Context, arg UpdateTenantSett
 		&i.UpdatedAt,
 		&i.MetaPaymentMode,
 		&i.MetaPaymentModeSince,
+		&i.RequireTwoFactor,
 	)
 	return i, err
 }
