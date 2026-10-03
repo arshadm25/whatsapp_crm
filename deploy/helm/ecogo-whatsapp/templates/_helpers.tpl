@@ -28,6 +28,8 @@ into floats, which quote would render as 8.8789121708352e+14. */}}
   value: {{ .root.Values.environment | quote }}
 - name: ECOGO_LOG_LEVEL
   value: {{ .root.Values.config.logLevel | quote }}
+- name: ECOGO_VERSION
+  value: {{ .root.Values.image.tag | default .root.Chart.AppVersion | quote }}
 - name: ECOGO_HTTP_ADDR
   value: ":8080"
 - name: ECOGO_PUBLIC_APP_URL

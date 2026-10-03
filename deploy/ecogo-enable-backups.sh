@@ -8,6 +8,9 @@ KC="/Users/admin/Projects/Phase 2 - Travel/kubeconfig-hetzner.yml"
 k() { kubectl --kubeconfig "$KC" "$@"; }
 h() { helm --kubeconfig "$KC" "$@"; }
 NS=ecogo-whatsapp
+if k -n argocd get application ecogo-whatsapp >/dev/null 2>&1; then
+  echo "Argo CD owns the release now; set postgres.cnpg.backup in the Application's values instead (see the README)."; exit 1
+fi
 
 AK=$(k -n $NS get secret ecogo-whatsapp -o jsonpath='{.data.s3-access-key}' | base64 -d)
 SK=$(k -n $NS get secret ecogo-whatsapp -o jsonpath='{.data.s3-secret-key}' | base64 -d)

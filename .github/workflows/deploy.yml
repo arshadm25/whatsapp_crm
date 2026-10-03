@@ -1,0 +1,53 @@
+name: Deploy
+
+# Puts any commit of main into production: a rollback to an earlier commit, or a redeploy.
+# Argo CD deploys whatever the production branch points at. The next merge to main moves
+# production forward again, so after a rollback fix main (or revert there) before merging more.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit of main to deploy (full or short SHA). Blank deploys the latest main.
+        required: false
+        default: ""
+
+concurrency: { group: production, cancel-in-progress: false }
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Resolve the commit
+        id: commit
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          sha=$(git rev-parse --verify "${INPUT_SHA:-origin/main}^{commit}")
+          git merge-base --is-ancestor "$sha" origin/main || { echo "::error::$sha is not on main"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check both images exist for it
+        run: |
+          for img in ghcr.io/${{ github.repository }} ghcr.io/${{ github.repository }}-web; do
+            docker buildx imagetools inspect "$img:${{ steps.commit.outputs.sha }}" > /dev/null \
+              || { echo "::error::$img:${{ steps.commit.outputs.sha }} was never built (did CI pass on that commit?)"; exit 1; }
+          done
+      - name: Point production at it
+        run: |
+          git push --force origin "${{ steps.commit.outputs.sha }}:refs/heads/production"
+          echo "production -> ${{ steps.commit.outputs.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Wait until production serves it
+        if: vars.PRODUCTION_URL != ''
+        run: deploy/argocd/wait-for-version.sh "${{ vars.PRODUCTION_URL }}" "${{ steps.commit.outputs.sha }}"

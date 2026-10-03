@@ -18,6 +18,9 @@ type Config struct {
 	Env      string // development, staging, production
 	HTTPAddr string // listen address for api or ingest
 	LogLevel string
+	// Version is the deployed commit (the image tag), shown at /internal/config so a deploy can
+	// confirm the new code is serving.
+	Version string
 
 	// DatabaseURL is the application role (ecogo_app, no BYPASSRLS).
 	DatabaseURL string
@@ -124,6 +127,7 @@ func Load() (*Config, error) {
 		Env:                  env("ECOGO_ENV", "development"),
 		HTTPAddr:             env("ECOGO_HTTP_ADDR", ":8080"),
 		LogLevel:             env("ECOGO_LOG_LEVEL", "info"),
+		Version:              env("ECOGO_VERSION", "dev"),
 		DatabaseURL:          os.Getenv("ECOGO_DATABASE_URL"),
 		MigrationDatabaseURL: os.Getenv("ECOGO_MIGRATION_DATABASE_URL"),
 		PublicAppURL:         strings.TrimRight(env("ECOGO_PUBLIC_APP_URL", "http://localhost:5173"), "/"),

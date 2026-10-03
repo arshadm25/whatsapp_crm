@@ -1,6 +1,7 @@
 {{- if .Values.migrations.enabled }}
 # Runs after the first install (so a CloudNativePG cluster from this chart exists) and before
-# every upgrade, so new code never starts against an old schema.
+# every upgrade, so new code never starts against an old schema. Under Argo CD it is a PreSync
+# hook: if it fails, the sync stops and the running pods keep the old version.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -12,6 +13,8 @@ metadata:
     helm.sh/hook: post-install,pre-upgrade
     helm.sh/hook-weight: "0"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: 6
   template:

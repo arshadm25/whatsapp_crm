@@ -9,6 +9,10 @@ metadata:
   name: {{ .Release.Name }}-pg
   labels:
     {{- include "ecogo.labels" . | nindent 4 }}
+  annotations:
+    # The database outlives the release: Helm and Argo CD never delete it.
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   instances: {{ $pg.instances }}
   imageName: ghcr.io/cloudnative-pg/postgresql:16
