@@ -3,9 +3,11 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { useConfig } from "../api/hooks";
+import { useConfig, usePhoneNumbers } from "../api/hooks";
 import type { OnboardingFlow, OnboardingSession } from "../api/types";
 import { launchEmbeddedSignup, loadFacebookSdk } from "../lib/embeddedSignup";
+import Icon from "../components/Icon";
+import { shortTime } from "../lib/time";
 
 const STEPS: Record<OnboardingFlow, string[]> = {
   standard: ["code_received", "token_exchanged", "webhooks_subscribed", "number_registered", "details_synced", "completed"],
@@ -18,15 +20,16 @@ const STEPS: Record<OnboardingFlow, string[]> = {
 export default function ConnectWhatsApp() {
   const { t } = useTranslation();
   const config = useConfig();
+  const numbers = usePhoneNumbers();
   const [params, setParams] = useSearchParams();
   const sessionId = params.get("session");
-  const [flow, setFlow] = useState<OnboardingFlow>("standard");
   const [sdkReady, setSdkReady] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<OnboardingFlow | null>(null);
   const [error, setError] = useState("");
 
   const meta = config.data?.meta;
   const configured = !!(meta?.app_id && meta?.config_id);
+  const connected = (numbers.data ?? []).filter((n) => n.status === "connected");
 
   // Load Meta's SDK up front: FB.login must run inside the click, or browsers block the popup.
   useEffect(() => {
@@ -36,8 +39,8 @@ export default function ConnectWhatsApp() {
       .catch((e: Error) => setError(e.message));
   }, [configured, meta]);
 
-  const start = async () => {
-    setBusy(true);
+  const start = async (flow: OnboardingFlow) => {
+    setBusy(flow);
     setError("");
     const created = api<OnboardingSession>("POST", "/internal/onboarding/sessions", { flow });
     const popup = launchEmbeddedSignup(meta!.config_id, flow);
@@ -65,34 +68,75 @@ export default function ConnectWhatsApp() {
       // A non-API error here means Meta's sign-up script did not start (blocked or not ready).
       setError(e instanceof ApiError ? e.message : t("connect.sdkNotReady"));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
-  if (sessionId) return <Progress id={sessionId} onRestart={() => setParams({})} />;
+  const ready = sdkReady && !busy;
+  const label = (flow: OnboardingFlow, text: string) => (busy === flow ? t("connect.loadingSdk") : text);
 
   return (
-    <section className="narrow">
-      <h1>{t("connect.title")}</h1>
-      <p className="muted">{t("connect.intro")}</p>
-      {config.isSuccess && !configured && <div className="error">{t("connect.notConfigured")}</div>}
-      <h2>{t("connect.chooseFlow")}</h2>
-      <div className="choices">
-        {(["standard", "coexistence"] as const).map((f) => (
-          <label key={f} className={`choice card ${flow === f ? "selected" : ""}`}>
-            <input type="radio" name="flow" checked={flow === f} onChange={() => setFlow(f)} />
-            <div>
-              <strong>{t(`connect.${f}`)}</strong>
-              <div className="muted small">{t(`connect.${f}Hint`)}</div>
-              {f === "coexistence" && <div className="muted small">{t("connect.coexistenceLimits")}</div>}
-            </div>
-          </label>
-        ))}
+    <section>
+      <div className="page-head">
+        <div>
+          <div className="crumb"><Link to="/numbers">{t("numbers.title")}</Link><Icon name="chevronRight" />{t("connect.crumb")}</div>
+          <h1>{t("connect.title")}</h1>
+          <p className="sub">{t("connect.intro")}</p>
+        </div>
       </div>
+      {config.isSuccess && !configured && <div className="error">{t("connect.notConfigured")}</div>}
       {error && <div className="error">{error}</div>}
-      <button className="primary" disabled={!sdkReady || busy} onClick={start}>
-        {sdkReady || !configured || error ? t("connect.start") : t("connect.loadingSdk")}
-      </button>
+      <div className="split">
+        <div className="stack">
+          {sessionId ? (
+            <Progress id={sessionId} onRestart={() => setParams({})} />
+          ) : (
+            <div className="grid g2">
+              <div className="card choice-card">
+                <div className="row-between"><span className="ic lg"><Icon name="phone" /></span><span className="chip">{t("connect.recommended")}</span></div>
+                <div><h2>{t("connect.standard")}</h2><p className="sub">{t("connect.standardHint")}</p></div>
+                <ul className="lst">
+                  {[1, 2, 3].map((i) => <li key={i}><Icon name="check" size="s" />{t(`connect.standardPoint${i}`)}</li>)}
+                </ul>
+                <button className="primary" disabled={!ready || !configured} onClick={() => start("standard")}>
+                  <Icon name="facebook" size="s" />{label("standard", t("connect.start"))}
+                </button>
+              </div>
+              <div className="card choice-card">
+                <div><span className="ic lg bl"><Icon name="message" /></span></div>
+                <div><h2>{t("connect.coexistence")}</h2><p className="sub">{t("connect.coexistenceHint")}</p></div>
+                <ul className="lst">
+                  {[1, 2, 3].map((i) => <li key={i}><Icon name="check" size="s" />{t(`connect.coexistencePoint${i}`)}</li>)}
+                </ul>
+                <span className="hint">{t("connect.coexistenceLimits")}</span>
+                <button className="ghost" disabled={!ready || !configured} onClick={() => start("coexistence")}>
+                  <Icon name="facebook" size="s" />{label("coexistence", t("connect.startExisting"))}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <aside className="stack">
+          <div className="card flush">
+            <div className="chd"><h2>{t("connect.needTitle")}</h2></div>
+            <ul className="lst cb">
+              {[1, 2, 3].map((i) => <li key={i}><Icon name="check" size="s" />{t(`connect.need${i}`)}</li>)}
+            </ul>
+          </div>
+          <div className="card flush">
+            <div className="chd"><h2>{t("connect.connectedTitle")}</h2><span className="chip gy">{connected.length}</span></div>
+            {connected.length === 0 && <div className="cb muted">{t("numbers.empty")}</div>}
+            {connected.slice(0, 3).map((n) => (
+              <div key={n.id} className="num-row">
+                <span className="ic"><Icon name="phone" size="s" /></span>
+                <div><b>{n.display_phone_number}</b><span className="muted small">{n.verified_name ?? "—"}</span></div>
+                <span className="pill ok">{t("numbers.status_connected")}</span>
+              </div>
+            ))}
+            <div className="cf"><Link to="/numbers">{t("connect.manageNumbers")}<Icon name="chevronRight" size="xs" /></Link></div>
+          </div>
+        </aside>
+      </div>
     </section>
   );
 }
@@ -113,10 +157,11 @@ function Progress({ id, onRestart }: { id: string; onRestart: () => void }) {
     if (s?.state === "completed") void qc.invalidateQueries({ queryKey: ["phone-numbers"] });
   }, [s?.state, qc]);
 
-  if (!s) return <div className="muted">{q.error ? (q.error as Error).message : t("common.loading")}</div>;
+  if (!s) return <div className="card muted">{q.error ? (q.error as Error).message : t("common.loading")}</div>;
 
   const steps = STEPS[s.flow];
   const reached = s.state === "completed" ? steps.length : steps.indexOf(s.step) + 1;
+  const pct = Math.round((reached / steps.length) * 100);
 
   const retry = async () => {
     setRetryError("");
@@ -127,30 +172,52 @@ function Progress({ id, onRestart }: { id: string; onRestart: () => void }) {
     }
   };
 
+  const pill = s.state === "completed" ? <span className="pill ok">{t("connect.stateDone")}</span>
+    : s.state === "failed" ? <span className="pill er">{t("connect.stateFailed")}</span>
+    : s.state === "cancelled" ? <span className="pill">{t("connect.stateCancelled")}</span>
+    : <span className="pill wa">{t("connect.stateRunning")}</span>;
+
   return (
-    <section className="narrow">
-      <h1>{s.state === "completed" ? t("connect.doneTitle") : t("connect.progressTitle")}</h1>
-      <ol className="steps">
-        {steps.map((step, i) => {
-          const cls = i < reached ? "done" : i === reached ? (s.state === "failed" ? "failed" : "current") : "";
-          return (
-            <li key={step} className={cls}>
-              {t(`connect.steps.${step}`)}
-            </li>
-          );
-        })}
-      </ol>
-      {s.error && <div className="error">{s.error.message}</div>}
-      {retryError && <div className="error">{retryError}</div>}
-      <div className="actions">
-        {s.state === "completed" && <Link className="button primary" to="/numbers">{t("connect.viewNumbers")}</Link>}
-        {s.state === "failed" && s.step !== "code_received" && (
-          <button className="primary" onClick={retry}>{t("connect.retry")}</button>
-        )}
-        {(s.state === "failed" || s.state === "cancelled") && (
-          <button onClick={onRestart}>{t("connect.startOver")}</button>
-        )}
+    <>
+      {s.state === "failed" && s.error && (
+        <div className="banner danger" style={{ margin: 0 }}>
+          <Icon name="alert" size="s" />
+          <div><b>{t("connect.stepFailed", { step: t(`connect.steps.${s.step}`) })}</b><span>{s.error.message}</span></div>
+          {s.step !== "code_received" && <button className="sm" onClick={retry}><Icon name="refresh" size="xs" />{t("connect.retry")}</button>}
+        </div>
+      )}
+      {retryError && <div className="error" style={{ margin: 0 }}>{retryError}</div>}
+      <div className="card flush">
+        <div className="chd">
+          <div>
+            <h2>{s.state === "completed" ? t("connect.doneTitle") : t("connect.progressTitle")}</h2>
+            <p>{t("connect.startedAt", { time: shortTime(s.created_at), step: Math.min(reached + (s.state === "completed" ? 0 : 1), steps.length), total: steps.length })}</p>
+          </div>
+          {pill}
+        </div>
+        <div className="cb stack" style={{ gap: 20 }}>
+          <div className="bar" style={{ height: 8 }}><span className={s.state === "failed" ? "rd" : ""} style={{ width: `${pct}%` }} /></div>
+          <div className="steps-grid">
+            {steps.map((step, i) => {
+              const cls = i < reached ? "done" : i === reached ? (s.state === "failed" ? "failed" : s.state === "in_progress" ? "current" : "") : "";
+              const state = cls === "done" ? t("connect.stepDone") : cls === "failed" ? t("connect.stepFailedShort") : cls === "current" ? t("connect.stepRunning") : t("connect.stepWaiting");
+              return (
+                <div key={step} className={cls}>
+                  <span className="dot">{cls === "done" ? <Icon name="check" size="xs" /> : cls === "failed" ? <Icon name="x" size="xs" /> : i + 1}</span>
+                  <b>{t(`connect.steps.${step}`)}</b>
+                  <span className="muted">{state}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="actions">
+            {s.state === "completed" && <Link className="button primary" to="/numbers">{t("connect.viewNumbers")}</Link>}
+            {(s.state === "failed" || s.state === "cancelled") && (
+              <button onClick={onRestart}>{t("connect.startOver")}</button>
+            )}
+          </div>
+        </div>
       </div>
-    </section>
+    </>
   );
 }

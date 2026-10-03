@@ -1,6 +1,10 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api/client";
 import { useMe, usePhoneNumbers } from "../api/hooks";
+import type { UsageReport } from "../api/types";
+import { daysAgo } from "../lib/analytics";
 import Icon, { type IconName } from "../components/Icon";
 
 const RING = 2 * Math.PI * 40;
@@ -10,11 +14,23 @@ export default function GetStarted() {
   const me = useMe().data!;
   const numbers = usePhoneNumbers();
   const connected = !!numbers.data?.some((n) => n.status === "connected");
+  const manager = me.tenant?.role === "owner" || me.tenant?.role === "admin";
+  // Usage reports are for owners and admins; the longest range they allow is a year.
+  const usage = useQuery({
+    queryKey: ["analytics", "first-message"],
+    queryFn: () => api<UsageReport>("GET", `/internal/analytics?from=${daysAgo(365)}`),
+    enabled: manager && connected,
+    staleTime: 5 * 60_000,
+  });
+  const messaged = (usage.data?.totals.sent ?? 0) > 0;
 
   const steps = [
     { key: "stepAccount", done: true, hint: "stepAccountHint" },
     { key: "stepVerify", done: me.user.email_verified, hint: "stepVerifyHint" },
     { key: "stepConnect", done: connected, hint: "stepConnectHint", action: <Link className="button primary sm" to="/numbers/connect">{t("getStarted.connect")}</Link> },
+    ...(manager
+      ? [{ key: "stepMessage", done: messaged, hint: "stepMessageHint", action: connected ? <Link className="button sm" to="/inbox">{t("getStarted.openInbox")}</Link> : <span className="muted small">{t("getStarted.afterConnect")}</span> }]
+      : []),
   ];
   const done = steps.filter((s) => s.done).length;
   const current = steps.findIndex((s) => !s.done);
@@ -38,6 +54,7 @@ export default function GetStarted() {
           <h1>{t("getStarted.title", { name: me.user.name })}</h1>
           <p className="sub">{t("getStarted.intro")}</p>
         </div>
+        {manager && <Link className="button" to="/settings"><Icon name="userPlus" size="s" />{t("getStarted.invite")}</Link>}
       </div>
       <div className="split">
         <div className="stack">
@@ -52,7 +69,7 @@ export default function GetStarted() {
               <h2>{current < 0 ? t("getStarted.allSet") : t("getStarted.progressTitle", { done, total: steps.length })}</h2>
               <p className="sub">{current < 0 ? t("getStarted.progressTextDone") : t("getStarted.progressText")}</p>
             </div>
-            {!connected && (
+            {current >= 0 && steps[current].key === "stepConnect" && (
               <Link className="button primary" to="/numbers/connect">{t("getStarted.connect")}<Icon name="arrowRight" size="s" /></Link>
             )}
           </div>

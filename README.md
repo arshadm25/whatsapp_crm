@@ -127,7 +127,7 @@ helm upgrade --install ecogo-whatsapp-staging deploy/helm/ecogo-whatsapp \
   --set hosts.api=api.staging.whatsapp.ecogo.co.in \
   --set hosts.hooks=hooks.staging.whatsapp.ecogo.co.in \
   --set image.tag=<git sha> --set webImage.tag=<git sha> \
-  --set config.metaAppId=<staging app id> --set config.metaConfigId=<configuration id>
+  --set-string config.metaAppId=<staging app id> --set-string config.metaConfigId=<configuration id>
 ```
 
 The chart assumes ingress-nginx, cert-manager and the CloudNativePG operator; each can be switched

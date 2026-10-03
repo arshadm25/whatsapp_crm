@@ -4,11 +4,12 @@ import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useInboxCounts, useMe, useMembers, usePhoneNumbers, useQuickReplies } from "../api/hooks";
-import type { Contact, Conversation, InboxCounts, Media, Message, Note, Page } from "../api/types";
+import type { ConsentEvent, Contact, Conversation, InboxCounts, Media, Message, Note, Page } from "../api/types";
 import MediaPreview from "../components/MediaPreview";
 import TemplateComposer from "../components/TemplateComposer";
 import { ACCEPT, MEDIA_TYPES, formatSize, mediaKind, takesCaption } from "../lib/media";
 import { captionOf, messageText, statusTick } from "../lib/messages";
+import Icon from "../components/Icon";
 
 type Filter = "all" | "mine" | "unassigned" | "closed";
 
@@ -28,6 +29,12 @@ const FILTER_QUERY: Record<Filter, string> = {
 
 function contactName(c: Conversation["contact"]) {
   return c.name ?? c.profile_name ?? `+${c.wa_id}`;
+}
+
+function initials(name: string) {
+  const parts = name.replace(/[^\p{L}\p{N} ]/gu, "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "#";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
 function shortTime(iso: string | null) {
@@ -69,7 +76,7 @@ export default function Inbox() {
           {(Object.keys(FILTER_QUERY) as Filter[]).map((f) => (
             <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
               {t(`inbox.filter_${f}`)}
-              {counts && <span className="tab-count">{counts[FILTER_COUNT[f]]}</span>}
+              {counts && <span className="cnt">{counts[FILTER_COUNT[f]]}</span>}
             </button>
           ))}
         </div>
@@ -79,13 +86,24 @@ export default function Inbox() {
           {list.data?.data.map((c) => (
             <li key={c.id}>
               <button className={`conv ${c.id === id ? "selected" : ""}`} onClick={() => navigate(`/inbox/${c.id}`)}>
-                <span className="conv-top">
-                  <strong>{contactName(c.contact)}</strong>
-                  <span className="muted small">{shortTime(c.last_message_at)}</span>
-                </span>
-                <span className="conv-bottom">
-                  <span className="muted small preview">{c.last_message_preview}</span>
-                  {c.unread_count > 0 && <span className="badge">{c.unread_count}</span>}
+                <span className="av">{initials(contactName(c.contact))}</span>
+                <span className="conv-main">
+                  <span className="conv-top">
+                    <strong>{contactName(c.contact)}</strong>
+                    <span className="muted small">{shortTime(c.last_message_at)}</span>
+                  </span>
+                  <span className="conv-bottom">
+                    <span className="muted small preview">{c.last_message_preview}</span>
+                    {c.unread_count > 0 && <span className="badge">{c.unread_count}</span>}
+                  </span>
+                  {(c.contact.tags.length > 0 || c.status !== "closed") && (
+                    <span className="conv-tags">
+                      {c.contact.tags.slice(0, 2).map((tag) => <span key={tag} className="chip">{tag}</span>)}
+                      {c.status !== "closed" && (
+                        <span className="chip muted">{c.window.open ? t("inbox.leftShort", { left: timeLeft(c.window.expires_at) }) : t("inbox.windowClosed")}</span>
+                      )}
+                    </span>
+                  )}
                 </span>
               </button>
             </li>
@@ -102,7 +120,7 @@ function Thread({ id }: { id: string }) {
   const qc = useQueryClient();
   const members = useMembers();
   const numbers = usePhoneNumbers();
-  const [showNotes, setShowNotes] = useState(false);
+  const [showNotes, setShowNotes] = useState(() => window.matchMedia?.("(min-width: 1200px)").matches ?? false);
   const [error, setError] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -110,6 +128,7 @@ function Thread({ id }: { id: string }) {
     queryKey: ["conversation", id],
     queryFn: () => api<Conversation>("GET", `/v1/conversations/${id}`),
   });
+  const notes = useNotes(id);
   const contactId = conv.data?.contact.id;
   const contact = useQuery({
     queryKey: ["contact", contactId],
@@ -125,6 +144,15 @@ function Thread({ id }: { id: string }) {
   });
   const messages = useMemo(() => (msgs.data?.pages.flatMap((p) => p.data) ?? []).slice().reverse(), [msgs.data]);
   const newest = messages[messages.length - 1]?.id;
+  // Team notes sit in the timeline between the messages written around the same time.
+  const timeline = useMemo(() => {
+    const oldest = messages[0]?.created_at ?? "";
+    const items: ({ kind: "message"; at: string; m: Message } | { kind: "note"; at: string; n: Note })[] = [
+      ...messages.map((m) => ({ kind: "message" as const, at: m.created_at, m })),
+      ...(notes.data ?? []).filter((n) => !msgs.hasNextPage || n.created_at >= oldest).map((n) => ({ kind: "note" as const, at: n.created_at, n })),
+    ];
+    return items.sort((a, b) => a.at.localeCompare(b.at));
+  }, [messages, notes.data, msgs.hasNextPage]);
 
   useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [newest]);
 
@@ -158,6 +186,7 @@ function Thread({ id }: { id: string }) {
     <div className="inbox-thread card">
       <header className="thread-head">
         <Link className="back link" to="/inbox">←</Link>
+        <span className="av">{initials(contactName(c.contact))}</span>
         <div>
           <strong>{contactName(c.contact)}</strong>
           <div className="muted small">
@@ -166,7 +195,7 @@ function Thread({ id }: { id: string }) {
             {contact.data?.conversation_count !== undefined && ` · ${t("inbox.conversationCount", { count: contact.data.conversation_count })}`}
           </div>
         </div>
-        <span className={`pill ${c.window.open ? "w-open" : "w-closed"}`}>
+        <span className={`pill ${c.window.open ? "ok" : ""}`}>
           {c.window.open
             ? t("inbox.windowOpen", { left: timeLeft(c.window.expires_at) })
             : t("inbox.windowClosed")}
@@ -177,10 +206,11 @@ function Thread({ id }: { id: string }) {
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
-        <button onClick={() => patch({ status: c.status === "closed" ? "open" : "closed" })}>
+        <button className={c.status === "closed" ? "" : "ghost"} onClick={() => patch({ status: c.status === "closed" ? "open" : "closed" })}>
+          <Icon name={c.status === "closed" ? "refresh" : "check"} size="xs" />
           {c.status === "closed" ? t("inbox.reopen") : t("inbox.close")}
         </button>
-        <button className={showNotes ? "active" : ""} onClick={() => setShowNotes(!showNotes)}>{t("inbox.notes")}</button>
+        <button className={showNotes ? "active" : ""} onClick={() => setShowNotes(!showNotes)}>{t("inbox.details")}</button>
       </header>
       {error && <div className="error">{error}</div>}
       <div className="thread-body">
@@ -188,29 +218,16 @@ function Thread({ id }: { id: string }) {
           {msgs.hasNextPage && (
             <button className="link older" onClick={() => msgs.fetchNextPage()}>{t("inbox.older")}</button>
           )}
-          {messages.map((m) => (
-            <div key={m.id} className={`bubble ${m.direction}`}>
-              {MEDIA_TYPES.has(m.type) ? (
-                <>
-                  <MediaPreview message={m} />
-                  {captionOf(m) && <div className="bubble-text">{captionOf(m)}</div>}
-                </>
-              ) : (
-                <div className="bubble-text">{messageText(m)}</div>
-              )}
-              <div className="bubble-meta">
-                {shortTime(m.created_at)}
-                {m.direction === "outbound" && (
-                  <span className={`tick tick-${m.status}`} title={t(`send.status_${m.status}`)}>{statusTick(m.status)}</span>
-                )}
-                {m.origin === "phone_app" && <span>· {t("inbox.fromPhone")}</span>}
-              </div>
-              {m.error && <div className="bubble-error">{m.error.message}</div>}
+          {timeline.map((item) => item.kind === "note" ? (
+            <div key={`note-${item.n.id}`} className="inline-note">
+              {t("inbox.noteBy", { name: item.n.author_name })}: {item.n.body}
             </div>
+          ) : (
+            <MessageBubble key={item.m.id} m={item.m} />
           ))}
           <div ref={bottom} />
         </div>
-        {showNotes && <Notes id={id} />}
+        {showNotes && <ContactPanel conv={c} notes={notes.data ?? []} />}
       </div>
       <footer className="composer">
         {c.window.open ? (
@@ -222,6 +239,33 @@ function Thread({ id }: { id: string }) {
           </>
         )}
       </footer>
+    </div>
+  );
+}
+
+function MessageBubble({ m }: { m: Message }) {
+  const { t } = useTranslation();
+  return (
+    <div className={`bubble ${m.direction}`}>
+      {m.type === "template" && (
+        <div className="bubble-tag">{t("inbox.templateTag")}</div>
+      )}
+      {MEDIA_TYPES.has(m.type) ? (
+        <>
+          <MediaPreview message={m} />
+          {captionOf(m) && <div className="bubble-text">{captionOf(m)}</div>}
+        </>
+      ) : (
+        <div className="bubble-text">{messageText(m)}</div>
+      )}
+      <div className="bubble-meta">
+        {shortTime(m.created_at)}
+        {m.direction === "outbound" && (
+          <span className={`tick tick-${m.status}`} title={t(`send.status_${m.status}`)}>{statusTick(m.status)}</span>
+        )}
+        {m.origin === "phone_app" && <span>· {t("inbox.fromPhone")}</span>}
+      </div>
+      {m.error && <div className="bubble-error">{m.error.message}</div>}
     </div>
   );
 }
@@ -306,6 +350,13 @@ function TextComposer({ conv, onSent }: { conv: Conversation; onSent: () => void
           ))}
         </ul>
       )}
+      {matches.length === 0 && !text && (replies.data?.length ?? 0) > 0 && (
+        <div className="reply-chips">
+          {replies.data!.slice(0, 6).map((r) => (
+            <button type="button" key={r.id} className="chip selectable" title={r.body} onClick={() => setText(r.body)}>/{r.shortcut}</button>
+          ))}
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
       {file && (
         <div className="attachment">
@@ -330,15 +381,25 @@ function TextComposer({ conv, onSent }: { conv: Conversation; onSent: () => void
   );
 }
 
-function Notes({ id }: { id: string }) {
+function useNotes(id: string) {
+  return useQuery({
+    queryKey: ["notes", id],
+    queryFn: async () => (await api<{ data: Note[] }>("GET", `/internal/inbox/conversations/${id}/notes`)).data,
+  });
+}
+
+function ContactPanel({ conv, notes }: { conv: Conversation; notes: Note[] }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const role = useMe().data?.tenant?.role;
   const replies = useQuickReplies();
-  const notes = useQuery({
-    queryKey: ["notes", id],
-    queryFn: async () => (await api<{ data: Note[] }>("GET", `/internal/inbox/conversations/${id}/notes`)).data,
+  const id = conv.id;
+  const ct = conv.contact;
+  const consent = useQuery({
+    queryKey: ["consent", ct.id],
+    queryFn: async () => (await api<{ data: ConsentEvent[] }>("GET", `/internal/contacts/${ct.id}/consent`)).data,
   });
+  const lastOptIn = consent.data?.find((e) => e.kind === "opt_in");
   const [body, setBody] = useState("");
   const [shortcut, setShortcut] = useState("");
   const [replyBody, setReplyBody] = useState("");
@@ -362,12 +423,31 @@ function Notes({ id }: { id: string }) {
       setError(e instanceof ApiError ? e.message : t("common.error"));
     }
   };
+  const optPill = ct.blocked ? "q-red" : ct.opt_in_status === "opted_in" ? "q-green" : ct.opt_in_status === "opted_out" ? "q-red" : "";
 
   return (
     <aside className="notes">
+      <div className="contact-card">
+        <span className="av lg">{initials(contactName(ct))}</span>
+        <strong>{contactName(ct)}</strong>
+        <span className="muted small">+{ct.wa_id}</span>
+        <span className={`pill ${optPill}`}>{ct.blocked ? t("contacts.blocked") : t(`contacts.consent_${ct.opt_in_status}`)}</span>
+      </div>
+      <dl className="kv">
+        {lastOptIn && <><dt>{t("inbox.optInSource")}</dt><dd>{t(`contacts.source_${lastOptIn.source}`, { defaultValue: lastOptIn.source })}</dd></>}
+        {ct.opted_in_at && <><dt>{t("inbox.optedIn")}</dt><dd>{new Date(ct.opted_in_at).toLocaleDateString()}</dd></>}
+        {ct.language && <><dt>{t("contacts.language")}</dt><dd>{ct.language}</dd></>}
+        <dt>{t("inbox.firstSeen")}</dt><dd>{new Date(ct.created_at).toLocaleDateString()}</dd>
+      </dl>
+      {ct.tags.length > 0 && (
+        <>
+          <h3>{t("contacts.tags")}</h3>
+          <div>{ct.tags.map((tag) => <span key={tag} className="chip">{tag}</span>)}</div>
+        </>
+      )}
       <h3>{t("inbox.notes")}</h3>
       <p className="muted small">{t("inbox.notesHint")}</p>
-      {notes.data?.map((n) => (
+      {notes.map((n) => (
         <div key={n.id} className="note">
           <div>{n.body}</div>
           <div className="muted small">{n.author_name} · {shortTime(n.created_at)}</div>

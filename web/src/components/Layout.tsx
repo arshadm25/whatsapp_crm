@@ -114,7 +114,7 @@ export default function Layout() {
                 <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
                   <Icon name={n.icon} />
                   {t(`nav.${n.key}`)}
-                  {n.key === "inbox" && unread > 0 && <span className="badge nav-badge" aria-label={t("inbox.unreadBadge", { count: unread })}>{unread}</span>}
+                  {n.key === "inbox" && unread > 0 && <span className="cnt" aria-label={t("inbox.unreadBadge", { count: unread })}>{unread > 99 ? "99+" : unread}</span>}
                 </NavLink>
               ))}
               {g.group === "manage" && me.user.is_platform_admin && (
