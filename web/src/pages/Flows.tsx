@@ -268,13 +268,15 @@ function Submissions({ flows }: { flows: WhatsAppFlow[] }) {
   const rows = list.data?.pages.flatMap((p) => p.data) ?? [];
   return (
     <div className="card table-wrap">
-      <label className="field inline">
-        {t("flows.flow")}
-        <select value={flowId} onChange={(e) => setFlowId(e.target.value)}>
-          <option value="">{t("flows.allFlows")}</option>
-          {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
-      </label>
+      <div className="card-bar">
+        <label className="field inline">
+          {t("flows.flow")}
+          <select value={flowId} onChange={(e) => setFlowId(e.target.value)}>
+            <option value="">{t("flows.allFlows")}</option>
+            {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </label>
+      </div>
       {list.isLoading && <div className="muted">{t("common.loading")}</div>}
       {!list.isLoading && rows.length === 0 && <div className="muted">{t("flows.noSubmissions")}</div>}
       {rows.length > 0 && (

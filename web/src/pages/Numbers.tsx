@@ -75,7 +75,7 @@ export default function Numbers() {
       </div>
       {note && <div className="banner ok"><Icon name="check" size="s" /><div><span>{note}</span></div></div>}
       {!!q.data?.length && (
-        <div className="grid g4" style={{ marginBottom: 16 }}>
+        <div className="grid g4">
           <div className="card stat">
             <div className="sh"><span className="sl">{t("numbers.statConnected")}</span><span className="ic"><Icon name="phone" size="s" /></span></div>
             <span className="sv">{live.length}</span>
@@ -183,7 +183,7 @@ export default function Numbers() {
         </div>
       )}
       {(editingNumber || topTier) && (
-        <div className="split" style={{ marginTop: 16 }}>
+        <div className="split">
           <div className="stack" ref={profileCard}>
             {editingNumber && <NumberProfile key={editingNumber.id} number={editingNumber} canEdit={manager} />}
           </div>
