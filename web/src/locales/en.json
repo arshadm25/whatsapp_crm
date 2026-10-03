@@ -29,7 +29,8 @@
     "notConnected": "WhatsApp not connected",
     "connectHint": "Connect a number to start messaging",
     "unread_one": "{{count}} unread message",
-    "unread_other": "{{count}} unread messages"
+    "unread_other": "{{count}} unread messages",
+    "language": "Language"
   },
   "auth": {
     "loginTitle": "Log in",
