@@ -47,8 +47,11 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/tenants/{id}/conversations", httpx.Handler(s.log, s.listConversations))
 	r.Post("/tenants/{id}/conversations/{cid}/messages", httpx.Handler(s.log, s.readMessages))
 	r.Get("/webhook-health", httpx.Handler(s.log, s.webhookHealth))
+	r.Get("/overview", httpx.Handler(s.log, s.overview))
 	r.Get("/meta-errors", httpx.Handler(s.log, s.metaErrors))
+	r.Get("/meta-errors/summary", httpx.Handler(s.log, s.metaErrorSummary))
 	r.Get("/audit-log", httpx.Handler(s.log, s.auditLog))
+	r.Get("/audit-log.csv", httpx.Handler(s.log, s.exportAuditLog))
 	r.Get("/plans", httpx.Handler(s.log, s.listPlans))
 	r.Put("/plans/{code}", httpx.Handler(s.log, s.savePlan))
 	r.Get("/invoices", httpx.Handler(s.log, s.listInvoices))
@@ -135,23 +138,25 @@ func (s *Service) listTenants(w http.ResponseWriter, r *http.Request) error {
 		}
 		arg.BeforeAt, arg.BeforeID = &at, &id
 	}
-	var rows []dbq.Tenant
+	var (
+		out  []ListedTenant
+		next *string
+	)
 	err = s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
-		rows, err = q.AdminListTenants(r.Context(), arg)
+		rows, err := q.AdminListTenants(r.Context(), arg)
+		if err != nil {
+			return err
+		}
+		if len(rows) > int(lim) {
+			rows = rows[:lim]
+			c := httpx.EncodeCursor(rows[lim-1].CreatedAt, rows[lim-1].ID)
+			next = &c
+		}
+		out, err = listed(q, r, rows)
 		return err
 	})
 	if err != nil {
 		return err
-	}
-	var next *string
-	if len(rows) > int(lim) {
-		rows = rows[:lim]
-		c := httpx.EncodeCursor(rows[lim-1].CreatedAt, rows[lim-1].ID)
-		next = &c
-	}
-	out := make([]Tenant, len(rows))
-	for i, t := range rows {
-		out[i] = tenantView(t)
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"data": out, "next_cursor": next})
 	return nil
@@ -515,13 +520,29 @@ func (s *Service) metaErrors(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	tid, err := optionalUUID(r, "tenant_id")
-	if err != nil {
+	arg := dbq.AdminMetaErrorsParams{BeforeID: before, Lim: lim + 1}
+	if arg.TenantID, err = optionalUUID(r, "tenant_id"); err != nil {
 		return err
+	}
+	if r.URL.Query().Get("hours") != "" {
+		hours, err := hoursParam(r, 24)
+		if err != nil {
+			return err
+		}
+		since := s.now().Add(-time.Duration(hours) * time.Hour)
+		arg.Since = &since
+	}
+	if v := r.URL.Query().Get("code"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			return httpx.BadRequest("code", "code must be a number.")
+		}
+		code := int32(n)
+		arg.Code = &code
 	}
 	var rows []dbq.MetaApiError
 	err = s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
-		rows, err = q.AdminMetaErrors(r.Context(), dbq.AdminMetaErrorsParams{TenantID: tid, BeforeID: before, Lim: lim + 1})
+		rows, err = q.AdminMetaErrors(r.Context(), arg)
 		return err
 	})
 	if err != nil {
@@ -557,22 +578,33 @@ type AuditEntry struct {
 	OccurredAt time.Time       `json:"occurred_at"`
 }
 
+// auditFilter reads the audit log filters shared by the list and the CSV export.
+func auditFilter(r *http.Request) (dbq.AdminAuditLogParams, error) {
+	var arg dbq.AdminAuditLogParams
+	var err error
+	if arg.TenantID, err = optionalUUID(r, "tenant_id"); err != nil {
+		return arg, err
+	}
+	if v := r.URL.Query().Get("actor_type"); v != "" {
+		at := dbq.ActorType(v)
+		if !at.Valid() {
+			return arg, httpx.BadRequest("actor_type", "actor_type is not valid.")
+		}
+		arg.ActorType = &at
+	}
+	return arg, nil
+}
+
 func (s *Service) auditLog(w http.ResponseWriter, r *http.Request) error {
 	before, lim, err := idCursor(r)
 	if err != nil {
 		return err
 	}
-	arg := dbq.AdminAuditLogParams{BeforeID: before, Lim: lim + 1}
-	if arg.TenantID, err = optionalUUID(r, "tenant_id"); err != nil {
+	arg, err := auditFilter(r)
+	if err != nil {
 		return err
 	}
-	if v := r.URL.Query().Get("actor_type"); v != "" {
-		at := dbq.ActorType(v)
-		if !at.Valid() {
-			return httpx.BadRequest("actor_type", "actor_type is not valid.")
-		}
-		arg.ActorType = &at
-	}
+	arg.BeforeID, arg.Lim = before, lim+1
 	var rows []dbq.AdminAuditLogRow
 	err = s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
 		rows, err = q.AdminAuditLog(r.Context(), arg)

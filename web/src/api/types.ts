@@ -453,6 +453,32 @@ export interface AdminTenant {
   meta_payment_mode: "direct" | "through_us";
 }
 
+// A workspace in the console's list, with its list columns.
+export interface AdminListedTenant extends AdminTenant {
+  waba_id: string | null;
+  waba_count: number;
+  plan_code: string | null;
+  subscription_status: string | null;
+  number_count: number;
+  messages_30d: number;
+  worst_quality: "green" | "yellow" | "red" | null;
+}
+
+export interface AdminOverview {
+  tenants: { active: number; new_this_week: number; suspended: number };
+  meta_errors: { hours: number; current: number; previous: number };
+}
+
+export interface MetaErrorGroup {
+  code: number | null;
+  subcode: number | null;
+  http_status: number;
+  message: string;
+  count: number;
+  tenants: number;
+  last_at: string;
+}
+
 export interface AdminTenantDetail extends AdminTenant {
   members: number;
   numbers: {

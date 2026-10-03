@@ -768,3 +768,5 @@ pre.code.payload { max-height: 320px; overflow: auto; white-space: pre-wrap; wor
 .bell-item.unread b::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
 .bell-foot { display: block; padding: 10px 14px; }
 .auth-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+button.ql { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+button.ql.on { background: var(--accent-soft); }

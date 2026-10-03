@@ -5,7 +5,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
 import type {
-  AdminConversation, AdminInvoice, DeletionRequest, AdminTenant, AdminTenantDetail, AuditEntry, Message, MetaApiError, Page, Plan, WebhookHealth,
+  AdminConversation, AdminInvoice, DeletionRequest, AdminListedTenant, AdminOverview, AdminTenant, AdminTenantDetail, MetaErrorGroup, AuditEntry, Message, MetaApiError, Page, Plan, WebhookHealth,
 } from "../api/types";
 import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
@@ -93,7 +93,16 @@ function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: 
   const { t } = useTranslation();
   const [hours, setHours] = useState("24");
   const tenants = usePaged<AdminTenant>("tenants", "/internal/admin/tenants", new URLSearchParams({ limit: "50" }));
-  const errors = usePaged<MetaApiError>("meta-errors", "/internal/admin/meta-errors", new URLSearchParams({ limit: "50" }));
+  // Counts across every workspace and error, not only the loaded pages.
+  const ov = useQuery({
+    queryKey: ["admin-overview", hours],
+    queryFn: () => api<AdminOverview>("GET", `/internal/admin/overview?hours=${hours}`),
+    refetchInterval: 60_000,
+  });
+  const summary = useQuery({
+    queryKey: ["meta-error-groups", Number(hours)],
+    queryFn: async () => (await api<{ data: MetaErrorGroup[] }>("GET", `/internal/admin/meta-errors/summary?hours=${hours}`)).data,
+  });
   const audit = usePaged<AuditEntry>("audit", "/internal/admin/audit-log", new URLSearchParams({ limit: "50" }));
   const health = useQuery({
     queryKey: ["admin", "webhooks", hours],
@@ -107,18 +116,9 @@ function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: 
   const peak = h ? Math.max(0, ...h.hours.map((x) => x.received)) : 0;
   const peakHour = h?.hours.find((x) => x.received === peak)?.hour;
   const errorRate = received ? (failed * 100) / received : 0;
-  const since = new Date(Date.now() - Number(hours) * 3600_000).toISOString();
-  const recentErrors = errors.rows.filter((e) => e.occurred_at >= since);
-  const active = tenants.rows.filter((w) => w.status === "active").length;
-  const suspended = tenants.rows.filter((w) => w.status === "suspended").length;
-  const groups = Object.values(
-    recentErrors.reduce<Record<string, { code: string; n: number; message: string; last: string; status: number }>>((acc, e) => {
-      const code = String(e.code ?? e.http_status);
-      const g = acc[code] ?? { code, n: 0, message: e.message ?? "", last: e.occurred_at, status: e.http_status };
-      acc[code] = { ...g, n: g.n + 1, last: g.last > e.occurred_at ? g.last : e.occurred_at };
-      return acc;
-    }, {}),
-  ).sort((a, b) => b.n - a.n);
+  const kpi = ov.data;
+  const errDelta = kpi ? kpi.meta_errors.current - kpi.meta_errors.previous : 0;
+  const groups = summary.data ?? [];
 
   return (
     <div className="stack">
@@ -132,8 +132,8 @@ function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: 
       <div className="grid g4">
         <div className="card stat">
           <div className="sh"><span className="sl">{t("admin.activeTenants")}</span><span className="ic"><Icon name="building" size="s" /></span></div>
-          <span className="sv">{active}{tenants.hasNextPage ? "+" : ""}</span>
-          <span className="sf">{t("admin.suspendedCount", { count: suspended })}</span>
+          <span className="sv">{kpi ? kpi.tenants.active.toLocaleString() : "—"}</span>
+          <span className="sf">{kpi ? t("admin.activeTenantsSub", { added: kpi.tenants.new_this_week, suspended: kpi.tenants.suspended }) : ""}</span>
         </div>
         <div className="card stat">
           <div className="sh"><span className="sl">{t("admin.eventsPerMin")}</span><span className="ic bl"><Icon name="activity" size="s" /></span></div>
@@ -146,9 +146,16 @@ function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: 
           <span className="sf"><span className={`pill ${errorRate > 1 ? "er" : "ok"}`}>{errorRate > 1 ? t("admin.aboveTarget") : t("admin.withinTarget")}</span></span>
         </div>
         <div className="card stat">
-          <div className="sh"><span className="sl">{t("admin.tab_metaErrors")}</span><span className={recentErrors.length ? "ic am" : "ic gy"}><Icon name="alert" size="s" /></span></div>
-          <span className="sv">{recentErrors.length}{errors.hasNextPage && recentErrors.length === errors.rows.length ? "+" : ""}</span>
-          <span className="sf">{t("admin.inWindow", { hours: Number(hours) })}</span>
+          <div className="sh">
+            <span className="sl">{t("admin.tab_metaErrors")}</span>
+            {kpi && errDelta !== 0 && <span className={errDelta > 0 ? "dn" : "up"}>{errDelta > 0 ? `+${errDelta}` : errDelta}</span>}
+            <span className={kpi?.meta_errors.current ? "ic am" : "ic gy"}><Icon name="alert" size="s" /></span>
+          </div>
+          <span className="sv">{kpi ? kpi.meta_errors.current.toLocaleString() : "—"}</span>
+          <span className="sf">
+            {t("admin.inWindow", { hours: Number(hours) })}
+            {kpi && ` · ${errDelta === 0 ? t("admin.sameAsPrevious") : t(errDelta > 0 ? "admin.moreThanPrevious" : "admin.fewerThanPrevious", { count: Math.abs(errDelta) })}`}
+          </span>
         </div>
       </div>
       <div className="split">
@@ -160,10 +167,10 @@ function Overview({ goTab, openTenant }: { goTab: (t: Tab) => void; openTenant: 
           </div>
           {groups.length === 0 && <div className="cb muted">{t("admin.noMetaErrors")}</div>}
           {groups.slice(0, 5).map((g) => (
-            <div key={g.code} className="ev">
-              <span className={`pill k ${g.status >= 500 ? "er" : "wa"}`}>{g.code}</span>
-              <span className="t"><b>{g.message || `HTTP ${g.status}`}</b><br />{t("admin.errorCount", { count: g.n })}</span>
-              <span className="muted">{ago(g.last, t)}</span>
+            <div key={`${g.code}-${g.subcode}-${g.http_status}`} className="ev">
+              <span className={`pill k ${g.http_status >= 500 ? "er" : "wa"}`}>{g.code ?? g.http_status}</span>
+              <span className="t"><b>{g.message || `HTTP ${g.http_status}`}</b><br />{t("admin.errorCount", { count: g.count })} · {t("admin.errorTenants", { count: g.tenants })}</span>
+              <span className="muted">{ago(g.last_at, t)}</span>
             </div>
           ))}
         </div>
@@ -226,7 +233,7 @@ function Tenants({ initial = null }: { initial?: string | null }) {
   const params = new URLSearchParams({ limit: "50" });
   if (q.trim()) params.set("q", q.trim());
   if (status) params.set("status", status);
-  const list = usePaged<AdminTenant>("tenants", "/internal/admin/tenants", params);
+  const list = usePaged<AdminListedTenant>("tenants", "/internal/admin/tenants", params);
 
   if (open) return <TenantPanel id={open} onBack={() => setOpen(null)} />;
   return (
@@ -243,6 +250,11 @@ function Tenants({ initial = null }: { initial?: string | null }) {
           <thead>
             <tr>
               <th>{t("admin.workspace")}</th>
+              <th>{t("admin.waba")}</th>
+              <th>{t("admin.plan")}</th>
+              <th className="r">{t("admin.numbers")}</th>
+              <th className="r">{t("admin.messages30")}</th>
+              <th>{t("admin.quality")}</th>
               <th>{t("admin.status")}</th>
               <th>{t("admin.created")}</th>
             </tr>
@@ -251,12 +263,29 @@ function Tenants({ initial = null }: { initial?: string | null }) {
             {list.rows.map((w) => (
               <tr key={w.id} onClick={() => setOpen(w.id)}>
                 <td><div className="who"><span className="av">{initials(w.name)}</span><span><b>{w.name}</b><small>{w.slug}</small></span></div></td>
+                <td>
+                  {w.waba_id ? <span className="k">{w.waba_id}</span> : <span className="muted">—</span>}
+                  {w.waba_count > 1 && <span className="muted"> +{w.waba_count - 1}</span>}
+                </td>
+                <td>
+                  {w.plan_code ?? (w.subscription_status === "trialing" ? t("admin.trial") : "—")}
+                  {w.subscription_status && w.subscription_status !== "active" && w.subscription_status !== "trialing" && (
+                    <small className="muted" style={{ display: "block" }}>{w.subscription_status}</small>
+                  )}
+                </td>
+                <td className="r num-t">{w.number_count}</td>
+                <td className="r num-t">{w.messages_30d.toLocaleString()}</td>
+                <td>
+                  {w.worst_quality
+                    ? <span className={`pill ${w.worst_quality === "green" ? "ok" : w.worst_quality === "yellow" ? "wa" : "er"}`}>{t(`numbers.quality_${w.worst_quality}`)}</span>
+                    : <span className="muted">—</span>}
+                </td>
                 <td><span className={`pill ${PILL[w.status]}`}>{t(`admin.status_${w.status}`)}</span></td>
                 <td className="small">{new Date(w.created_at).toLocaleDateString()}</td>
               </tr>
             ))}
             {list.isSuccess && list.rows.length === 0 && (
-              <tr><td colSpan={3} className="muted">{t("admin.noTenants")}</td></tr>
+              <tr><td colSpan={8} className="muted">{t("admin.noTenants")}</td></tr>
             )}
           </tbody>
         </table>
@@ -615,25 +644,41 @@ function Throughput({ hours }: { hours: WebhookHealth["hours"] }) {
 
 function MetaErrors() {
   const { t } = useTranslation();
-  const list = usePaged<MetaApiError>("meta-errors", "/internal/admin/meta-errors", new URLSearchParams({ limit: "50" }));
-  const groups = Object.entries(
-    list.rows.reduce<Record<string, { n: number; message: string; last: string }>>((acc, e) => {
-      const k = String(e.code ?? e.http_status);
-      const g = acc[k] ?? { n: 0, message: e.message ?? "", last: e.occurred_at };
-      acc[k] = { n: g.n + 1, message: g.message, last: g.last > e.occurred_at ? g.last : e.occurred_at };
-      return acc;
-    }, {}),
-  ).sort((a, b) => b[1].n - a[1].n);
+  const [hours, setHours] = useState(24);
+  const [code, setCode] = useState<number | null>(null);
+  const params = new URLSearchParams({ limit: "50", hours: String(hours) });
+  if (code != null) params.set("code", String(code));
+  const list = usePaged<MetaApiError>(`meta-errors-${hours}-${code ?? ""}`, "/internal/admin/meta-errors", params);
+  const groups = useQuery({
+    queryKey: ["meta-error-groups", hours],
+    queryFn: async () => (await api<{ data: MetaErrorGroup[] }>("GET", `/internal/admin/meta-errors/summary?hours=${hours}`)).data,
+  });
   return (
     <>
-      {groups.length > 0 && (
+      <div className="filters">
+        <div className="segmented">
+          {[24, 72, 168].map((h) => (
+            <button key={h} type="button" className={hours === h ? "on" : ""} onClick={() => setHours(h)}>{t("admin.lastHours", { count: h })}</button>
+          ))}
+        </div>
+        {code != null && <button type="button" className="link" onClick={() => setCode(null)}>{t("admin.clearCode", { code })}</button>}
+      </div>
+      {!!groups.data?.length && (
         <div className="card flush" style={{ marginBottom: 16 }}>
-          <div className="chd"><div><h2>{t("admin.errorsByCode")}</h2><p>{t("admin.errorsByCodeHint", { count: list.rows.length })}</p></div></div>
-          {groups.slice(0, 6).map(([code, g]) => (
-            <div key={code} className="ql">
-              <span className="chip muted"><code>{code}</code></span>
-              <span className="t"><b>{g.message || "—"}</b><small>{t("admin.errorCount", { count: g.n })} · {when(g.last)}</small></span>
-            </div>
+          <div className="chd"><div><h2>{t("admin.errorsByCode")}</h2><p>{t("admin.errorsByCodeWindow", { count: hours })}</p></div></div>
+          {groups.data.map((g) => (
+            <button
+              key={`${g.code}-${g.subcode}-${g.http_status}`}
+              type="button"
+              className={`ql${code != null && code === g.code ? " on" : ""}`}
+              onClick={() => g.code != null && setCode(g.code)}
+            >
+              <span className="chip muted"><code>{g.code ?? g.http_status}{g.subcode ? `/${g.subcode}` : ""}</code></span>
+              <span className="t">
+                <b>{g.message || "—"}</b>
+                <small>{t("admin.errorCount", { count: g.count })} · {t("admin.errorTenants", { count: g.tenants })} · {when(g.last_at)}</small>
+              </span>
+            </button>
           ))}
         </div>
       )}
@@ -734,6 +779,7 @@ function Audit() {
           <option value="">{t("admin.allActors")}</option>
           {["user", "platform_admin", "api_key", "system", "meta"].map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
+        <a href={`/internal/admin/audit-log.csv${actor ? `?actor_type=${actor}` : ""}`}>{t("admin.downloadCsv")}</a>
       </div>
       <div className="card table-wrap">
         <table>
