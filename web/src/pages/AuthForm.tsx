@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import Icon, { type IconName } from "../components/Icon";
+import { COMPANY, LegalLinks } from "./Legal";
 
 const FEATURES: { key: string; icon: IconName }[] = [
   { key: "Connect", icon: "zap" },
@@ -39,7 +40,7 @@ export function AuthCard({ title, children, onSubmit, footer }: {
             </div>
           ))}
         </div>
-        <p className="copy">© {new Date().getFullYear()} Ecogo Software Solutions</p>
+        <p className="copy">© {new Date().getFullYear()} {COMPANY}</p>
       </section>
       <main className="auth-main">
         <form className="auth-card" onSubmit={onSubmit}>
@@ -47,6 +48,7 @@ export function AuthCard({ title, children, onSubmit, footer }: {
           {children}
           <div className="auth-foot">{footer}</div>
         </form>
+        <LegalLinks />
       </main>
     </div>
   );

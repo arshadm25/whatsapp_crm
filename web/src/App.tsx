@@ -26,6 +26,7 @@ import TwoStep from "./pages/TwoStep";
 import TwoStepRequired from "./pages/TwoStepRequired";
 import { ForgotPassword, ResetPassword } from "./pages/ResetPassword";
 import Admin from "./pages/Admin";
+import { DataDeletion, Privacy, Terms } from "./pages/Legal";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -49,6 +50,9 @@ export default function App() {
       <Route path="/2fa-setup" element={<TwoStepRequired />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/data-deletion" element={<DataDeletion />} />
       <Route
         element={
           <RequireAuth>
