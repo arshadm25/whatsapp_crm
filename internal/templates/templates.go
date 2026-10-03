@@ -9,6 +9,7 @@ package templates
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -133,6 +134,8 @@ func (s *Syncer) SyncAccount(ctx context.Context, tenantID uuid.UUID, acct dbq.W
 			st, ok := StatusFromMeta(t.Status)
 			cat, catOK := categoryFromMeta(t.Category)
 			if !ok || !catOK || t.ID == "" || t.Name == "" {
+				slog.WarnContext(ctx, "templates: skipped template from Meta", "waba_id", acct.WabaID,
+					"name", t.Name, "status", t.Status, "category", t.Category)
 				continue
 			}
 			if _, err := q.UpsertTemplateFromMeta(ctx, fromMeta(tenantID, acct.ID, t, st, cat)); err != nil {
@@ -141,6 +144,7 @@ func (s *Syncer) SyncAccount(ctx context.Context, tenantID uuid.UUID, acct dbq.W
 			keep = append(keep, t.ID)
 			n++
 		}
+		slog.InfoContext(ctx, "templates: synced from Meta", "waba_id", acct.WabaID, "from_meta", len(list), "kept", n)
 		_, err := q.DeleteTemplatesMissingFromMeta(ctx, dbq.DeleteTemplatesMissingFromMetaParams{WhatsappAccountID: acct.ID, Keep: keep})
 		return err
 	})
