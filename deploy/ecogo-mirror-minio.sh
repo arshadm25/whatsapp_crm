@@ -34,7 +34,9 @@ spec:
         - |
           CTR="/k3s ctr -a /run/k3s/containerd/containerd.sock -n k8s.io"
           \$CTR images tag --force "$REF" "$TARGET"
-          \$CTR images push --user "arshadm25:\$PAT" "$TARGET"
+          # The node holds only its own CPU's layers, so push just that platform.
+          case "\$(uname -m)" in aarch64|arm64) ARCH=arm64;; *) ARCH=amd64;; esac
+          \$CTR images push --platform "linux/\$ARCH" --user "arshadm25:\$PAT" "$TARGET"
       volumeMounts:
         - { name: sock, mountPath: /run/k3s/containerd/containerd.sock }
         - { name: k3s, mountPath: /k3s, readOnly: true }
@@ -42,8 +44,13 @@ spec:
     - { name: sock, hostPath: { path: /run/k3s/containerd/containerd.sock, type: Socket } }
     - { name: k3s, hostPath: { path: /usr/local/bin/k3s, type: File } }
 YAML
-k -n $NS wait --for=jsonpath='{.status.phase}'=Succeeded pod/minio-mirror --timeout=300s || { k -n $NS logs minio-mirror; exit 1; }
+for _ in {1..90}; do
+  PHASE=$(k -n $NS get pod minio-mirror -o jsonpath='{.status.phase}')
+  [[ $PHASE == Succeeded || $PHASE == Failed ]] && break
+  sleep 5
+done
 k -n $NS logs minio-mirror
-k -n $NS delete pod minio-mirror
 k -n $NS delete secret mirror-ghcr
+[[ $PHASE == Succeeded ]] || { echo "Mirror failed (pod phase: $PHASE). The token secret is deleted; the pod is left for inspection."; exit 1; }
+k -n $NS delete pod minio-mirror
 echo "Done: $TARGET. In GitHub, set the package to public (or add a pull secret) and tell Claude."
