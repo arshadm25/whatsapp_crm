@@ -118,6 +118,10 @@ postgres:
     appSecret: ecogo-whatsapp-db-app       # username ecogo_app
     backup:
       enabled: false          # turn on once the MinIO bucket and credentials exist
+      # plugin: the Barman Cloud plugin (install it first, see deploy/ecogo-migrate-barman-plugin.sh).
+      # barmanObjectStore: the deprecated in-tree backup, removed in CloudNativePG 1.31.
+      # Stays on the old method until the plugin is installed; the migration script switches it.
+      method: barmanObjectStore
       destinationPath: s3://ecogo-whatsapp-backups/
       endpointURL: http://minio.minio.svc:9000
       credentialsSecret: ecogo-whatsapp-backup-s3
