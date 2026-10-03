@@ -28,6 +28,150 @@ func (q *Queries) AddContactTag(ctx context.Context, arg AddContactTagParams) er
 	return err
 }
 
+const contactConversationCount = `-- name: ContactConversationCount :one
+SELECT count(*)::int FROM (
+    SELECT created_at, lag(created_at) OVER (ORDER BY created_at) AS prev
+    FROM messages WHERE contact_id = $1 AND direction = 'inbound'
+) m
+WHERE prev IS NULL OR created_at > prev + interval '24 hours'
+`
+
+// Customer service conversations with a contact: each inbound message that arrives more than 24
+// hours after the previous one starts a new one.
+func (q *Queries) ContactConversationCount(ctx context.Context, contactID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, contactConversationCount, contactID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const contactLastMessages = `-- name: ContactLastMessages :many
+SELECT contact_id, max(last_message_at)::timestamptz AS last_message_at
+FROM conversations
+WHERE contact_id = ANY($1::uuid[]) AND last_message_at IS NOT NULL
+GROUP BY contact_id
+`
+
+type ContactLastMessagesRow struct {
+	ContactID     uuid.UUID
+	LastMessageAt time.Time
+}
+
+func (q *Queries) ContactLastMessages(ctx context.Context, ids []uuid.UUID) ([]ContactLastMessagesRow, error) {
+	rows, err := q.db.Query(ctx, contactLastMessages, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContactLastMessagesRow
+	for rows.Next() {
+		var i ContactLastMessagesRow
+		if err := rows.Scan(&i.ContactID, &i.LastMessageAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const contactOptInSources = `-- name: ContactOptInSources :many
+SELECT DISTINCT ON (contact_id) contact_id, source
+FROM consent_events
+WHERE contact_id = ANY($1::uuid[]) AND kind = 'opt_in'
+ORDER BY contact_id, occurred_at DESC
+`
+
+type ContactOptInSourcesRow struct {
+	ContactID uuid.UUID
+	Source    ConsentSource
+}
+
+// Where each contact's latest opt-in came from.
+func (q *Queries) ContactOptInSources(ctx context.Context, ids []uuid.UUID) ([]ContactOptInSourcesRow, error) {
+	rows, err := q.db.Query(ctx, contactOptInSources, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContactOptInSourcesRow
+	for rows.Next() {
+		var i ContactOptInSourcesRow
+		if err := rows.Scan(&i.ContactID, &i.Source); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const contactSummary = `-- name: ContactSummary :one
+SELECT count(*)::int AS total,
+       (count(*) FILTER (WHERE NOT blocked AND opt_in_status = 'opted_in'))::int AS opted_in,
+       (count(*) FILTER (WHERE NOT blocked AND opt_in_status = 'opted_out'))::int AS opted_out,
+       (count(*) FILTER (WHERE NOT blocked AND opt_in_status = 'unknown'))::int AS unknown,
+       (count(*) FILTER (WHERE blocked))::int AS blocked
+FROM contacts
+`
+
+type ContactSummaryRow struct {
+	Total    int32
+	OptedIn  int32
+	OptedOut int32
+	Unknown  int32
+	Blocked  int32
+}
+
+// Totals for the contacts header and filter tabs. Consent counts leave out blocked contacts.
+func (q *Queries) ContactSummary(ctx context.Context) (ContactSummaryRow, error) {
+	row := q.db.QueryRow(ctx, contactSummary)
+	var i ContactSummaryRow
+	err := row.Scan(
+		&i.Total,
+		&i.OptedIn,
+		&i.OptedOut,
+		&i.Unknown,
+		&i.Blocked,
+	)
+	return i, err
+}
+
+const countContacts = `-- name: CountContacts :one
+SELECT count(*)::int FROM contacts c
+WHERE ($1::opt_in_status IS NULL OR c.opt_in_status = $1)
+  AND ($2::text IS NULL OR EXISTS (
+        SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
+        WHERE ct.contact_id = c.id AND t.name = $2::citext))
+  AND ($3::bool IS NULL OR c.blocked = $3)
+  AND ($4::text IS NULL OR c.wa_id LIKE '%' || $4 || '%'
+       OR c.name ILIKE '%' || $4 || '%' OR c.profile_name ILIKE '%' || $4 || '%')
+`
+
+type CountContactsParams struct {
+	OptInStatus *OptInStatus
+	Tag         *string
+	Blocked     *bool
+	Search      *string
+}
+
+// How many contacts match the list filters, for "Showing 1-50 of N".
+func (q *Queries) CountContacts(ctx context.Context, arg CountContactsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countContacts,
+		arg.OptInStatus,
+		arg.Tag,
+		arg.Blocked,
+		arg.Search,
+	)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getContact = `-- name: GetContact :one
 SELECT id, tenant_id, wa_id, name, profile_name, language, custom_fields, opt_in_status, opted_in_at, opted_out_at, blocked, created_at, updated_at FROM contacts WHERE id = $1
 `
@@ -137,16 +281,18 @@ WHERE ($1::opt_in_status IS NULL OR c.opt_in_status = $1)
   AND ($2::text IS NULL OR EXISTS (
         SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
         WHERE ct.contact_id = c.id AND t.name = $2::citext))
-  AND ($3::text IS NULL OR c.wa_id LIKE '%' || $3 || '%'
-       OR c.name ILIKE '%' || $3 || '%' OR c.profile_name ILIKE '%' || $3 || '%')
-  AND ($4::timestamptz IS NULL OR (c.created_at, c.id) < ($4, $5::uuid))
+  AND ($3::bool IS NULL OR c.blocked = $3)
+  AND ($4::text IS NULL OR c.wa_id LIKE '%' || $4 || '%'
+       OR c.name ILIKE '%' || $4 || '%' OR c.profile_name ILIKE '%' || $4 || '%')
+  AND ($5::timestamptz IS NULL OR (c.created_at, c.id) < ($5, $6::uuid))
 ORDER BY c.created_at DESC, c.id DESC
-LIMIT $6
+LIMIT $7
 `
 
 type ListContactsParams struct {
 	OptInStatus *OptInStatus
 	Tag         *string
+	Blocked     *bool
 	Search      *string
 	BeforeAt    *time.Time
 	BeforeID    *uuid.UUID
@@ -157,6 +303,7 @@ func (q *Queries) ListContacts(ctx context.Context, arg ListContactsParams) ([]C
 	rows, err := q.db.Query(ctx, listContacts,
 		arg.OptInStatus,
 		arg.Tag,
+		arg.Blocked,
 		arg.Search,
 		arg.BeforeAt,
 		arg.BeforeID,

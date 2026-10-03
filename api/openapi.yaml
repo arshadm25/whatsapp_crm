@@ -512,6 +512,9 @@ paths:
         - name: opt_in_status
           in: query
           schema: { $ref: '#/components/schemas/OptInStatus' }
+        - name: blocked
+          in: query
+          schema: { type: boolean }
         - name: q
           in: query
           description: Search by name or number.
@@ -531,6 +534,9 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/Contact' }
+                      total:
+                        type: integer
+                        description: How many contacts match the filters, across all pages.
     post:
       tags: [Contacts]
       operationId: upsertContact
@@ -1908,6 +1914,19 @@ components:
         opted_in_at: { type: [string, 'null'], format: date-time }
         blocked: { type: boolean }
         created_at: { type: string, format: date-time }
+        last_message_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the contact last sent or received a message. Returned by the list and GET.
+        opt_in_source:
+          type: [string, 'null']
+          enum: [api, dashboard, csv_import, whatsapp_flow, null]
+          description: Where the latest opt-in came from. Returned by the list and GET.
+        conversation_count:
+          type: integer
+          description: |
+            Customer service conversations with this contact: each message from them that arrives
+            more than 24 hours after their previous one starts a new one. Returned by GET only.
 
     CreateCampaignRequest:
       type: object

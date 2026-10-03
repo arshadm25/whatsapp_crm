@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { useMe, useMembers, usePhoneNumbers, useQuickReplies } from "../api/hooks";
-import type { ConsentEvent, Conversation, Media, Message, Note, Page } from "../api/types";
+import { useInboxCounts, useMe, useMembers, usePhoneNumbers, useQuickReplies } from "../api/hooks";
+import type { ConsentEvent, Contact, Conversation, InboxCounts, Media, Message, Note, Page } from "../api/types";
 import MediaPreview from "../components/MediaPreview";
 import TemplateComposer from "../components/TemplateComposer";
 import { ACCEPT, MEDIA_TYPES, formatSize, mediaKind, takesCaption } from "../lib/media";
@@ -12,6 +12,13 @@ import { captionOf, messageText, statusTick } from "../lib/messages";
 import Icon from "../components/Icon";
 
 type Filter = "all" | "mine" | "unassigned" | "closed";
+
+const FILTER_COUNT: Record<Filter, keyof InboxCounts> = {
+  all: "open",
+  mine: "mine",
+  unassigned: "unassigned",
+  closed: "closed",
+};
 
 const FILTER_QUERY: Record<Filter, string> = {
   all: "status=open",
@@ -49,6 +56,7 @@ export default function Inbox() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
+  const counts = useInboxCounts().data;
 
   const list = useQuery({
     queryKey: ["conversations", filter, search],
@@ -68,6 +76,7 @@ export default function Inbox() {
           {(Object.keys(FILTER_QUERY) as Filter[]).map((f) => (
             <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
               {t(`inbox.filter_${f}`)}
+              {counts && <span className="cnt">{counts[FILTER_COUNT[f]]}</span>}
             </button>
           ))}
         </div>
@@ -120,6 +129,12 @@ function Thread({ id }: { id: string }) {
     queryFn: () => api<Conversation>("GET", `/v1/conversations/${id}`),
   });
   const notes = useNotes(id);
+  const contactId = conv.data?.contact.id;
+  const contact = useQuery({
+    queryKey: ["contact", contactId],
+    queryFn: () => api<Contact>("GET", `/v1/contacts/${contactId}`),
+    enabled: !!contactId,
+  });
   const msgs = useInfiniteQuery({
     queryKey: ["conversation-messages", id],
     initialPageParam: "",
@@ -177,6 +192,7 @@ function Thread({ id }: { id: string }) {
           <div className="muted small">
             +{c.contact.wa_id}
             {number && ` · ${t("inbox.via", { number: number.display_phone_number })}`}
+            {contact.data?.conversation_count !== undefined && ` · ${t("inbox.conversationCount", { count: contact.data.conversation_count })}`}
           </div>
         </div>
         <span className={`pill ${c.window.open ? "ok" : ""}`}>
