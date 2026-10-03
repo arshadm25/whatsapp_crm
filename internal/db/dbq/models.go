@@ -1373,6 +1373,7 @@ type Campaign struct {
 	ApiKeyID       *uuid.UUID
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	RunGeneration  int32
 }
 
 type CampaignRecipient struct {

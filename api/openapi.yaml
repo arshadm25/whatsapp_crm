@@ -599,6 +599,10 @@ paths:
       operationId: listCampaigns
       summary: List campaigns
       parameters:
+        - name: status
+          in: query
+          description: One status, or several separated by commas (for example `running,paused`).
+          schema: { type: string, example: draft }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -652,6 +656,69 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Campaign' }
         '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Campaigns]
+      operationId: updateCampaign
+      summary: Edit a draft or scheduled campaign
+      description: |
+        Replaces the campaign's settings. With `draft: false` it is checked like a new campaign and
+        scheduled for `scheduled_at` (or now); with `draft: true` it is kept, or turned back into, a
+        draft. Running, paused and finished campaigns cannot be edited.
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCampaignRequest' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [Campaigns]
+      operationId: deleteCampaign
+      summary: Delete a draft
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /campaigns/{campaign_id}/pause:
+    post:
+      tags: [Campaigns]
+      operationId: pauseCampaign
+      summary: Pause a running campaign
+      description: No further messages are queued until it is resumed; messages already queued still go out.
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Paused
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /campaigns/{campaign_id}/resume:
+    post:
+      tags: [Campaigns]
+      operationId: resumeCampaign
+      summary: Resume a paused campaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Running again
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /campaigns/{campaign_id}/cancel:
     post:
@@ -1961,6 +2028,12 @@ components:
             contact_ids: { type: array, items: { type: string, format: uuid }, maxItems: 10000 }
         scheduled_at: { type: string, format: date-time }
         send_rate_per_min: { type: integer, minimum: 1, maximum: 10000, default: 1000, description: Messages per minute. }
+        draft:
+          type: boolean
+          default: false
+          description: |
+            Save without sending. A draft's template need not be approved yet and its audience may
+            be empty; both are checked when it is sent with `PUT /campaigns/{campaign_id}`.
 
     BotRequest:
       type: object

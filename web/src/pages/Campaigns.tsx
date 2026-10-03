@@ -32,12 +32,20 @@ const RECIPIENT_STATUSES: RecipientStatus[] = ["pending", "skipped", "queued", "
 
 const active = (s: CampaignStatus) => s === "scheduled" || s === "running" || s === "paused";
 
-type Tab = "all" | "scheduled" | "sending" | "completed";
+type Tab = "all" | "scheduled" | "sending" | "completed" | "draft";
 const IN_TAB: Record<Tab, (s: CampaignStatus) => boolean> = {
   all: () => true,
   scheduled: (s) => s === "scheduled",
   sending: (s) => s === "running" || s === "paused",
   completed: (s) => s === "completed",
+  draft: (s) => s === "draft",
+};
+const TAB_STATUSES: Record<Tab, CampaignStatus[]> = {
+  all: [],
+  scheduled: ["scheduled"],
+  sending: ["running", "paused"],
+  completed: ["completed"],
+  draft: ["draft"],
 };
 
 // Recipients a message went out to: sent, delivered, read, or failed after sending.
@@ -55,6 +63,7 @@ export default function Campaigns() {
     () => (location.state as { contactIds?: string[] } | null)?.contactIds ?? null,
   );
   const [creating, setCreating] = useState(() => pickedIds !== null);
+  const [editing, setEditing] = useState<Campaign | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
@@ -63,6 +72,17 @@ export default function Campaigns() {
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
   }, [location, navigate]);
+
+  // Counts per status across every campaign, not only the loaded page.
+  const counts = useQuery({
+    queryKey: ["campaigns", "counts"],
+    queryFn: () => api<Record<CampaignStatus | "all", number>>("GET", "/internal/campaigns/counts"),
+    enabled: canManage,
+  });
+  const tabCount = (tb: Tab) =>
+    counts.data
+      ? tb === "all" ? counts.data.all : TAB_STATUSES[tb].reduce((n, st) => n + (counts.data[st] ?? 0), 0)
+      : all.filter((c) => IN_TAB[tb](c.status)).length;
 
   const list = useInfiniteQuery({
     queryKey: ["campaigns"],
@@ -102,14 +122,17 @@ export default function Campaigns() {
           <p className="sub">{t("campaigns.intro")}</p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={() => { setPickedIds(null); setCreating(!creating); }}><Icon name="plus" size="s" />{t("campaigns.new")}</button>
+          <button className="primary" onClick={() => { setPickedIds(null); setEditing(null); setCreating(!creating); }}><Icon name="plus" size="s" />{t("campaigns.new")}</button>
         </div>
       </div>
-      {creating && (
+      {(creating || editing) && (
         <NewCampaign
-          contactIds={pickedIds}
+          key={editing?.id ?? "new"}
+          editing={editing}
+          contactIds={editing ? editing.audience.contact_ids ?? null : pickedIds}
           onClearContacts={() => setPickedIds(null)}
-          onDone={(id) => { setCreating(false); setPickedIds(null); setSelected(id); }}
+          onDone={(id) => { setCreating(false); setEditing(null); setPickedIds(null); setSelected(id); }}
+          onCancel={() => { setCreating(false); setEditing(null); }}
         />
       )}
 
@@ -147,7 +170,7 @@ export default function Campaigns() {
               <div className="tabs" role="tablist" aria-label={t("campaigns.status")}>
                 {(Object.keys(IN_TAB) as Tab[]).map((k) => (
                   <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
-                    {t(`campaigns.tab_${k}`)} <span className="cnt">{all.filter((c) => IN_TAB[k](c.status)).length}</span>
+                    {t(`campaigns.tab_${k}`)} <span className="cnt">{tabCount(k)}</span>
                   </button>
                 ))}
               </div>
@@ -222,7 +245,9 @@ export default function Campaigns() {
               </div>
             )}
           </div>
-          {selected && <CampaignDetail id={selected} onClose={() => setSelected(null)} />}
+          {selected && (
+            <CampaignDetail id={selected} onClose={() => setSelected(null)} onEdit={(c) => { setCreating(false); setEditing(c); }} />
+          )}
         </div>
         {tier && (
           <div className="banner" style={{ margin: 0 }}>
@@ -238,26 +263,34 @@ export default function Campaigns() {
   );
 }
 
-function NewCampaign({ onDone, contactIds, onClearContacts }: {
+// localInput formats a time for a datetime-local input.
+function localInput(iso: string) {
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function NewCampaign({ editing, onDone, onCancel, contactIds, onClearContacts }: {
+  editing: Campaign | null;
   onDone: (id: string) => void;
+  onCancel: () => void;
   contactIds: string[] | null;
   onClearContacts: () => void;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const numbers = usePhoneNumbers();
-  const templates = useTemplates("approved");
+  const allTemplates = useTemplates();
   const tags = useTags();
   const connected = (numbers.data ?? []).filter((n) => n.status === "connected");
 
-  const [name, setName] = useState("");
-  const [phoneId, setPhoneId] = useState("");
-  const [templateId, setTemplateId] = useState("");
-  const [vars, setVars] = useState<Record<string, string>>({});
-  const [chosenTags, setChosenTags] = useState<string[]>([]);
-  const [when, setWhen] = useState<"now" | "later">("now");
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [rate, setRate] = useState("");
+  const [name, setName] = useState(editing?.name ?? "");
+  const [phoneId, setPhoneId] = useState(editing?.phone_number_id ?? "");
+  const [templateId, setTemplateId] = useState(editing?.template_id ?? "");
+  const [vars, setVars] = useState<Record<string, string>>(editing?.template.variables ?? {});
+  const [chosenTags, setChosenTags] = useState<string[]>(editing?.audience.tags ?? []);
+  const [when, setWhen] = useState<"now" | "later">(editing?.scheduled_at ? "later" : "now");
+  const [scheduledAt, setScheduledAt] = useState(editing?.scheduled_at ? localInput(editing.scheduled_at) : "");
+  const [rate, setRate] = useState(editing ? String(editing.send_rate_per_min) : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // One key per form, so a double submit or a retry after a network error creates one campaign.
@@ -268,7 +301,10 @@ function NewCampaign({ onDone, contactIds, onClearContacts }: {
   }, [phoneId, connected]);
 
   const number = connected.find((n) => n.id === phoneId);
-  const choices = (templates.data ?? []).filter((tp) => number && tp.whatsapp_account_id === number.whatsapp_account_id);
+  // Drafts may use a template still waiting for Meta's review; sending needs it approved.
+  const choices = (allTemplates.data ?? []).filter(
+    (tp) => number && tp.whatsapp_account_id === number.whatsapp_account_id && (tp.status === "approved" || tp.status === "pending" || tp.status === "draft"),
+  );
   const template = choices.find((tp) => tp.id === templateId);
   const slots = useMemo(() => (template ? templateSlots(template.components) : []), [template]);
 
@@ -282,28 +318,29 @@ function NewCampaign({ onDone, contactIds, onClearContacts }: {
   const toggleTag = (name: string) =>
     setChosenTags((cur) => (cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]));
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const save = async (draft: boolean) => {
     if (!template) return;
     setBusy(true);
     setError("");
     try {
-      const res = await fetchCreate(
-        {
-          name,
-          phone_number_id: phoneId,
-          template: {
-            name: template.name,
-            language: template.language,
-            variables: Object.fromEntries(slots.map((s) => [s.key, vars[s.key] ?? ""])),
-          },
-          audience: contactIds ? { contact_ids: contactIds } : { tags: chosenTags },
-          scheduled_at: when === "later" && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
-          send_rate_per_min: rate ? Number(rate) : undefined,
+      const body = {
+        name,
+        phone_number_id: phoneId,
+        template: {
+          name: template.name,
+          language: template.language,
+          variables: Object.fromEntries(slots.map((s) => [s.key, vars[s.key] ?? ""])),
         },
-        idemKey,
-      );
+        audience: contactIds ? { contact_ids: contactIds } : { tags: chosenTags },
+        scheduled_at: when === "later" && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+        send_rate_per_min: rate ? Number(rate) : undefined,
+        draft,
+      };
+      const res = editing
+        ? await api<Campaign>("PUT", `/v1/campaigns/${editing.id}`, body)
+        : await fetchCreate(body, `${idemKey}-${draft ? "draft" : "send"}`);
       await qc.invalidateQueries({ queryKey: ["campaigns"] });
+      await qc.invalidateQueries({ queryKey: ["campaign", res.id] });
       onDone(res.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t("common.error"));
@@ -316,8 +353,14 @@ function NewCampaign({ onDone, contactIds, onClearContacts }: {
     return <div className="card muted">{t("campaigns.noNumber")}</div>;
   }
 
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void save(false);
+  };
+
   return (
     <form className="card form" onSubmit={submit}>
+      {editing && <h2>{t("campaigns.editTitle", { name: editing.name })}</h2>}
       <div className="row">
         <label className="field">
           {t("campaigns.name")}
@@ -343,6 +386,7 @@ function NewCampaign({ onDone, contactIds, onClearContacts }: {
           {choices.map((tp) => (
             <option key={tp.id} value={tp.id} disabled={!campaignSupported(tp.components)}>
               {tp.name} ({tp.language}) · {t(`templates.category_${tp.category}`)}
+              {tp.status !== "approved" && ` · ${t(`templates.status_${tp.status}`)}`}
             </option>
           ))}
         </select>
@@ -386,7 +430,7 @@ function NewCampaign({ onDone, contactIds, onClearContacts }: {
         {contactIds ? (
           <div>
             <span className="chip">{t("campaigns.pickedCount", { count: contactIds.length })}</span>
-            <button type="button" className="link" onClick={onClearContacts}>{t("campaigns.useTags")}</button>
+            {!editing && <button type="button" className="link" onClick={onClearContacts}>{t("campaigns.useTags")}</button>}
           </div>
         ) : (
         <div>
@@ -426,7 +470,12 @@ function NewCampaign({ onDone, contactIds, onClearContacts }: {
 
       {error && <div className="error">{error}</div>}
       <div className="actions">
-        <button className="primary" disabled={busy || !template || (chosenTags.length === 0 && !contactIds?.length) || audience.data?.eligible === 0}>
+        <button type="button" onClick={onCancel}>{t("common.cancel")}</button>
+        <button type="button" disabled={busy || !template || !name.trim()} onClick={() => save(true)}>{t("campaigns.saveDraft")}</button>
+        <button
+          className="primary"
+          disabled={busy || !template || template.status !== "approved" || (chosenTags.length === 0 && !contactIds?.length) || audience.data?.eligible === 0}
+        >
           {when === "later" ? t("campaigns.schedule") : t("campaigns.start")}
         </button>
       </div>
@@ -456,7 +505,7 @@ async function fetchCreate(body: unknown, key: string): Promise<Campaign> {
   return data as Campaign;
 }
 
-function CampaignDetail({ id, onClose }: { id: string; onClose: () => void }) {
+function CampaignDetail({ id, onClose, onEdit }: { id: string; onClose: () => void; onEdit: (c: Campaign) => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<RecipientStatus | "">("");
@@ -481,13 +530,24 @@ function CampaignDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const c = campaign.data;
   if (!c) return <aside className="card contact-detail muted">{t("common.loading")}</aside>;
 
-  const cancel = async () => {
-    if (!window.confirm(t("campaigns.confirmCancel"))) return;
+  const act = async (action: "cancel" | "pause" | "resume") => {
+    if (action === "cancel" && !window.confirm(t("campaigns.confirmCancel"))) return;
     setError("");
     try {
-      qc.setQueryData(["campaign", id], await api<Campaign>("POST", `/v1/campaigns/${id}/cancel`));
+      qc.setQueryData(["campaign", id], await api<Campaign>("POST", `/v1/campaigns/${id}/${action}`));
       await qc.invalidateQueries({ queryKey: ["campaigns"] });
       await qc.invalidateQueries({ queryKey: ["campaign-recipients", id] });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : t("common.error"));
+    }
+  };
+  const remove = async () => {
+    if (!window.confirm(t("campaigns.confirmDelete"))) return;
+    setError("");
+    try {
+      await api("DELETE", `/v1/campaigns/${id}`);
+      await qc.invalidateQueries({ queryKey: ["campaigns"] });
+      onClose();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t("common.error"));
     }
@@ -518,9 +578,13 @@ function CampaignDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <div key={k}><dt>{t(`campaigns.stat_${k}`)}</dt><dd>{s[k]}</dd></div>
         ))}
       </dl>
-      {active(c.status) && (
+      {(active(c.status) || c.status === "draft") && (
         <div className="detail-actions">
-          <button onClick={cancel}>{t("campaigns.cancel")}</button>
+          {(c.status === "draft" || c.status === "scheduled") && <button onClick={() => onEdit(c)}>{t("campaigns.edit")}</button>}
+          {c.status === "running" && <button onClick={() => act("pause")}>{t("campaigns.pause")}</button>}
+          {c.status === "paused" && <button className="primary" onClick={() => act("resume")}>{t("campaigns.resume")}</button>}
+          {active(c.status) && <button onClick={() => act("cancel")}>{t("campaigns.cancel")}</button>}
+          {c.status === "draft" && <button className="bdg" onClick={remove}>{t("campaigns.delete")}</button>}
         </div>
       )}
       {error && <div className="error">{error}</div>}
@@ -530,7 +594,7 @@ function CampaignDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <option value="">{t("campaigns.allRecipients")}</option>
         {RECIPIENT_STATUSES.map((st) => <option key={st} value={st}>{t(`campaigns.r_${st}`)}</option>)}
       </select>
-      {c.status === "scheduled" && <div className="muted small">{t("campaigns.notExpanded")}</div>}
+      {(c.status === "scheduled" || c.status === "draft") && <div className="muted small">{t("campaigns.notExpanded")}</div>}
       <ul className="history">
         {rows.map((r) => (
           <li key={r.contact_id}>

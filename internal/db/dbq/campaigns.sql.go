@@ -66,6 +66,37 @@ func (q *Queries) BusinessInitiatedToday(ctx context.Context, phoneNumberID uuid
 	return column_1, err
 }
 
+const campaignCounts = `-- name: CampaignCounts :many
+SELECT status, count(*)::int AS n FROM campaigns
+WHERE $1::uuid IS NULL OR phone_number_id = $1
+GROUP BY status
+`
+
+type CampaignCountsRow struct {
+	Status CampaignStatus
+	N      int32
+}
+
+func (q *Queries) CampaignCounts(ctx context.Context, phoneNumberID *uuid.UUID) ([]CampaignCountsRow, error) {
+	rows, err := q.db.Query(ctx, campaignCounts, phoneNumberID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampaignCountsRow
+	for rows.Next() {
+		var i CampaignCountsRow
+		if err := rows.Scan(&i.Status, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const campaignStats = `-- name: CampaignStats :many
 SELECT campaign_id,
        count(*)::int AS total,
@@ -125,6 +156,18 @@ func (q *Queries) CampaignStats(ctx context.Context, ids []uuid.UUID) ([]Campaig
 	return items, nil
 }
 
+const deleteDraftCampaign = `-- name: DeleteDraftCampaign :execrows
+DELETE FROM campaigns WHERE id = $1 AND status = 'draft'
+`
+
+func (q *Queries) DeleteDraftCampaign(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDraftCampaign, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const expandCampaignAudience = `-- name: ExpandCampaignAudience :execrows
 INSERT INTO campaign_recipients (tenant_id, campaign_id, contact_id, status, skip_reason)
 SELECT c.tenant_id, $1, c.id,
@@ -170,7 +213,7 @@ func (q *Queries) FinishCampaign(ctx context.Context, arg FinishCampaignParams) 
 }
 
 const getCampaign = `-- name: GetCampaign :one
-SELECT id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at FROM campaigns WHERE id = $1
+SELECT id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at, run_generation FROM campaigns WHERE id = $1
 `
 
 func (q *Queries) GetCampaign(ctx context.Context, id uuid.UUID) (Campaign, error) {
@@ -194,12 +237,13 @@ func (q *Queries) GetCampaign(ctx context.Context, id uuid.UUID) (Campaign, erro
 		&i.ApiKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunGeneration,
 	)
 	return i, err
 }
 
 const getCampaignForUpdate = `-- name: GetCampaignForUpdate :one
-SELECT id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at FROM campaigns WHERE id = $1 FOR UPDATE
+SELECT id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at, run_generation FROM campaigns WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetCampaignForUpdate(ctx context.Context, id uuid.UUID) (Campaign, error) {
@@ -223,6 +267,7 @@ func (q *Queries) GetCampaignForUpdate(ctx context.Context, id uuid.UUID) (Campa
 		&i.ApiKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunGeneration,
 	)
 	return i, err
 }
@@ -241,8 +286,8 @@ func (q *Queries) HasPendingRecipients(ctx context.Context, campaignID uuid.UUID
 const insertCampaign = `-- name: InsertCampaign :one
 INSERT INTO campaigns (id, tenant_id, phone_number_id, template_id, name, audience, variables, status,
                        scheduled_at, send_rate_per_min, created_by, api_key_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled', $8, $9, $10, $11)
-RETURNING id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at, run_generation
 `
 
 type InsertCampaignParams struct {
@@ -253,6 +298,7 @@ type InsertCampaignParams struct {
 	Name           string
 	Audience       []byte
 	Variables      []byte
+	Status         CampaignStatus
 	ScheduledAt    *time.Time
 	SendRatePerMin *int32
 	CreatedBy      *uuid.UUID
@@ -268,6 +314,7 @@ func (q *Queries) InsertCampaign(ctx context.Context, arg InsertCampaignParams) 
 		arg.Name,
 		arg.Audience,
 		arg.Variables,
+		arg.Status,
 		arg.ScheduledAt,
 		arg.SendRatePerMin,
 		arg.CreatedBy,
@@ -292,6 +339,7 @@ func (q *Queries) InsertCampaign(ctx context.Context, arg InsertCampaignParams) 
 		&i.ApiKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunGeneration,
 	)
 	return i, err
 }
@@ -422,15 +470,17 @@ func (q *Queries) ListCampaignRecipients(ctx context.Context, arg ListCampaignRe
 }
 
 const listCampaigns = `-- name: ListCampaigns :many
-SELECT id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at FROM campaigns
+SELECT id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at, run_generation FROM campaigns
 WHERE ($1::uuid IS NULL OR phone_number_id = $1)
-  AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3::uuid))
+  AND ($2::text[] IS NULL OR status::text = ANY($2::text[]))
+  AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT $4
+LIMIT $5
 `
 
 type ListCampaignsParams struct {
 	PhoneNumberID *uuid.UUID
+	Statuses      []string
 	BeforeAt      *time.Time
 	BeforeID      *uuid.UUID
 	Lim           int32
@@ -439,6 +489,7 @@ type ListCampaignsParams struct {
 func (q *Queries) ListCampaigns(ctx context.Context, arg ListCampaignsParams) ([]Campaign, error) {
 	rows, err := q.db.Query(ctx, listCampaigns,
 		arg.PhoneNumberID,
+		arg.Statuses,
 		arg.BeforeAt,
 		arg.BeforeID,
 		arg.Lim,
@@ -468,6 +519,7 @@ func (q *Queries) ListCampaigns(ctx context.Context, arg ListCampaignsParams) ([
 			&i.ApiKeyID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RunGeneration,
 		); err != nil {
 			return nil, err
 		}
@@ -547,6 +599,44 @@ func (q *Queries) QueueCampaignRecipient(ctx context.Context, arg QueueCampaignR
 	return err
 }
 
+const setCampaignStatus = `-- name: SetCampaignStatus :one
+UPDATE campaigns SET status = $1, run_generation = run_generation + 1, updated_at = now()
+WHERE id = $2
+RETURNING id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at, run_generation
+`
+
+type SetCampaignStatusParams struct {
+	Status CampaignStatus
+	ID     uuid.UUID
+}
+
+// Pauses or resumes a campaign. The generation changes so only the job queued now runs.
+func (q *Queries) SetCampaignStatus(ctx context.Context, arg SetCampaignStatusParams) (Campaign, error) {
+	row := q.db.QueryRow(ctx, setCampaignStatus, arg.Status, arg.ID)
+	var i Campaign
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.PhoneNumberID,
+		&i.TemplateID,
+		&i.Name,
+		&i.Audience,
+		&i.Variables,
+		&i.Status,
+		&i.ScheduledAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.SendRatePerMin,
+		&i.Stats,
+		&i.CreatedBy,
+		&i.ApiKeyID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RunGeneration,
+	)
+	return i, err
+}
+
 const skipCampaignRecipient = `-- name: SkipCampaignRecipient :exec
 UPDATE campaign_recipients SET status = 'skipped', skip_reason = $1, updated_at = now()
 WHERE campaign_id = $2 AND contact_id = $3
@@ -585,4 +675,62 @@ UPDATE campaigns SET status = 'running', started_at = now(), updated_at = now() 
 func (q *Queries) StartCampaign(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, startCampaign, id)
 	return err
+}
+
+const updateCampaign = `-- name: UpdateCampaign :one
+UPDATE campaigns
+SET phone_number_id = $1, template_id = $2, name = $3, audience = $4,
+    variables = $5, status = $6, scheduled_at = $7,
+    send_rate_per_min = $8, run_generation = run_generation + 1, updated_at = now()
+WHERE id = $9
+RETURNING id, tenant_id, phone_number_id, template_id, name, audience, variables, status, scheduled_at, started_at, finished_at, send_rate_per_min, stats, created_by, api_key_id, created_at, updated_at, run_generation
+`
+
+type UpdateCampaignParams struct {
+	PhoneNumberID  uuid.UUID
+	TemplateID     uuid.UUID
+	Name           string
+	Audience       []byte
+	Variables      []byte
+	Status         CampaignStatus
+	ScheduledAt    *time.Time
+	SendRatePerMin *int32
+	ID             uuid.UUID
+}
+
+// Replaces a draft or scheduled campaign's settings and invalidates its queued run job.
+func (q *Queries) UpdateCampaign(ctx context.Context, arg UpdateCampaignParams) (Campaign, error) {
+	row := q.db.QueryRow(ctx, updateCampaign,
+		arg.PhoneNumberID,
+		arg.TemplateID,
+		arg.Name,
+		arg.Audience,
+		arg.Variables,
+		arg.Status,
+		arg.ScheduledAt,
+		arg.SendRatePerMin,
+		arg.ID,
+	)
+	var i Campaign
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.PhoneNumberID,
+		&i.TemplateID,
+		&i.Name,
+		&i.Audience,
+		&i.Variables,
+		&i.Status,
+		&i.ScheduledAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.SendRatePerMin,
+		&i.Stats,
+		&i.CreatedBy,
+		&i.ApiKeyID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RunGeneration,
+	)
+	return i, err
 }
