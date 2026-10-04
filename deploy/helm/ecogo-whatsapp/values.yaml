@@ -14,9 +14,15 @@ imagePullSecrets: []
 environment: production   # or staging
 
 hosts:
-  app: whatsapp.ecogo.co.in         # dashboard; /internal and /v1 on this host go to the api
-  api: api.whatsapp.ecogo.co.in     # public /v1 API
-  hooks: hooks.whatsapp.ecogo.co.in # Meta webhooks (ingest)
+  app: connect.ecogo.ai           # dashboard; /internal and /v1 on this host go to the api
+  api: api.connect.ecogo.ai       # public /v1 API
+  hooks: hooks.connect.ecogo.ai   # Meta webhooks (ingest)
+  # Earlier host names still served exactly like the ones above (own TLS certificate), so old
+  # links, API clients and webhooks keep working while they move. Set to [] once nothing uses them.
+  legacy:
+    - whatsapp.ecogo.co.in
+    - api.whatsapp.ecogo.co.in
+    - hooks.whatsapp.ecogo.co.in
 
 ingress:
   enabled: true

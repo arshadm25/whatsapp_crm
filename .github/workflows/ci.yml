@@ -65,6 +65,10 @@ jobs:
           echo 'config: {metaAppId: 887891217083520}' > /tmp/ids.yaml
           helm template ci deploy/helm/ecogo-whatsapp -f /tmp/ids.yaml \
             | grep -A1 ECOGO_META_APP_ID | grep -q '"887891217083520"'
+      # Earlier host names keep their own certificate and routes; an empty list drops them.
+      - run: |
+          helm template ci deploy/helm/ecogo-whatsapp | grep -q 'host: whatsapp.ecogo.co.in'
+          ! helm template ci deploy/helm/ecogo-whatsapp --set hosts.legacy=null | grep -q legacy-tls
       # Backups render for both methods; the Barman Cloud plugin is the default.
       - run: |
           echo 'postgres: {cnpg: {backup: {enabled: true, method: barmanObjectStore}}}' > /tmp/old.yaml
@@ -129,4 +133,4 @@ jobs:
           echo "production -> $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Wait until production serves this commit
         if: steps.move.outputs.moved == 'true'
-        run: deploy/argocd/wait-for-version.sh "${{ vars.PRODUCTION_URL || 'https://whatsapp.ecogo.co.in' }}" "$GITHUB_SHA"
+        run: deploy/argocd/wait-for-version.sh "${{ vars.PRODUCTION_URL || 'https://connect.ecogo.ai' }}" "$GITHUB_SHA"

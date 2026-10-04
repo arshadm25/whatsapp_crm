@@ -10,7 +10,7 @@ h() { helm --kubeconfig "$KC" "$@"; }
 NS=ecogo-whatsapp
 ARGO_NS=${ARGO_NS:-argocd}
 REPO=https://github.com/arshadm25/whatsapp_crm.git
-URL=https://whatsapp.ecogo.co.in
+URL=https://connect.ecogo.ai
 cd "$(dirname "$0")/.."
 
 echo "== 1. Checks"

@@ -27,7 +27,7 @@ type Enqueuer interface {
 	Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error)
 }
 
-// Handler is Meta's webhook callback (https://hooks.whatsapp.ecogo.co.in/meta).
+// Handler is Meta's webhook callback (https://hooks.connect.ecogo.ai/meta).
 type Handler struct {
 	appSecret   []byte
 	verifyToken string

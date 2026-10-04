@@ -44,7 +44,7 @@ fi
 cat <<'TXT'
 
 Still to do by hand:
- 1. Razorpay dashboard > Webhooks: URL https://whatsapp.ecogo.co.in/webhooks/razorpay, the same secret as above,
+ 1. Razorpay dashboard > Webhooks: URL https://connect.ecogo.ai/webhooks/razorpay, the same secret as above,
     all subscription.* events (authenticated, activated, charged, resumed, updated, pending, halted, cancelled, completed, expired).
  2. In Razorpay create a monthly plan per Ecogo plan and one for the extra-seat price.
  3. Admin console > Plans: paste each Razorpay plan ID and the extra-seat plan ID.

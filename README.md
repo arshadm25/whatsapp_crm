@@ -126,7 +126,7 @@ commit (CI job `release`), and Argo CD in the cluster syncs `deploy/helm/ecogo-w
 GitHub holds no cluster credentials. The migrate Job is a PreSync hook: if a migration fails the
 sync stops and the running pods stay on the previous version. CI then waits until `/internal/config` reports the new commit and goes red
 if it never does (the repository variable `PRODUCTION_URL` overrides
-`https://whatsapp.ecogo.co.in`).
+`https://connect.ecogo.ai`).
 
 * **Roll back or redeploy:** Actions > Deploy > Run workflow, with the commit to put live
   (blank = latest `main`). Migrations are not undone, so a rollback must be to code that works
@@ -142,9 +142,9 @@ A staging release (not automated) can still be installed by hand:
 ```sh
 helm upgrade --install ecogo-whatsapp-staging deploy/helm/ecogo-whatsapp \
   -n ecogo-whatsapp-staging --set environment=staging \
-  --set hosts.app=staging.whatsapp.ecogo.co.in \
-  --set hosts.api=api.staging.whatsapp.ecogo.co.in \
-  --set hosts.hooks=hooks.staging.whatsapp.ecogo.co.in \
+  --set hosts.app=staging.connect.ecogo.ai \
+  --set hosts.api=api.staging.connect.ecogo.ai \
+  --set hosts.hooks=hooks.staging.connect.ecogo.ai \
   --set image.tag=<git sha> --set webImage.tag=<git sha> \
   --set-string config.metaAppId=<staging app id> --set-string config.metaConfigId=<configuration id>
 ```
