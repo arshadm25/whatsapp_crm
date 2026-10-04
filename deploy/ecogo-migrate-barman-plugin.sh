@@ -19,9 +19,13 @@ ARGO_NS=${ARGO_NS:-argocd}
 cd "$(dirname "$0")/.."
 
 echo "== 1. Checks"
-OP_IMAGE=$(k -n $OP_NS get deploy -o jsonpath='{.items[*].spec.template.spec.containers[*].image}' | tr ' ' '\n' | grep cloudnative-pg | head -1)
-echo "Operator image: $OP_IMAGE"
+IMAGES=$(k -n $OP_NS get deploy -o jsonpath='{.items[*].spec.template.spec.containers[*].image}' | tr ' ' '\n')
+echo "Images in $OP_NS:"; echo "$IMAGES" | sed 's/^/  /'
+# The operator image ends in /cloudnative-pg:<version>; the plugin's is .../plugin-barman-cloud:<version>.
+OP_IMAGE=$(echo "$IMAGES" | grep -E '/cloudnative-pg:' | head -1)
+[ -n "$OP_IMAGE" ] || { echo "No CloudNativePG operator image found in $OP_NS. Tell Claude."; exit 1; }
 OP_VER=${OP_IMAGE##*:}; OP_VER=${OP_VER#v}
+echo "Operator version: $OP_VER"
 OP_MINOR=$(echo "$OP_VER" | cut -d. -f2)
 [[ "$(echo "$OP_VER" | cut -d. -f1)" -ge 1 && "$OP_MINOR" -ge 26 ]] \
   || { echo "The plugin needs CloudNativePG 1.26 or newer; this is $OP_VER. Stop and tell Claude."; exit 1; }
@@ -31,11 +35,16 @@ k -n $NS get backup first-backup -o jsonpath='{.status.phase}' | grep -q complet
   || echo "Warning: the earlier first-backup is not 'completed'; check backups before going on."
 
 echo "== 2. Install the Barman Cloud plugin"
+if echo "$IMAGES" | grep -q plugin-barman-cloud; then
+  echo "The plugin is already installed ($(echo "$IMAGES" | grep plugin-barman-cloud | head -1)); skipping the install."
+  k -n $OP_NS get deploy
+else
 V=${PLUGIN_VERSION:-$(curl -fsSL https://api.github.com/repos/cloudnative-pg/plugin-barman-cloud/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}
 [ -n "$V" ] || { echo "Could not find the latest plugin release; rerun with PLUGIN_VERSION=vX.Y.Z"; exit 1; }
 echo "Plugin version: $V"
 k apply -f "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/$V/manifest.yaml"
 k -n $OP_NS rollout status deployment/barman-cloud --timeout=180s
+fi
 
 echo
 printf "Switch %s backups to the plugin now? Database pods will restart one by one. [y/N] " "$NS"
