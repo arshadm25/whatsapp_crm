@@ -1,7 +1,7 @@
 {{- if .Values.postgres.cnpg.enabled }}
 {{- $pg := .Values.postgres.cnpg }}
 {{- /* --reuse-values keeps no entry for a key added later, so fall back to the default here. */}}
-{{- $method := $pg.backup.method | default "barmanObjectStore" }}
+{{- $method := $pg.backup.method | default "plugin" }}
 # PostgreSQL 16 via the CloudNativePG operator: a primary and a streaming replica with
 # automatic failover. ecogo_owner owns the schema (BYPASSRLS for the lookup functions);
 # ecogo_app is what the services use and is subject to row-level security.
