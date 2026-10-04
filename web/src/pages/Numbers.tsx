@@ -158,9 +158,11 @@ export default function Numbers() {
                       : <span className="pill wa">{t("numbers.notRegistered")}</span>}
                   </td>
                   <td className="r">
-                    {manager && n.status === "connected" && (
+                    {/* Pending and errored numbers can be disconnected too: a pending one still takes a
+                        plan slot, and nothing else on this page frees it. */}
+                    {manager && (n.status === "connected" || n.status === "pending" || n.status === "error") && (
                       <span className="actions" style={{ justifyContent: "flex-end" }}>
-                        <button className="sm" onClick={() => editProfile(n.id)}>{t("numbers.editProfile")}</button>
+                        {n.status === "connected" && <button className="sm" onClick={() => editProfile(n.id)}>{t("numbers.editProfile")}</button>}
                         <button
                           className="sm bdg"
                           disabled={disconnect.isPending}
