@@ -74,7 +74,7 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 			Subject: "Reset your Ecogo WhatsApp password",
 			Text: fmt.Sprintf("Hi %s,\n\nSomeone asked to reset the password for your Ecogo WhatsApp account. "+
 				"To choose a new password, open this link within an hour:\n\n%s\n\n"+
-				"If it was not you, ignore this email; your password stays the same.\n\nEcogo Software Solutions Pvt Ltd\n", u.Name, link),
+				"If it was not you, ignore this email; your password stays the same.\n\nEcogo AI Technologies Pvt Ltd\n", u.Name, link),
 		})
 		if err != nil {
 			s.log.Warn("password reset email not sent", "user_id", u.ID, "err", err)

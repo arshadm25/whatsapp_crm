@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 // terms of service and data deletion instructions. They are English only and kept here rather
 // than in the locale files, because the wording is a legal text, not interface copy.
 
-export const COMPANY = "Ecogo Software Solutions Pvt Ltd";
+export const COMPANY = "Ecogo AI Technologies Pvt Ltd";
 export const LEGAL_EMAIL = "privacy@ecogo.co.in";
 const UPDATED = "3 October 2026";
 

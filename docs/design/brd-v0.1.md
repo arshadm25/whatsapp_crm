@@ -24,7 +24,7 @@ The amounts are still open; see the pricing question under Open questions.
 | --- | --- |
 | Document | Business Requirements Document (BRD), version 0.1 draft |
 | Owner | Muhammed Arshad |
-| Status | Draft for review; applicant company is Ecogo Software Solutions Pvt Ltd; other details still open (see Open questions) |
+| Status | Draft for review; applicant company is Ecogo AI Technologies Pvt Ltd; other details still open (see Open questions) |
 | Source inputs | Owner's brief in this project, Meta developer documentation |
 
 ## Objectives, scope and success metrics
@@ -267,8 +267,8 @@ In Phase 1, clients who already use the WhatsApp Business App can connect the sa
 
 These answers change scope or design; defaults in brackets are what this BRD assumes until you decide.
 
-- [ ] What is the registered legal name and country of the company applying to Meta, and is it already verified in Meta Business Suite? \[Not yet verified\] Answered: Ecogo Software Solutions Pvt Ltd. Still to confirm: country (Pvt Ltd suggests India) and whether it is already verified in Meta Business Suite.
-- [ ] Which production domain will host the dashboard and website? \[To be chosen\] Not decided yet. Needed by Phase 1: Business Verification checks the website on this domain, and Embedded Signup only runs on domains on the allowed list. Answered (may still change): dashboard on whatsapp.ecogo.co.in, added to the Embedded Signup allowed domains. The company website on ecogo.co.in should show the legal name Ecogo Software Solutions Pvt Ltd, privacy policy and terms for Business Verification.
+- [ ] What is the registered legal name and country of the company applying to Meta, and is it already verified in Meta Business Suite? \[Not yet verified\] Answered: Ecogo AI Technologies Pvt Ltd. Still to confirm: country (Pvt Ltd suggests India) and whether it is already verified in Meta Business Suite.
+- [ ] Which production domain will host the dashboard and website? \[To be chosen\] Not decided yet. Needed by Phase 1: Business Verification checks the website on this domain, and Embedded Signup only runs on domains on the allowed list. Answered (may still change): dashboard on whatsapp.ecogo.co.in, added to the Embedded Signup allowed domains. The company website on ecogo.co.in should show the legal name Ecogo AI Technologies Pvt Ltd, privacy policy and terms for Business Verification.
 - [ ] Who are the first target customers (industry, size, country)? This sets pricing, languages and data residency. \[Small and mid-size businesses, English-speaking markets\] Answered: small and mid-size businesses in Indian language-speaking markets. Still open: which industries, and which Indian languages first.
 - [ ] How will we charge clients: monthly subscription per number, per seat, or usage-based? \[Monthly subscription per connected number\] Recommended: tiered monthly plans per connected number (for example Starter, Growth, Pro), each including a set number of agent seats and features, with extra seats and Phase 2 add-ons (chatbot, AI replies) charged separately. No per-message fee from us at launch; clients see Meta's message fees on their own Meta bill. Prices in INR still to set.
 - [ ] Preferred tech stack and hosting? \[Node.js or TypeScript backend, PostgreSQL, Redis queue, React dashboard, on AWS\] Answered: Go backend, React dashboard, PostgreSQL, hosted on AWS (Mumbai region). Still to choose: the webhook queue (Amazon SQS or Redis).

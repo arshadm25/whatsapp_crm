@@ -692,5 +692,5 @@ func TestRowLevelSecurity(t *testing.T) {
 func errorsAs(err error, target any) bool { return errors.As(err, target) }
 
 // sellerCfg is Ecogo's side of the GST invoices the tests issue.
-var sellerCfg = config.Seller{Name: "Ecogo Software Solutions Pvt Ltd", GSTIN: "32AABCE1234F1Z5",
+var sellerCfg = config.Seller{Name: "Ecogo AI Technologies Pvt Ltd", GSTIN: "32AABCE1234F1Z5",
 	Address: "Kochi, Kerala", SAC: "998439", GSTRateBP: 1800}

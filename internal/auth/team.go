@@ -277,7 +277,7 @@ func (s *Service) sendInvite(ctx context.Context, inv Invite, inviter, workspace
 		To:      inv.Email,
 		Subject: fmt.Sprintf("%s invited you to %s on Ecogo WhatsApp", inviter, workspace),
 		Text: fmt.Sprintf("Hi,\n\n%s invited you to join %s on Ecogo WhatsApp as %s.\n\nAccept the invite within 7 days:\n\n%s\n\n"+
-			"If you were not expecting this, ignore this email.\n\nEcogo Software Solutions Pvt Ltd\n", inviter, workspace, inv.Role, inv.Link),
+			"If you were not expecting this, ignore this email.\n\nEcogo AI Technologies Pvt Ltd\n", inviter, workspace, inv.Role, inv.Link),
 	})
 	if err != nil {
 		s.log.Warn("invite email not sent", "invite_id", inv.ID, "err", err)
