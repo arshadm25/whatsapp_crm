@@ -36,6 +36,12 @@ config:
   metaAppId: ""
   metaConfigId: ""
   metaGraphVersion: v24.0
+  # Email: "smtp" (the smtp* settings below) or "microsoft365", which sends from the mailFrom
+  # mailbox through Microsoft Graph with an Entra ID app (Mail.Send application permission).
+  # microsoft365 also needs m365-client-secret in the Secret.
+  mailProvider: smtp
+  m365TenantId: ""
+  m365ClientId: ""
   smtpHost: sandbox.smtp.mailtrap.io   # Mailtrap Email Testing until go-live; live sending uses live.smtp.mailtrap.io
   smtpPort: "2525"
   smtpUsername: ""
@@ -66,7 +72,8 @@ config:
 #   app-secret              random string, at least 32 characters
 #   meta-app-secret         Meta App Secret
 #   meta-webhook-verify-token  any random string; also entered as the Verify token in the Meta app
-#   smtp-password
+#   smtp-password           SMTP provider only
+#   m365-client-secret      microsoft365 provider only; client secret of the Entra ID app
 #   s3-access-key, s3-secret-key  MinIO credentials for the media bucket
 #   razorpay-key-id, razorpay-key-secret, razorpay-webhook-secret  optional until billing takes payment
 #   ai-api-key              optional; API key of the AI provider for chatbot answers
