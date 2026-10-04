@@ -256,7 +256,13 @@
     "stepDone": "Done",
     "stepFailedShort": "Failed · retry",
     "stepRunning": "Running",
-    "stepWaiting": "Waiting"
+    "stepWaiting": "Waiting",
+    "tokenTitle": "Connect with a system user access token",
+    "tokenHint": "For numbers in your own Meta business while Ecogo Connect waits for Meta's App Review. In Meta Business Settings, create a system user, assign it the Ecogo Connect app and your WhatsApp account, and generate a token with the whatsapp_business_management and whatsapp_business_messaging permissions. The WhatsApp account ID and phone number ID are shown in the app's WhatsApp API Setup page.",
+    "tokenWaba": "WhatsApp Business Account ID",
+    "tokenPhone": "Phone number ID",
+    "tokenToken": "Access token",
+    "tokenSubmit": "Connect number"
   },
   "common": {
     "loading": "Loading…",

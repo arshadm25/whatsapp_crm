@@ -256,7 +256,13 @@
     "stepDone": "ಮುಗಿದಿದೆ",
     "stepFailedShort": "ವಿಫಲವಾಗಿದೆ · ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ",
     "stepRunning": "ನಡೆಯುತ್ತಿದೆ",
-    "stepWaiting": "ಕಾಯುತ್ತಿದೆ"
+    "stepWaiting": "ಕಾಯುತ್ತಿದೆ",
+    "tokenTitle": "ಸಿಸ್ಟಮ್ ಯೂಸರ್ ಆಕ್ಸೆಸ್ ಟೋಕನ್ ಮೂಲಕ ಸಂಪರ್ಕಿಸಿ",
+    "tokenHint": "Ecogo Connect ಗೆ Meta ದ App Review ಸಿಗುವವರೆಗೆ, ನಿಮ್ಮ ಸ್ವಂತ Meta ವ್ಯವಹಾರದ ಸಂಖ್ಯೆಗಳಿಗಾಗಿ. Meta Business Settings ನಲ್ಲಿ ಒಬ್ಬ ಸಿಸ್ಟಮ್ ಯೂಸರ್ ಅನ್ನು ರಚಿಸಿ, ಅದಕ್ಕೆ Ecogo Connect ಆಪ್ ಮತ್ತು ನಿಮ್ಮ WhatsApp ಖಾತೆಯನ್ನು ನೀಡಿ, whatsapp_business_management ಮತ್ತು whatsapp_business_messaging ಅನುಮತಿಗಳೊಂದಿಗೆ ಟೋಕನ್ ರಚಿಸಿ. WhatsApp ಖಾತೆ ID ಮತ್ತು ಫೋನ್ ಸಂಖ್ಯೆ ID ಆಪ್‌ನ WhatsApp API Setup ಪುಟದಲ್ಲಿ ಕಾಣಿಸುತ್ತವೆ.",
+    "tokenWaba": "WhatsApp Business Account ID",
+    "tokenPhone": "ಫೋನ್ ಸಂಖ್ಯೆ ID",
+    "tokenToken": "ಆಕ್ಸೆಸ್ ಟೋಕನ್",
+    "tokenSubmit": "ಸಂಖ್ಯೆಯನ್ನು ಸಂಪರ್ಕಿಸಿ"
   },
   "common": {
     "loading": "ಲೋಡ್ ಆಗುತ್ತಿದೆ…",

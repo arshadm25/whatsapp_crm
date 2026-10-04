@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -91,6 +91,7 @@ export default function ConnectWhatsApp() {
           {sessionId ? (
             <Progress id={sessionId} onRestart={() => setParams({})} />
           ) : (
+            <>
             <div className="grid g2">
               <div className="card choice-card">
                 <div className="row-between"><span className="ic lg"><Icon name="phone" /></span><span className="chip">{t("connect.recommended")}</span></div>
@@ -114,6 +115,8 @@ export default function ConnectWhatsApp() {
                 </button>
               </div>
             </div>
+            <TokenConnect onStarted={(id) => setParams({ session: id })} />
+            </>
           )}
         </div>
         <aside className="stack">
@@ -138,6 +141,50 @@ export default function ConnectWhatsApp() {
         </aside>
       </div>
     </section>
+  );
+}
+
+// Connects a number in the workspace's own Meta business with a system user token, for use
+// before App Review grants the Advanced Access that Embedded Signup needs.
+function TokenConnect({ onStarted }: { onStarted: (id: string) => void }) {
+  const { t } = useTranslation();
+  const [form, setForm] = useState({ waba_id: "", phone_number_id: "", access_token: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k: keyof typeof form) => (e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value.trim() });
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const session = await api<OnboardingSession>("POST", "/internal/onboarding/sessions", { flow: "standard" });
+      try {
+        await api("POST", `/internal/onboarding/sessions/${session.id}/complete-with-token`, form);
+      } catch (err) {
+        // The session records Meta's refusal; anything else is shown here.
+        if (!(err instanceof ApiError) || err.code !== "token_rejected") throw err;
+      }
+      onStarted(session.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t("common.error"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details className="card">
+      <summary><b>{t("connect.tokenTitle")}</b></summary>
+      <form className="form stack" onSubmit={submit} style={{ marginTop: 12 }}>
+        <p className="sub">{t("connect.tokenHint")}</p>
+        <label className="field">{t("connect.tokenWaba")}<input value={form.waba_id} onChange={set("waba_id")} required pattern="[0-9]{1,32}" inputMode="numeric" /></label>
+        <label className="field">{t("connect.tokenPhone")}<input value={form.phone_number_id} onChange={set("phone_number_id")} required pattern="[0-9]{1,32}" inputMode="numeric" /></label>
+        <label className="field">{t("connect.tokenToken")}<input type="password" autoComplete="off" value={form.access_token} onChange={set("access_token")} required maxLength={2048} /></label>
+        {error && <div className="error">{error}</div>}
+        <div className="actions"><button className="primary" disabled={busy}>{busy ? t("common.loading") : t("connect.tokenSubmit")}</button></div>
+      </form>
+    </details>
   );
 }
 
