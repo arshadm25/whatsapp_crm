@@ -1,4 +1,4 @@
-# Ecogo WhatsApp Platform
+# Ecogo Connect
 
 Multi-tenant WhatsApp Cloud API platform by Ecogo AI Technologies Pvt Ltd: a dashboard for
 businesses and a public REST API, built to qualify Ecogo as a Meta WhatsApp Tech Provider.

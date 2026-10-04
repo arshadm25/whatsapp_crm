@@ -473,7 +473,7 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 				return err
 			}
 			if ev.Event == "subscription.charged" {
-				desc := fmt.Sprintf("Ecogo WhatsApp: %d extra team seat%s", extra, plural(extra))
+				desc := fmt.Sprintf("Ecogo Connect: %d extra team seat%s", extra, plural(extra))
 				if err := s.issueInvoice(ctx, q, tx, tenantID, payment(ev), desc, unix(rs.CurrentStart), unix(rs.CurrentEnd)); err != nil {
 					return err
 				}
@@ -488,7 +488,7 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 		if next == nil {
 			return nil
 		}
-		planName := "Ecogo WhatsApp plan"
+		planName := "Ecogo Connect plan"
 		if rs.PlanID != "" {
 			pl, err := q.GetPlanByRazorpayID(ctx, &rs.PlanID)
 			if err == nil {
@@ -504,7 +504,7 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 			return err
 		}
 		if ev.Event == "subscription.charged" {
-			desc := "Ecogo WhatsApp: " + planName
+			desc := "Ecogo Connect: " + planName
 			if err := s.issueInvoice(ctx, q, tx, tenantID, payment(ev), desc, &applied.CurrentPeriodStart, &applied.CurrentPeriodEnd); err != nil {
 				return err
 			}

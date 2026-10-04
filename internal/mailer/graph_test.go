@@ -53,7 +53,7 @@ func TestGraphSendsFromTheMailboxAndReusesTheToken(t *testing.T) {
 			}
 			m := body.Message
 			if m.Subject != "Verify your email" || m.Body.ContentType != "Text" || !strings.Contains(m.Body.Content, "Hello") ||
-				m.From.EmailAddress.Name != "Ecogo WhatsApp" || len(m.ToRecipients) != 1 || m.ToRecipients[0].EmailAddress.Address != "asha@example.com" {
+				m.From.EmailAddress.Name != "Ecogo Connect" || len(m.ToRecipients) != 1 || m.ToRecipients[0].EmailAddress.Address != "asha@example.com" {
 				t.Errorf("message = %+v", m)
 			}
 			w.WriteHeader(http.StatusAccepted)
@@ -65,7 +65,7 @@ func TestGraphSendsFromTheMailboxAndReusesTheToken(t *testing.T) {
 
 	g := mailer.New(config.Mail{
 		Provider: "microsoft365",
-		From:     "Ecogo WhatsApp <no-reply@ecogo.co.in>",
+		From:     "Ecogo Connect <no-reply@ecogo.co.in>",
 		M365:     config.M365{TenantID: "tenant-1", ClientID: "client-1", ClientSecret: "s3cret", LoginBaseURL: srv.URL, GraphBaseURL: srv.URL},
 	})
 	for i := 0; i < 2; i++ {

@@ -8,7 +8,7 @@ metadata:
   name: ecogo-whatsapp
   namespace: argocd
 spec:
-  description: Ecogo WhatsApp platform. Deploys only into the ecogo-whatsapp namespace.
+  description: Ecogo Connect platform. Deploys only into the ecogo-whatsapp namespace.
   sourceRepos:
     - https://github.com/arshadm25/whatsapp_crm.git
   destinations:

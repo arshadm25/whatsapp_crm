@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Ecogo WhatsApp Platform API
+  title: Ecogo Connect API
   version: 1.0.0-draft.1
   summary: Send and receive WhatsApp messages, manage templates, numbers, contacts and campaigns.
   description: |

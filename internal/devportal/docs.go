@@ -8,7 +8,7 @@ import (
 
 const docsPage = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ecogo WhatsApp API</title></head>
+<title>Ecogo Connect API</title></head>
 <body><redoc spec-url="/v1/openapi.yaml"></redoc>
 <script src="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"></script></body></html>`
 

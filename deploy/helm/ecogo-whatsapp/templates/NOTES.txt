@@ -1,4 +1,4 @@
-Ecogo WhatsApp {{ .Chart.AppVersion }} installed as {{ .Release.Name }} ({{ .Values.environment }}).
+Ecogo Connect {{ .Chart.AppVersion }} installed as {{ .Release.Name }} ({{ .Values.environment }}).
 
   Dashboard:  https://{{ .Values.hosts.app }}
   Public API: https://{{ .Values.hosts.api }}/v1
