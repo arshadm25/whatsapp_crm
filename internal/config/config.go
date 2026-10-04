@@ -180,7 +180,7 @@ func Load() (*Config, error) {
 			BaseURL:  strings.TrimRight(env("ECOGO_AI_BASE_URL", "https://api.anthropic.com"), "/"),
 		},
 		Seller: Seller{
-			Name:    env("ECOGO_SELLER_NAME", "Ecogo Software Solutions Pvt Ltd"),
+			Name:    env("ECOGO_SELLER_NAME", "Ecogo AI Technologies Pvt Ltd"),
 			GSTIN:   strings.ToUpper(strings.TrimSpace(os.Getenv("ECOGO_SELLER_GSTIN"))),
 			Address: os.Getenv("ECOGO_SELLER_ADDRESS"),
 			SAC:     os.Getenv("ECOGO_SELLER_SAC"),

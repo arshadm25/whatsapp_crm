@@ -4,7 +4,7 @@ info:
   version: 1.0.0-draft.1
   summary: Send and receive WhatsApp messages, manage templates, numbers, contacts and campaigns.
   description: |
-    Public REST API for Ecogo Software Solutions Pvt Ltd's WhatsApp platform (release 1, design v0.1, 2026-10-02).
+    Public REST API for Ecogo AI Technologies Pvt Ltd's WhatsApp platform (release 1, design v0.1, 2026-10-02).
 
     The API wraps Meta's WhatsApp Cloud API. Clients never handle Meta tokens: Ecogo stores each
     client's Business Integration System User token and calls Meta on the client's behalf.
@@ -29,7 +29,7 @@ info:
     **Phone numbers and IDs.** Customer numbers are E.164 digits without `+` (for example `919876543210`).
     All Ecogo IDs are UUIDs. Meta IDs (such as `wamid`) are returned alongside where useful.
   contact:
-    name: Ecogo Software Solutions Pvt Ltd
+    name: Ecogo AI Technologies Pvt Ltd
     url: https://ecogo.co.in
   license:
     name: Proprietary

@@ -67,7 +67,7 @@ func (w *EmailWorker) Work(ctx context.Context, job *river.Job[EmailArgs]) error
 	body := fmt.Sprintf("Hello,\n\nThank you for your payment. Your GST invoice is ready.\n\n"+
 		"Invoice: %s\nFor: %s\nAmount: ₹%s (GST included)\n\n"+
 		"View, print or save it as a PDF (log in first): %s/internal/billing/invoices/%s/view\n"+
-		"All your invoices are under Settings, Billing.\n\nEcogo Software Solutions Pvt Ltd\n",
+		"All your invoices are under Settings, Billing.\n\nEcogo AI Technologies Pvt Ltd\n",
 		inv.Number, inv.Description, inr(inv.TotalMinor), w.appURL, inv.ID)
 	for _, to := range owners {
 		if err := w.mail.Send(ctx, mailer.Message{To: to, Subject: subject, Text: body}); err != nil {

@@ -314,7 +314,7 @@ func (s *Service) sendVerification(ctx context.Context, userID uuid.UUID, email,
 		To:      email,
 		Subject: "Verify your email for Ecogo WhatsApp",
 		Text: fmt.Sprintf("Hi %s,\n\nConfirm your email address by opening this link within 48 hours:\n\n%s\n\n"+
-			"If you did not sign up for Ecogo WhatsApp, ignore this email.\n\nEcogo Software Solutions Pvt Ltd\n", name, link),
+			"If you did not sign up for Ecogo WhatsApp, ignore this email.\n\nEcogo AI Technologies Pvt Ltd\n", name, link),
 	})
 	if err != nil {
 		s.log.Warn("verification email not sent", "user_id", userID, "err", err)
