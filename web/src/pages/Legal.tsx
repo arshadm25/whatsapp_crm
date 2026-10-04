@@ -45,7 +45,7 @@ export function Privacy() {
     <LegalPage title="Privacy policy">
       <p>
         This policy explains how {COMPANY} ("Ecogo", "we", "us"), a company registered in India, handles
-        personal data in the Ecogo Connect platform at whatsapp.ecogo.co.in, its API and related services
+        personal data in the Ecogo Connect platform at connect.ecogo.ai, its API and related services
         (the "Service").
       </p>
 

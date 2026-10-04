@@ -27,7 +27,7 @@ import (
 type Handler struct {
 	db        *db.DB
 	appSecret []byte
-	baseURL   string // public origin that serves StatusPage, for example https://whatsapp.ecogo.co.in
+	baseURL   string // public origin that serves StatusPage, for example https://connect.ecogo.ai
 	log       *slog.Logger
 }
 

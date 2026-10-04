@@ -28,7 +28,7 @@ type Config struct {
 	// MigrationDatabaseURL is the owner role used only by the migrate command.
 	MigrationDatabaseURL string
 
-	// PublicAppURL is the dashboard origin, e.g. https://whatsapp.ecogo.co.in. Used in emails and cookies.
+	// PublicAppURL is the dashboard origin, e.g. https://connect.ecogo.ai. Used in emails and cookies.
 	PublicAppURL string
 	// CookieSecure marks session cookies Secure; off only for local http development.
 	CookieSecure bool

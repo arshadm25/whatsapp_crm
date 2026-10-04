@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Waits until the api at <url> reports <sha> as its version (from /internal/config), so a deploy
 # that Argo CD could not finish (a failed migration, pods that never become ready) turns the
-# workflow red. Usage: wait-for-version.sh https://whatsapp.ecogo.co.in <full commit sha>
+# workflow red. Usage: wait-for-version.sh https://connect.ecogo.ai <full commit sha>
 set -euo pipefail
 url=${1%/}; want=$2; timeout=${DEPLOY_TIMEOUT_SECONDS:-1200}
 deadline=$((SECONDS + timeout)); seen=""

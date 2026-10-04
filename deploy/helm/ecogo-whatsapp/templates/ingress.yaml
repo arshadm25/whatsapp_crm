@@ -22,6 +22,11 @@ spec:
         - {{ .Values.hosts.app }}
         - {{ .Values.hosts.api }}
         - {{ .Values.hosts.hooks }}
+    {{- with .Values.hosts.legacy }}
+    - secretName: {{ $.Release.Name }}-legacy-tls
+      hosts:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
   {{- end }}
   rules:
     - host: {{ .Values.hosts.app }}
@@ -39,4 +44,15 @@ spec:
       http:
         paths:
           - { path: /meta, pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-ingest, port: { name: http } } } }
+    {{- /* Legacy hosts route every path the three hosts above serve, whichever one they were. */}}
+    {{- range .Values.hosts.legacy }}
+    - host: {{ . }}
+      http:
+        paths:
+          - { path: /internal, pathType: Prefix, backend: { service: { name: {{ $.Release.Name }}-api, port: { name: http } } } }
+          - { path: /v1, pathType: Prefix, backend: { service: { name: {{ $.Release.Name }}-api, port: { name: http } } } }
+          - { path: /webhooks, pathType: Prefix, backend: { service: { name: {{ $.Release.Name }}-api, port: { name: http } } } }
+          - { path: /meta, pathType: Prefix, backend: { service: { name: {{ $.Release.Name }}-ingest, port: { name: http } } } }
+          - { path: /, pathType: Prefix, backend: { service: { name: {{ $.Release.Name }}-web, port: { name: http } } } }
+    {{- end }}
 {{- end }}

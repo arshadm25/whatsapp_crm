@@ -35,9 +35,9 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 servers:
-  - url: https://api.whatsapp.ecogo.co.in/v1
+  - url: https://api.connect.ecogo.ai/v1
     description: Production (Ecogo Kubernetes cluster)
-  - url: https://api.staging.whatsapp.ecogo.co.in/v1
+  - url: https://api.staging.connect.ecogo.ai/v1
     description: Staging
 security:
   - apiKey: []
