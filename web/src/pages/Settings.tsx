@@ -616,7 +616,7 @@ function Billing() {
   // pay opens Razorpay's pop-up (or the hosted page for older replies); false means no payment was needed.
   const pay = async (res: CheckoutReply): Promise<boolean> => {
     if (canPopUp(res)) {
-      await openCheckout(res, "Ecogo WhatsApp", () => {
+      await openCheckout(res, "Ecogo Connect", () => {
         setNote(t("billing.paymentReceived"));
         void qc.invalidateQueries({ queryKey: ["billing"] });
       });

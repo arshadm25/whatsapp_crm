@@ -1,4 +1,4 @@
--- Ecogo WhatsApp Platform: release 1 database schema
+-- Ecogo Connect: release 1 database schema
 -- PostgreSQL 16. Design v0.1, 2026-10-02.
 -- Companion to the Technical Design doc and the BRD (module IDs D1-D9, A1).
 --

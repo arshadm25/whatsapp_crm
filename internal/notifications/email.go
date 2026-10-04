@@ -113,7 +113,7 @@ func (w *EmailWorker) message(n dbq.ClaimNotificationEmailsRow) mailer.Message {
 	return mailer.Message{
 		To:      n.UserEmail,
 		Subject: n.Title,
-		Text: fmt.Sprintf("Hi %s,\n\n%s.\n\n%sOpen Ecogo WhatsApp: %s\n\n"+
+		Text: fmt.Sprintf("Hi %s,\n\n%s.\n\n%sOpen Ecogo Connect: %s\n\n"+
 			"You can change which emails you get under Settings, Notifications.\n\nEcogo AI Technologies Pvt Ltd\n",
 			n.UserName, n.Title, body, link),
 	}

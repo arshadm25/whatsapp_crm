@@ -71,8 +71,8 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 		link := s.cfg.PublicAppURL + "/reset-password?token=" + tok
 		err := s.mailer.Send(r.Context(), mailer.Message{
 			To:      u.Email,
-			Subject: "Reset your Ecogo WhatsApp password",
-			Text: fmt.Sprintf("Hi %s,\n\nSomeone asked to reset the password for your Ecogo WhatsApp account. "+
+			Subject: "Reset your Ecogo Connect password",
+			Text: fmt.Sprintf("Hi %s,\n\nSomeone asked to reset the password for your Ecogo Connect account. "+
 				"To choose a new password, open this link within an hour:\n\n%s\n\n"+
 				"If it was not you, ignore this email; your password stays the same.\n\nEcogo AI Technologies Pvt Ltd\n", u.Name, link),
 		})

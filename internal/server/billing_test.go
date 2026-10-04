@@ -432,7 +432,7 @@ func TestInvoices(t *testing.T) {
 	charge("evt_1b", "sub_1", "plan_team", "pay_1", 118000) // the same payment is invoiced once
 	owner.do("GET", "/internal/billing/invoices", nil, http.StatusOK, &list)
 	fy := billing.FinancialYear(time.Now())
-	if len(list.Data) != 1 || list.Data[0].Number != "ECO/"+fy+"/000001" || list.Data[0].TotalMinor != 118000 || list.Data[0].Description != "Ecogo WhatsApp: Team plan" {
+	if len(list.Data) != 1 || list.Data[0].Number != "ECO/"+fy+"/000001" || list.Data[0].TotalMinor != 118000 || list.Data[0].Description != "Ecogo Connect: Team plan" {
 		t.Fatalf("invoices = %+v", list.Data)
 	}
 	status, page := owner.page("/internal/billing/invoices/" + list.Data[0].ID + "/view")
@@ -460,7 +460,7 @@ func TestInvoices(t *testing.T) {
 	owner.do("POST", "/internal/billing/seats", map[string]int{"extra": 2}, http.StatusOK, nil)
 	charge("evt_3", "sub_2", "plan_seat", "pay_3", 47200)
 	owner.do("GET", "/internal/billing/invoices", nil, http.StatusOK, &list)
-	if len(list.Data) != 3 || list.Data[0].Number != "ECO/"+fy+"/000003" || list.Data[0].Description != "Ecogo WhatsApp: 2 extra team seats" {
+	if len(list.Data) != 3 || list.Data[0].Number != "ECO/"+fy+"/000003" || list.Data[0].Description != "Ecogo Connect: 2 extra team seats" {
 		t.Fatalf("invoices = %+v", list.Data)
 	}
 	_, page = owner.page("/internal/billing/invoices/" + list.Data[1].ID + "/view")

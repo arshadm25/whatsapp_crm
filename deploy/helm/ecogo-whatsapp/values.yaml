@@ -45,7 +45,7 @@ config:
   smtpHost: sandbox.smtp.mailtrap.io   # Mailtrap Email Testing until go-live; live sending uses live.smtp.mailtrap.io
   smtpPort: "2525"
   smtpUsername: ""
-  mailFrom: "Ecogo WhatsApp <no-reply@ecogo.co.in>"
+  mailFrom: "Ecogo Connect <no-reply@ecogo.co.in>"
   # Media files (uploads and copies of inbound media) live in this S3-compatible bucket; the
   # bucket is created on first start if missing.
   s3Endpoint: minio.minio.svc:9000   # host:port, no scheme

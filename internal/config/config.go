@@ -165,7 +165,7 @@ func Load() (*Config, error) {
 			SMTPHost: env("ECOGO_SMTP_HOST", "localhost"),
 			Username: os.Getenv("ECOGO_SMTP_USERNAME"),
 			Password: os.Getenv("ECOGO_SMTP_PASSWORD"),
-			From:     env("ECOGO_MAIL_FROM", "Ecogo WhatsApp <no-reply@ecogo.co.in>"),
+			From:     env("ECOGO_MAIL_FROM", "Ecogo Connect <no-reply@ecogo.co.in>"),
 		},
 		Razorpay: Razorpay{
 			KeyID:         os.Getenv("ECOGO_RAZORPAY_KEY_ID"),

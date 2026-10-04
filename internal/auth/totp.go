@@ -16,7 +16,7 @@ import (
 const (
 	totpStep   = 30 * time.Second
 	totpDigits = 6
-	totpIssuer = "Ecogo WhatsApp"
+	totpIssuer = "Ecogo Connect"
 )
 
 var b32 = base32.StdEncoding.WithPadding(base32.NoPadding)

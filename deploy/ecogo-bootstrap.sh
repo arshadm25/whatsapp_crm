@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# Ecogo WhatsApp: first deploy to the Hetzner cluster. Run from your Mac, one block at a time.
+# Ecogo Connect: first deploy to the Hetzner cluster. Run from your Mac, one block at a time.
 # Touches only: namespaces cnpg-system, minio, ecogo-whatsapp (all new). Nothing existing is changed.
 set -eu
 k() { kubectl --kubeconfig "/Users/admin/Projects/Phase 2 - Travel/kubeconfig-hetzner.yml" "$@"; }
