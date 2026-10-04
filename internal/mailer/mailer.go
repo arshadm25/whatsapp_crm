@@ -1,5 +1,5 @@
-// Package mailer sends transactional email. Mailtrap is used until go-live; the production
-// provider only needs different SMTP settings, not code changes.
+// Package mailer sends transactional email, over SMTP (Mailtrap before go-live) or through
+// Microsoft 365 (see Graph).
 package mailer
 
 import (
@@ -32,13 +32,18 @@ type SMTP struct {
 
 func NewSMTP(cfg config.Mail) *SMTP { return &SMTP{cfg: cfg} }
 
-func (s *SMTP) Send(_ context.Context, m Message) error {
-	from, err := mail.ParseAddress(s.cfg.From)
-	if err != nil {
-		return fmt.Errorf("mailer: bad from address: %w", err)
+// New returns the Mailer the configuration selects.
+func New(cfg config.Mail) Mailer {
+	if cfg.Provider == "microsoft365" {
+		return NewGraph(cfg)
 	}
-	if strings.ContainsAny(m.To+m.Subject, "\r\n") {
-		return fmt.Errorf("mailer: header injection attempt")
+	return NewSMTP(cfg)
+}
+
+func (s *SMTP) Send(_ context.Context, m Message) error {
+	from, err := checkMessage(s.cfg.From, m)
+	if err != nil {
+		return err
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from.String())
@@ -54,6 +59,17 @@ func (s *SMTP) Send(_ context.Context, m Message) error {
 		auth = smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.SMTPHost)
 	}
 	return smtp.SendMail(addr, auth, from.Address, []string{m.To}, []byte(b.String()))
+}
+
+func checkMessage(fromHeader string, m Message) (*mail.Address, error) {
+	from, err := mail.ParseAddress(fromHeader)
+	if err != nil {
+		return nil, fmt.Errorf("mailer: bad from address: %w", err)
+	}
+	if strings.ContainsAny(m.To+m.Subject, "\r\n") {
+		return nil, fmt.Errorf("mailer: header injection attempt")
+	}
+	return from, nil
 }
 
 // Log is a Mailer that only logs; used in tests.

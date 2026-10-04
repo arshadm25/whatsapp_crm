@@ -96,7 +96,7 @@ func main() {
 }
 
 func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	if err := cfg.Require("ECOGO_DATABASE_URL", "ECOGO_MASTER_KEYS", "ECOGO_APP_SECRET",
+	if err := cfg.Require("ECOGO_DATABASE_URL", "ECOGO_MASTER_KEYS", "ECOGO_APP_SECRET", "ECOGO_MAIL",
 		"ECOGO_META_APP_ID", "ECOGO_META_APP_SECRET", "ECOGO_META_CONFIG_ID"); err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Config:        cfg,
 		DB:            d,
 		Log:           log,
-		Auth:          auth.NewService(d, keys, cfg, mailer.NewSMTP(cfg.Mail), log),
+		Auth:          auth.NewService(d, keys, cfg, mailer.New(cfg.Mail), log),
 		Onboarding:    onboarding.NewService(d, keys, meta, rc, log),
 		Numbers:       numbers.NewService(d, keys, meta, log),
 		Messaging:     messaging.NewService(d, keys, meta, rc, log),
@@ -165,7 +165,7 @@ func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 }
 
 func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	if err := cfg.Require("ECOGO_DATABASE_URL", "ECOGO_MASTER_KEYS", "ECOGO_META_APP_ID", "ECOGO_META_APP_SECRET"); err != nil {
+	if err := cfg.Require("ECOGO_DATABASE_URL", "ECOGO_MASTER_KEYS", "ECOGO_META_APP_ID", "ECOGO_META_APP_SECRET", "ECOGO_MAIL"); err != nil {
 		return err
 	}
 	d, keys, meta, err := common(ctx, cfg, log)
@@ -193,9 +193,9 @@ func runWorker(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 	river.AddWorker(workers, metafees.NewWorker(d, cfg.Seller, cfg.MetaMarkupBP, log))
 	river.AddWorker(workers, metafees.NewReconciler(d, keys, meta, log))
 	river.AddWorker(workers, metafees.NewCreditLineWorker(d, meta, cfg.Meta.CreditLine, log))
-	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
+	river.AddWorker(workers, billing.NewEmailWorker(d, mailer.New(cfg.Mail), cfg.PublicAppURL, log))
 	river.AddWorker(workers, retention.NewWorker(d, store, log))
-	river.AddWorker(workers, notifications.NewEmailWorker(d, mailer.NewSMTP(cfg.Mail), cfg.PublicAppURL, log))
+	river.AddWorker(workers, notifications.NewEmailWorker(d, mailer.New(cfg.Mail), cfg.PublicAppURL, log))
 	rc, err := jobs.NewWorkerClient(d.Pool, workers, []*river.PeriodicJob{analytics.Periodic(), metafees.Periodic(), metafees.ReconcilePeriodic(), metafees.CreditLinePeriodic(), retention.Periodic(), notifications.Periodic()}, log)
 	if err != nil {
 		return err

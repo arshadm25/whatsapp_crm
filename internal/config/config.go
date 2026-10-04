@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -113,12 +114,25 @@ type CreditLine struct {
 	Token   string // a system user token of Ecogo's business, not a client's
 }
 
+// Mail picks how transactional email is sent: "smtp" (Mailtrap or any SMTP server) or
+// "microsoft365", which sends from the From mailbox through Microsoft Graph with an Entra ID app
+// (Exchange Online no longer accepts SMTP password sign-in).
 type Mail struct {
+	Provider string
 	SMTPHost string
 	SMTPPort int
 	Username string
 	Password string
 	From     string
+	M365     M365
+}
+
+type M365 struct {
+	TenantID     string
+	ClientID     string
+	ClientSecret string
+	LoginBaseURL string // https://login.microsoftonline.com; overridden in tests
+	GraphBaseURL string // https://graph.microsoft.com
 }
 
 // Load reads configuration from the environment and validates what the given role needs.
@@ -140,6 +154,14 @@ func Load() (*Config, error) {
 			VerifyToken:     os.Getenv("ECOGO_META_WEBHOOK_VERIFY_TOKEN"),
 		},
 		Mail: Mail{
+			Provider: env("ECOGO_MAIL_PROVIDER", "smtp"),
+			M365: M365{
+				TenantID:     strings.TrimSpace(os.Getenv("ECOGO_M365_TENANT_ID")),
+				ClientID:     strings.TrimSpace(os.Getenv("ECOGO_M365_CLIENT_ID")),
+				ClientSecret: os.Getenv("ECOGO_M365_CLIENT_SECRET"),
+				LoginBaseURL: strings.TrimRight(env("ECOGO_M365_LOGIN_BASE_URL", "https://login.microsoftonline.com"), "/"),
+				GraphBaseURL: strings.TrimRight(env("ECOGO_M365_GRAPH_BASE_URL", "https://graph.microsoft.com"), "/"),
+			},
 			SMTPHost: env("ECOGO_SMTP_HOST", "localhost"),
 			Username: os.Getenv("ECOGO_SMTP_USERNAME"),
 			Password: os.Getenv("ECOGO_SMTP_PASSWORD"),
@@ -199,6 +221,13 @@ func Load() (*Config, error) {
 	if c.Mail.SMTPPort, err = strconv.Atoi(env("ECOGO_SMTP_PORT", "1025")); err != nil {
 		return nil, fmt.Errorf("ECOGO_SMTP_PORT: %w", err)
 	}
+	switch c.Mail.Provider {
+	case "smtp":
+	case "microsoft365":
+		// The services that send mail check the app's settings with Require("ECOGO_MAIL").
+	default:
+		return nil, fmt.Errorf("ECOGO_MAIL_PROVIDER must be smtp or microsoft365")
+	}
 	if c.Storage.UseSSL, err = strconv.ParseBool(env("ECOGO_S3_USE_SSL", "false")); err != nil {
 		return nil, fmt.Errorf("ECOGO_S3_USE_SSL: %w", err)
 	}
@@ -222,6 +251,14 @@ func (c *Config) Require(names ...string) error {
 		"ECOGO_MASTER_KEYS":               len(c.MasterKeys) > 0,
 		"ECOGO_APP_SECRET":                len(c.AppSecret) >= 32,
 		"ECOGO_META_WEBHOOK_VERIFY_TOKEN": c.Meta.VerifyToken != "",
+		"ECOGO_MAIL":                      true,
+		"ECOGO_M365_TENANT_ID":            c.Mail.M365.TenantID != "",
+		"ECOGO_M365_CLIENT_ID":            c.Mail.M365.ClientID != "",
+		"ECOGO_M365_CLIENT_SECRET":        c.Mail.M365.ClientSecret != "",
+	}
+	// ECOGO_MAIL stands for whatever the chosen mail provider needs.
+	if c.Mail.Provider == "microsoft365" && slices.Contains(names, "ECOGO_MAIL") {
+		names = append(names, "ECOGO_M365_TENANT_ID", "ECOGO_M365_CLIENT_ID", "ECOGO_M365_CLIENT_SECRET")
 	}
 	var missing []string
 	for _, n := range names {

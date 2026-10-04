@@ -40,6 +40,12 @@ into floats, which quote would render as 8.8789121708352e+14. */}}
   value: {{ include "ecogo.id" .root.Values.config.metaConfigId }}
 - name: ECOGO_META_GRAPH_VERSION
   value: {{ .root.Values.config.metaGraphVersion | quote }}
+- name: ECOGO_MAIL_PROVIDER
+  value: {{ .root.Values.config.mailProvider | default "smtp" | quote }}
+- name: ECOGO_M365_TENANT_ID
+  value: {{ .root.Values.config.m365TenantId | default "" | quote }}
+- name: ECOGO_M365_CLIENT_ID
+  value: {{ .root.Values.config.m365ClientId | default "" | quote }}
 - name: ECOGO_SMTP_HOST
   value: {{ .root.Values.config.smtpHost | quote }}
 - name: ECOGO_SMTP_PORT
@@ -61,6 +67,8 @@ into floats, which quote would render as 8.8789121708352e+14. */}}
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: app-secret } }
 - name: ECOGO_SMTP_PASSWORD
   valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: smtp-password, optional: true } }
+- name: ECOGO_M365_CLIENT_SECRET
+  valueFrom: { secretKeyRef: { name: {{ .root.Values.existingSecret }}, key: m365-client-secret, optional: true } }
 - name: ECOGO_S3_ENDPOINT
   value: {{ .root.Values.config.s3Endpoint | quote }}
 - name: ECOGO_S3_BUCKET
