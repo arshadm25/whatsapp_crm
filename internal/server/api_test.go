@@ -81,6 +81,7 @@ type fakeMeta struct {
 	pricing     string            // JSON data_points returned for pricing_analytics
 	creditLines []string          // WABAs a credit line was attached to
 	creditErr   string            // JSON error body for credit line attaches, if set
+	wabaErr     string            // JSON error body for GET /{waba}, if set
 }
 
 func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +251,9 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case len(parts) == 1 && r.Method == http.MethodPost:
 		fmt.Fprint(w, `{"success":true}`) // template edit
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "11") && f.wabaErr != "":
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, f.wabaErr)
 	case len(parts) == 1 && strings.HasPrefix(parts[0], "11"):
 		fmt.Fprintf(w, `{"id":%q,"name":"Sharma Sweets","currency":"INR","timezone_id":"71"}`, parts[0])
 	case len(parts) == 1:
@@ -694,3 +698,56 @@ func errorsAs(err error, target any) bool { return errors.As(err, target) }
 // sellerCfg is Ecogo's side of the GST invoices the tests issue.
 var sellerCfg = config.Seller{Name: "Ecogo AI Technologies Pvt Ltd", GSTIN: "32AABCE1234F1Z5",
 	Address: "Kochi, Kerala", SAC: "998439", GSTRateBP: 1800}
+
+func TestTokenOnboarding(t *testing.T) {
+	h := newHarness(t)
+	c := h.newClient()
+	me := c.signup("owner@example.com", "Sharma Sweets")
+
+	var sess onboarding.SessionView
+	c.do("POST", "/internal/onboarding/sessions", map[string]string{"flow": "standard"}, http.StatusCreated, &sess)
+	path := "/internal/onboarding/sessions/" + sess.ID.String() + "/complete-with-token"
+	c.do("POST", path, map[string]string{"access_token": "", "waba_id": "1100111", "phone_number_id": "555001"},
+		http.StatusBadRequest, nil)
+	c.do("POST", path, map[string]string{"access_token": "EAAG token", "waba_id": "1100111", "phone_number_id": "555001"},
+		http.StatusBadRequest, nil)
+	c.do("POST", path, map[string]string{"access_token": "EAAGsystemuser", "waba_id": "1100111"},
+		http.StatusBadRequest, nil)
+	// Meta rejects the token when it cannot read the WhatsApp Business Account.
+	h.meta.mu.Lock()
+	h.meta.wabaErr = `{"error":{"message":"Unsupported get request.","code":100}}`
+	h.meta.mu.Unlock()
+	c.do("POST", path, map[string]string{"access_token": "EAAGsystemuser", "waba_id": "1100111", "phone_number_id": "555001"},
+		http.StatusBadRequest, nil)
+	h.meta.mu.Lock()
+	h.meta.wabaErr = ""
+	h.meta.mu.Unlock()
+
+	var failed onboarding.SessionView
+	c.do("GET", "/internal/onboarding/sessions/"+sess.ID.String(), nil, http.StatusOK, &failed)
+	if failed.State != "failed" {
+		t.Fatalf("after rejected token: %+v", failed)
+	}
+	c.do("POST", "/internal/onboarding/sessions", map[string]string{"flow": "standard"}, http.StatusCreated, &sess)
+	path = "/internal/onboarding/sessions/" + sess.ID.String() + "/complete-with-token"
+	c.do("POST", path, map[string]string{"access_token": " EAAGsystemuser ", "waba_id": "1100111", "phone_number_id": "555001"},
+		http.StatusOK, &sess)
+	if sess.Step != "token_exchanged" || sess.State != "in_progress" {
+		t.Fatalf("after complete: %+v", sess)
+	}
+	if h.meta.called("GET /1100111") == 0 {
+		t.Error("token was not checked against the WABA")
+	}
+	if err := h.runJob(me.Tenant.ID, sess.ID, 1); err != nil {
+		t.Fatalf("worker: %v", err)
+	}
+	c.do("GET", "/internal/onboarding/sessions/"+sess.ID.String(), nil, http.StatusOK, &sess)
+	if sess.State != "completed" {
+		t.Fatalf("final session = %+v", sess)
+	}
+	var list struct{ Data []numbers.PhoneNumber }
+	c.do("GET", "/v1/phone-numbers", nil, http.StatusOK, &list)
+	if len(list.Data) != 1 || list.Data[0].Status != "connected" || list.Data[0].WabaID != "1100111" {
+		t.Fatalf("numbers = %+v", list.Data)
+	}
+}

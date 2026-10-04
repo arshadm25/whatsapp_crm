@@ -64,6 +64,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/sessions", httpx.Handler(s.log, s.start))
 	r.Get("/sessions/{id}", httpx.Handler(s.log, s.get))
 	r.Post("/sessions/{id}/complete", httpx.Handler(s.log, s.complete))
+	r.Post("/sessions/{id}/complete-with-token", httpx.Handler(s.log, s.completeWithToken))
 	r.Post("/sessions/{id}/cancel", httpx.Handler(s.log, s.cancel))
 	r.Post("/sessions/{id}/retry", httpx.Handler(s.log, s.retry))
 }
@@ -134,8 +135,6 @@ type completeRequest struct {
 var metaID = regexp.MustCompile(`^[0-9]{1,32}$`)
 
 func (s *Service) complete(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	p, _ := auth.PrincipalFrom(ctx)
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		return httpx.ErrNotFound
@@ -145,9 +144,73 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	req.Code = strings.TrimSpace(req.Code)
-	switch {
-	case req.Code == "" || len(req.Code) > 2048:
+	if req.Code == "" || len(req.Code) > 2048 {
 		return httpx.BadRequest("code", "The authorization code from Meta is missing.")
+	}
+	// Codes expire within minutes, so the exchange cannot wait for the worker.
+	return s.connect(w, r, id, req, func(ctx context.Context) (string, error) {
+		token, err := s.meta.ExchangeCode(ctx, req.Code)
+		if err != nil {
+			code, msg := describe(err)
+			return "", &connectError{code: code, log: "Meta did not accept the sign-up: " + msg + " Start the connection again.",
+				err: httpx.NewError(http.StatusBadGateway, "meta_error", "Meta did not accept the sign-up. Start the connection again.")}
+		}
+		return token, nil
+	})
+}
+
+// tokenRequest connects a number in the workspace's own Meta business without Embedded Signup,
+// using a system user access token the owner generated for our app. It is the way to connect
+// numbers (Meta's test number included) before App Review grants Advanced Access, which
+// Embedded Signup needs.
+type tokenRequest struct {
+	AccessToken   string `json:"access_token"`
+	WabaID        string `json:"waba_id"`
+	PhoneNumberID string `json:"phone_number_id"`
+}
+
+func (s *Service) completeWithToken(w http.ResponseWriter, r *http.Request) error {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		return httpx.ErrNotFound
+	}
+	var req tokenRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	req.AccessToken = strings.TrimSpace(req.AccessToken)
+	if req.AccessToken == "" || len(req.AccessToken) > 2048 || strings.ContainsAny(req.AccessToken, " \t\r\n") {
+		return httpx.BadRequest("access_token", "Paste the system user access token from Meta Business Settings.")
+	}
+	if req.PhoneNumberID == "" {
+		return httpx.BadRequest("phone_number_id", "Enter the phone number ID shown in Meta's WhatsApp API Setup.")
+	}
+	// Check the token reaches the WABA before storing it, so a wrong token or ID fails here.
+	return s.connect(w, r, id, completeRequest{WabaID: req.WabaID, PhoneNumberID: req.PhoneNumberID}, func(ctx context.Context) (string, error) {
+		if _, err := s.meta.GetWABA(ctx, req.AccessToken, req.WabaID); err != nil {
+			_, msg := describe(err)
+			return "", &connectError{code: "token_rejected", log: "Meta did not accept the access token for this WhatsApp Business Account: " + msg,
+				err: httpx.NewError(http.StatusBadRequest, "token_rejected",
+					"Meta did not accept the access token for this WhatsApp Business Account. Check that the system user has the account assigned and both WhatsApp permissions.")}
+		}
+		return req.AccessToken, nil
+	})
+}
+
+// connectError is a token step failure: code and log are recorded on the session, err goes to the caller.
+type connectError struct {
+	code, log string
+	err       error
+}
+
+func (e *connectError) Error() string { return e.log }
+
+// connect records the IDs Meta returned, gets the access token, stores it encrypted and enqueues
+// the rest of the onboarding.
+func (s *Service) connect(w http.ResponseWriter, r *http.Request, id uuid.UUID, req completeRequest, getToken func(context.Context) (string, error)) error {
+	ctx := r.Context()
+	p, _ := auth.PrincipalFrom(ctx)
+	switch {
 	case !metaID.MatchString(req.WabaID):
 		return httpx.BadRequest("waba_id", "The WhatsApp Business Account ID from Meta is missing.")
 	case req.PhoneNumberID != "" && !metaID.MatchString(req.PhoneNumberID):
@@ -159,7 +222,8 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request) error {
 	// Step 1: check the session and that the WABA and number are not another workspace's,
 	// then record the IDs so the session shows what Meta returned even if the exchange fails.
 	var sess dbq.OnboardingSession
-	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+	err := s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		var err error
 		sess, err = q.GetOnboardingSessionForUpdate(ctx, id)
 		if err != nil {
 			return err
@@ -193,12 +257,15 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Step 2: exchange the code. Codes expire within minutes, so this cannot wait for the worker.
-	token, err := s.meta.ExchangeCode(metaclient.WithTenant(ctx, p.TenantID.String()), req.Code)
+	// Step 2: get the token.
+	token, err := getToken(metaclient.WithTenant(ctx, p.TenantID.String()))
 	if err != nil {
-		code, msg := describe(err)
-		s.recordFailure(ctx, p.TenantID, id, code, "Meta did not accept the sign-up: "+msg+" Start the connection again.")
-		return httpx.NewError(http.StatusBadGateway, "meta_error", "Meta did not accept the sign-up. Start the connection again.")
+		var ce *connectError
+		if errors.As(err, &ce) {
+			s.recordFailure(ctx, p.TenantID, id, ce.code, ce.log)
+			return ce.err
+		}
+		return err
 	}
 
 	// Step 3: store the token encrypted, create the account, and enqueue the rest, in one transaction.

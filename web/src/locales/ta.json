@@ -256,7 +256,13 @@
     "stepDone": "முடிந்தது",
     "stepFailedShort": "தோல்வி · மீண்டும் முயற்சி",
     "stepRunning": "நடைபெறுகிறது",
-    "stepWaiting": "காத்திருக்கிறது"
+    "stepWaiting": "காத்திருக்கிறது",
+    "tokenTitle": "சிஸ்டம் யூசர் அணுகல் டோக்கன் மூலம் இணைக்கவும்",
+    "tokenHint": "Ecogo Connect-க்கு Meta-வின் App Review கிடைக்கும் வரை, உங்கள் சொந்த Meta வணிகத்தில் உள்ள எண்களுக்கு. Meta Business Settings-இல் ஒரு சிஸ்டம் யூசரை உருவாக்கி, Ecogo Connect ஆப் மற்றும் உங்கள் WhatsApp கணக்கை ஒதுக்கி, whatsapp_business_management, whatsapp_business_messaging அனுமதிகளுடன் டோக்கனை உருவாக்கவும். WhatsApp கணக்கு ID மற்றும் தொலைபேசி எண் ID ஆப்பின் WhatsApp API Setup பக்கத்தில் காட்டப்படும்.",
+    "tokenWaba": "WhatsApp Business Account ID",
+    "tokenPhone": "தொலைபேசி எண் ID",
+    "tokenToken": "அணுகல் டோக்கன்",
+    "tokenSubmit": "எண்ணை இணைக்கவும்"
   },
   "common": {
     "loading": "ஏற்றுகிறது…",
