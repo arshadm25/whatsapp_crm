@@ -40,6 +40,7 @@ type Meta interface {
 	ExchangeCode(ctx context.Context, code string) (string, error)
 	GetWABA(ctx context.Context, token, wabaID string) (*metaclient.WABA, error)
 	SubscribeApp(ctx context.Context, token, wabaID string) error
+	SharedWABAs(ctx context.Context, token string) ([]string, error)
 	ListPhoneNumbers(ctx context.Context, token, wabaID string) ([]metaclient.PhoneNumber, error)
 	GetPhoneNumber(ctx context.Context, token, phoneNumberID string) (*metaclient.PhoneNumber, error)
 	RegisterPhoneNumber(ctx context.Context, token, phoneNumberID, pin string) error
@@ -147,8 +148,7 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request) error {
 	if req.Code == "" || len(req.Code) > 2048 {
 		return httpx.BadRequest("code", "The authorization code from Meta is missing.")
 	}
-	// Codes expire within minutes, so the exchange cannot wait for the worker.
-	return s.connect(w, r, id, req, func(ctx context.Context) (string, error) {
+	exchange := func(ctx context.Context) (string, error) {
 		token, err := s.meta.ExchangeCode(ctx, req.Code)
 		if err != nil {
 			code, msg := describe(err)
@@ -156,7 +156,62 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request) error {
 				err: httpx.NewError(http.StatusBadGateway, "meta_error", "Meta did not accept the sign-up. Start the connection again.")}
 		}
 		return token, nil
-	})
+	}
+	if req.WabaID != "" {
+		// Codes expire within minutes, so the exchange cannot wait for the worker.
+		return s.connect(w, r, id, req, exchange)
+	}
+
+	// The popup's session event did not reach the dashboard, so only the code came back. Exchange
+	// it now and ask Meta which WABA and number were shared.
+	ctx := metaclient.WithTenant(r.Context(), principalTenant(r))
+	token, err := exchange(ctx)
+	if err == nil {
+		req.WabaID, req.PhoneNumberID, err = s.resolveShared(ctx, token)
+	}
+	if err != nil {
+		var ce *connectError
+		if errors.As(err, &ce) {
+			p, _ := auth.PrincipalFrom(r.Context())
+			s.recordFailure(r.Context(), p.TenantID, id, ce.code, ce.log)
+			return ce.err
+		}
+		return err
+	}
+	return s.connect(w, r, id, req, func(context.Context) (string, error) { return token, nil })
+}
+
+func principalTenant(r *http.Request) string {
+	p, _ := auth.PrincipalFrom(r.Context())
+	return p.TenantID.String()
+}
+
+// resolveShared finds the one WABA the sign-up shared with our app and, when it has exactly one
+// number, that number.
+func (s *Service) resolveShared(ctx context.Context, token string) (wabaID, phoneNumberID string, err error) {
+	fail := func(log, user string) (string, string, error) {
+		return "", "", &connectError{code: "waba_not_found", log: log, err: httpx.NewError(http.StatusBadGateway, "meta_error", user)}
+	}
+	ids, err := s.meta.SharedWABAs(ctx, token)
+	if err != nil {
+		_, msg := describe(err)
+		return fail("Could not read which WhatsApp Business Account was shared: "+msg,
+			"Meta did not say which WhatsApp Business Account you chose. Start the connection again.")
+	}
+	if len(ids) != 1 {
+		return fail(fmt.Sprintf("The sign-up shared %d WhatsApp Business Accounts; expected one.", len(ids)),
+			"Meta did not say which WhatsApp Business Account you chose. Start the connection again and pick one account.")
+	}
+	numbers, err := s.meta.ListPhoneNumbers(ctx, token, ids[0])
+	if err != nil {
+		_, msg := describe(err)
+		return fail("Could not list the numbers of WhatsApp Business Account "+ids[0]+": "+msg,
+			"Meta did not return the number you added. Start the connection again.")
+	}
+	if len(numbers) == 1 {
+		phoneNumberID = numbers[0].ID
+	}
+	return ids[0], phoneNumberID, nil
 }
 
 // tokenRequest connects a number in the workspace's own Meta business without Embedded Signup,

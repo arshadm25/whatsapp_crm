@@ -28,6 +28,10 @@ describe("parseSignupMessage", () => {
   it("ignores other origins and unrelated messages", () => {
     const msg = { type: "WA_EMBEDDED_SIGNUP", event: "FINISH", data: { waba_id: "1" } };
     expect(parseSignupMessage("https://evil.example", msg)).toBeNull();
+    expect(parseSignupMessage("https://evilfacebook.com", msg)).toBeNull();
+    expect(parseSignupMessage("https://facebook.com.evil.example", msg)).toBeNull();
+    expect(parseSignupMessage("http://www.facebook.com", msg)).toBeNull();
+    expect(parseSignupMessage("https://business.facebook.com", msg)?.kind).toBe("finish");
     expect(parseSignupMessage(FB, "not json")).toBeNull();
     expect(parseSignupMessage(FB, { type: "OTHER" })).toBeNull();
   });

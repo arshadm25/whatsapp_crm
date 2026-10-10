@@ -161,6 +161,40 @@ func (c *Client) ExchangeCode(ctx context.Context, code string) (string, error) 
 	return out.AccessToken, nil
 }
 
+// SharedWABAs returns the WhatsApp Business Account IDs a client shared with our app through
+// Embedded Signup, read from the token's granular scopes. It is how the WABA is found when the
+// popup's session event never reached the dashboard.
+func (c *Client) SharedWABAs(ctx context.Context, token string) ([]string, error) {
+	q := url.Values{"input_token": {token}}
+	var out struct {
+		Data struct {
+			GranularScopes []struct {
+				Scope     string   `json:"scope"`
+				TargetIDs []string `json:"target_ids"`
+			} `json:"granular_scopes"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/debug_token", c.appID+"|"+c.appSecret, q, nil, &out); err != nil {
+		return nil, err
+	}
+	var ids []string
+	seen := map[string]bool{}
+	for _, want := range []string{"whatsapp_business_management", "whatsapp_business_messaging"} {
+		for _, s := range out.Data.GranularScopes {
+			if s.Scope != want {
+				continue
+			}
+			for _, id := range s.TargetIDs {
+				if !seen[id] {
+					seen[id] = true
+					ids = append(ids, id)
+				}
+			}
+		}
+	}
+	return ids, nil
+}
+
 type WABA struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`

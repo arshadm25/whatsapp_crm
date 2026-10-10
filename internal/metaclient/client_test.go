@@ -29,6 +29,27 @@ func TestExchangeCode(t *testing.T) {
 	}
 }
 
+func TestSharedWABAs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v24.0/debug_token" || r.URL.Query().Get("input_token") != "EAAG" {
+			t.Errorf("request = %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") != "Bearer app|secret" {
+			t.Errorf("auth header = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"data":{"granular_scopes":[
+			{"scope":"business_management","target_ids":["9"]},
+			{"scope":"whatsapp_business_messaging","target_ids":["111","222"]},
+			{"scope":"whatsapp_business_management","target_ids":["111"]}]}}`))
+	}))
+	defer srv.Close()
+
+	ids, err := New(srv.URL, "v24.0", "app", "secret").SharedWABAs(context.Background(), "EAAG")
+	if err != nil || strings.Join(ids, ",") != "111,222" {
+		t.Fatalf("SharedWABAs = %v, %v", ids, err)
+	}
+}
+
 func TestErrorMappingAndRecorder(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer EAAGsecret123" {
