@@ -65,7 +65,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
     <div className="shell staff">
       <aside className="sidebar">
         <Link to="/admin" className="brand">
-          <span className="logo"><img src="/ecogo-logo.webp" alt="Ecogo" /></span>
+          <span className="logo"><img src="/ecogo-connect-logo-on-green.svg" alt="Ecogo Connect" /></span>
           <span className="btag">{t("adminNav.tag")}</span>
         </Link>
         <nav aria-label={t("adminNav.main")}>

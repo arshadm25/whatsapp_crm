@@ -90,7 +90,7 @@ export default function Layout() {
     <div className="shell">
       <aside className="sidebar">
         <Link className="brand" to="/">
-          <span className="logo"><img src="/ecogo-logo.webp" alt="Ecogo" /></span>
+          <span className="logo"><img src="/ecogo-connect-logo-on-green.svg" alt="Ecogo Connect" /></span>
           <span className="btag">WhatsApp</span>
         </Link>
         <div className="ws">
