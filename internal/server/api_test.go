@@ -64,6 +64,7 @@ type fakeMeta struct {
 	calls       []string
 	registerErr string            // JSON error body for /register, if set
 	numbers     map[string]string // phone number ID -> display number, per WABA listing
+	sharedWABAs string            // JSON list body of debug_token's WABA target_ids
 	listQuality string            // quality_rating the WABA listing reports, if set
 	sendErr     string            // JSON error body for sends, if set
 	sent        []map[string]any  // bodies of message sends
@@ -127,6 +128,8 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.creditLines = append(f.creditLines, r.URL.Query().Get("waba_id")+" "+r.URL.Query().Get("waba_currency")+" "+r.Header.Get("Authorization"))
 		fmt.Fprintf(w, `{"allocation_config_id":"alloc-%d","waba_id":%q}`, len(f.creditLines), r.URL.Query().Get("waba_id"))
+	case path == "/debug_token":
+		fmt.Fprintf(w, `{"data":{"granular_scopes":[{"scope":"whatsapp_business_management","target_ids":[%s]}]}}`, f.sharedWABAs)
 	case path == "/oauth/access_token":
 		fmt.Fprintf(w, `{"access_token":"EAAG-%s"}`, r.URL.Query().Get("code"))
 	case len(parts) == 2 && parts[1] == "subscribed_apps":
@@ -487,6 +490,34 @@ func TestSignupLoginAndCSRF(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("POST without CSRF = %d, want 403", resp.StatusCode)
+	}
+}
+
+// When the popup's session event never reaches the dashboard, only the code is posted; the api
+// finds the WABA from the token's granular scopes and the number from the WABA.
+func TestOnboardingCompleteWithCodeOnly(t *testing.T) {
+	h := newHarness(t)
+	c := h.newClient()
+	c.signup("owner@example.com", "Sharma Sweets")
+	h.meta.sharedWABAs = `"1100222"`
+	h.meta.numbers["555002"] = "+1 555 635 3674"
+
+	var sess onboarding.SessionView
+	c.do("POST", "/internal/onboarding/sessions", map[string]string{"flow": "standard"}, http.StatusCreated, &sess)
+	c.do("POST", "/internal/onboarding/sessions/"+sess.ID.String()+"/complete", map[string]string{"code": "code9"}, http.StatusOK, &sess)
+	if sess.Step != "token_exchanged" || sess.WabaID == nil || *sess.WabaID != "1100222" ||
+		sess.PhoneNumberID == nil || *sess.PhoneNumberID != "555002" {
+		t.Fatalf("after complete: %+v", sess)
+	}
+
+	// No WABA shared: the attempt fails with a message instead of connecting nothing.
+	h.meta.sharedWABAs = ``
+	var s2 onboarding.SessionView
+	c.do("POST", "/internal/onboarding/sessions", map[string]string{"flow": "standard"}, http.StatusCreated, &s2)
+	c.do("POST", "/internal/onboarding/sessions/"+s2.ID.String()+"/complete", map[string]string{"code": "code10"}, http.StatusBadGateway, nil)
+	c.do("GET", "/internal/onboarding/sessions/"+s2.ID.String(), nil, http.StatusOK, &s2)
+	if s2.Error == nil || s2.Error.Code != "waba_not_found" {
+		t.Fatalf("session = %+v", s2)
 	}
 }
 

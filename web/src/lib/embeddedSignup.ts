@@ -3,7 +3,8 @@
 //
 // The popup reports progress twice: a window "message" event of type WA_EMBEDDED_SIGNUP
 // (with the WABA, phone number and business IDs, or where the user cancelled), and the
-// FB.login callback with a short-lived authorization code. Both are needed.
+// FB.login callback with a short-lived authorization code. The code is required; when the
+// event is missing the api finds the WABA and number from the exchanged token.
 
 import type { OnboardingFlow } from "../api/types";
 
@@ -20,11 +21,12 @@ export type SignupEvent =
   | { kind: "cancel"; currentStep?: string }
   | { kind: "error"; message: string };
 
-const FACEBOOK_ORIGINS = ["https://www.facebook.com", "https://web.facebook.com"];
+// The popup posts from www.facebook.com, web.facebook.com or another facebook.com host.
+const FACEBOOK_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*facebook\.com$/;
 
 // parseSignupMessage reads one window message; it returns null for anything that is not ours.
 export function parseSignupMessage(origin: string, raw: unknown): SignupEvent | null {
-  if (!FACEBOOK_ORIGINS.includes(origin)) return null;
+  if (!FACEBOOK_ORIGIN.test(origin)) return null;
   let data: any = raw;
   if (typeof raw === "string") {
     try {
@@ -118,11 +120,9 @@ export function launchEmbeddedSignup(configId: string, flow: OnboardingFlow): Pr
     };
     window.addEventListener("message", onMessage);
 
-    const extras: Record<string, unknown> = { setup: {} };
-    if (flow === "coexistence") {
-      extras.featureType = "whatsapp_business_app_onboarding";
-      extras.sessionInfoVersion = "3";
-    }
+    // sessionInfoVersion 3 asks Meta for the WA_EMBEDDED_SIGNUP session event in both flows.
+    const extras: Record<string, unknown> = { setup: {}, sessionInfoVersion: "3" };
+    if (flow === "coexistence") extras.featureType = "whatsapp_business_app_onboarding";
     // Starting the SDK again is harmless, and it makes sure login never runs on a half-started SDK
     // ("FB.login() called before FB.init()").
     if (initOptions) window.FB.init(initOptions);

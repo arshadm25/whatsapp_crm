@@ -47,12 +47,13 @@ export default function ConnectWhatsApp() {
     try {
       const [session, result] = await Promise.all([created, popup]);
       const ev = result.event;
-      if (ev?.kind === "finish" && result.code) {
+      // A code with no session event still completes: the api asks Meta what was shared.
+      if (result.code && (ev?.kind === "finish" || !ev)) {
         await api("POST", `/internal/onboarding/sessions/${session.id}/complete`, {
           code: result.code,
-          waba_id: ev.wabaId,
-          phone_number_id: ev.phoneNumberId ?? "",
-          business_id: ev.businessId ?? "",
+          waba_id: ev?.wabaId ?? "",
+          phone_number_id: ev?.phoneNumberId ?? "",
+          business_id: ev?.businessId ?? "",
         }).catch((e) => {
           if (!(e instanceof ApiError) || e.status !== 502) throw e;
         });
