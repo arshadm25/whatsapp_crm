@@ -23,7 +23,7 @@ export function AuthCard({ title, children, onSubmit, footer }: {
         <span className="ring" aria-hidden="true" style={{ width: 520, height: 520, right: -180, bottom: -200 }} />
         <span className="ring" aria-hidden="true" style={{ width: 340, height: 340, right: -90, bottom: -110 }} />
         <div className="logo-row">
-          <img src="/ecogo-logo.webp" alt="Ecogo" />
+          <img src="/ecogo-connect-logo-on-green.svg" alt="Ecogo Connect" />
           <span className="tag">{t("auth.panelTag")}</span>
         </div>
         <div>

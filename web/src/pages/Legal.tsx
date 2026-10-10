@@ -13,7 +13,7 @@ function LegalPage({ title, children }: { title: string; children: ReactNode }) 
   return (
     <div className="legal-page">
       <header className="legal-head">
-        <Link to="/" className="legal-logo"><img src="/ecogo-logo.webp" alt="Ecogo" /></Link>
+        <Link to="/" className="legal-logo"><img src="/ecogo-connect-logo-on-green.svg" alt="Ecogo Connect" /></Link>
         <LegalLinks />
       </header>
       <main className="legal-body">

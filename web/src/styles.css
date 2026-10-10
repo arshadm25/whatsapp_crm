@@ -209,8 +209,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 14px; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .sidebar .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; text-decoration: none; }
-.sidebar .logo { background: #168873; border-radius: 8px; padding: 7px 10px; display: inline-flex; }
-.sidebar .logo img { height: 16px; display: block; }
+.sidebar .logo { background: #168873; border-radius: 8px; padding: 6px 10px; display: inline-flex; }
+.sidebar .logo img { height: 20px; display: block; }
 .sidebar .btag { font-size: 11px; font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); border-radius: 9999px; padding: 2px 8px; }
 .ws { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); position: relative; }
 .ws .t { flex: 1; min-width: 0; }
