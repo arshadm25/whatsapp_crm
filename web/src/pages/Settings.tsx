@@ -618,7 +618,9 @@ function Billing() {
     if (canPopUp(res)) {
       await openCheckout(res, "Ecogo Connect", () => {
         setNote(t("billing.paymentReceived"));
-        void qc.invalidateQueries({ queryKey: ["billing"] });
+        // Razorpay confirms the charge a few seconds after the pop-up closes; the billing
+        // reply asks Razorpay until it does, so check again shortly.
+        for (const ms of [0, 4000, 12000]) setTimeout(() => void qc.invalidateQueries({ queryKey: ["billing"] }), ms);
       });
       return true;
     }
