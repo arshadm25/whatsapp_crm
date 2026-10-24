@@ -18,6 +18,11 @@ describe("parseSignupMessage", () => {
     expect(parseSignupMessage(FB, msg)).toEqual({ kind: "finish", wabaId: "111", phoneNumberId: undefined, businessId: undefined });
   });
 
+  it("keeps a finish without the WABA ID so the api can look it up", () => {
+    const msg = { type: "WA_EMBEDDED_SIGNUP", event: "FINISH", data: {} };
+    expect(parseSignupMessage(FB, msg)).toEqual({ kind: "finish", wabaId: "", phoneNumberId: undefined, businessId: undefined });
+  });
+
   it("reports where the user cancelled, and errors", () => {
     expect(parseSignupMessage(FB, { type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: { current_step: "PHONE_NUMBER_SETUP" } }))
       .toEqual({ kind: "cancel", currentStep: "PHONE_NUMBER_SETUP" });

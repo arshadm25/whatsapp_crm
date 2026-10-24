@@ -16,6 +16,7 @@ declare global {
   }
 }
 
+// wabaId is empty when Meta's finish event left it out.
 export type SignupEvent =
   | { kind: "finish"; wabaId: string; phoneNumberId?: string; businessId?: string }
   | { kind: "cancel"; currentStep?: string }
@@ -41,10 +42,11 @@ export function parseSignupMessage(origin: string, raw: unknown): SignupEvent | 
     case "FINISH":
     case "FINISH_ONLY_WABA":
     case "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING":
-      if (!d.waba_id) return { kind: "error", message: "Meta did not return a WhatsApp Business Account." };
+      // A finish without the WABA ID is still a finish: the api asks Meta which account was
+      // shared, using the login code.
       return {
         kind: "finish",
-        wabaId: String(d.waba_id),
+        wabaId: d.waba_id ? String(d.waba_id) : "",
         phoneNumberId: d.phone_number_id ? String(d.phone_number_id) : undefined,
         businessId: d.business_id ? String(d.business_id) : undefined,
       };
@@ -114,6 +116,8 @@ export function launchEmbeddedSignup(configId: string, flow: OnboardingFlow): Pr
     const onMessage = (e: MessageEvent) => {
       const parsed = parseSignupMessage(e.origin, e.data);
       if (parsed) {
+        // Meta's session event holds only IDs; logging it lets support see what Meta sent.
+        console.info("WA_EMBEDDED_SIGNUP", e.data);
         event = parsed;
         finish();
       }
