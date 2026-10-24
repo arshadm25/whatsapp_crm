@@ -48,12 +48,14 @@ export default function Numbers() {
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : t("common.error")),
   });
-  const live = q.data?.filter((n) => n.status === "connected") ?? [];
-  const editingNumber = q.data?.find((n) => n.id === editing) ?? live[0];
+  // Disconnected numbers are history, not something to manage, so the page leaves them out.
+  const numbers = q.data?.filter((n) => n.status !== "disconnected");
+  const live = numbers?.filter((n) => n.status === "connected") ?? [];
+  const editingNumber = numbers?.find((n) => n.id === editing) ?? live[0];
   const lowest = QUALITY_ORDER.find((r) => live.some((n) => n.quality_rating === r));
   const approved = templates.data?.filter((tp) => tp.status === "approved").length ?? 0;
   const pending = templates.data?.filter((tp) => tp.status === "pending").length ?? 0;
-  const lastSync = (q.data ?? []).map((n) => n.last_synced_at).filter((x): x is string => !!x).sort().pop();
+  const lastSync = (numbers ?? []).map((n) => n.last_synced_at).filter((x): x is string => !!x).sort().pop();
   const topTier = highestTier(live.map((n) => n.messaging_limit_tier));
   const lowQuality = live.filter((n) => n.quality_dropped || n.quality_rating === "yellow" || n.quality_rating === "red");
 
@@ -65,7 +67,7 @@ export default function Numbers() {
           <p className="sub">{t("numbers.intro")}</p>
         </div>
         <div className="actions">
-          {manager && !!q.data?.length && (
+          {manager && !!numbers?.length && (
             <button onClick={() => sync.mutate()} disabled={sync.isPending}>
               <Icon name="refresh" size="s" />{sync.isPending ? t("numbers.syncing") : t("numbers.sync")}
             </button>
@@ -74,12 +76,12 @@ export default function Numbers() {
         </div>
       </div>
       {note && <div className="banner ok"><Icon name="check" size="s" /><div><span>{note}</span></div></div>}
-      {!!q.data?.length && (
+      {!!numbers?.length && (
         <div className="grid g4">
           <div className="card stat">
             <div className="sh"><span className="sl">{t("numbers.statConnected")}</span><span className="ic"><Icon name="phone" size="s" /></span></div>
             <span className="sv">{live.length}</span>
-            <span className="sf">{t("numbers.statOf", { count: q.data.length })}</span>
+            <span className="sf">{t("numbers.statOf", { count: numbers.length })}</span>
           </div>
           <div className="card stat">
             <div className="sh"><span className="sl">{t("numbers.statQuality")}</span><span className="ic"><Icon name="shield" size="s" /></span></div>
@@ -100,8 +102,8 @@ export default function Numbers() {
       )}
       {error && <div className="field-error">{error}</div>}
       {q.isLoading && <div className="muted">{t("common.loading")}</div>}
-      {q.data?.length === 0 && <div className="card muted">{t("numbers.empty")}</div>}
-      {!!q.data?.length && (
+      {numbers?.length === 0 && <div className="card muted">{t("numbers.empty")}</div>}
+      {!!numbers?.length && (
         <div className="card table-wrap">
           <div className="chd">
             <div>
@@ -123,7 +125,7 @@ export default function Numbers() {
               </tr>
             </thead>
             <tbody>
-              {q.data.map((n) => (
+              {numbers.map((n) => (
                 <tr key={n.id}>
                   <td>
                     <div className="who">

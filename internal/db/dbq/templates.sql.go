@@ -210,6 +210,52 @@ func (q *Queries) InsertTemplateDraft(ctx context.Context, arg InsertTemplateDra
 	return i, err
 }
 
+const listLiveWhatsAppAccounts = `-- name: ListLiveWhatsAppAccounts :many
+SELECT w.id, w.tenant_id, w.waba_id, w.business_id, w.name, w.currency, w.timezone_id, w.onboarding_flow, w.status, w.webhooks_subscribed_at, w.connected_at, w.disconnected_at, w.created_at, w.updated_at, w.credit_line_allocation_id, w.credit_line_attached_at, w.credit_line_error FROM whatsapp_accounts w
+WHERE w.status = 'connected'
+  AND EXISTS (SELECT 1 FROM phone_numbers p WHERE p.whatsapp_account_id = w.id AND p.status <> 'disconnected')
+ORDER BY w.created_at
+`
+
+// Connected accounts that still have a number in use; template sync reads only these.
+func (q *Queries) ListLiveWhatsAppAccounts(ctx context.Context) ([]WhatsappAccount, error) {
+	rows, err := q.db.Query(ctx, listLiveWhatsAppAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WhatsappAccount
+	for rows.Next() {
+		var i WhatsappAccount
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.WabaID,
+			&i.BusinessID,
+			&i.Name,
+			&i.Currency,
+			&i.TimezoneID,
+			&i.OnboardingFlow,
+			&i.Status,
+			&i.WebhooksSubscribedAt,
+			&i.ConnectedAt,
+			&i.DisconnectedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreditLineAllocationID,
+			&i.CreditLineAttachedAt,
+			&i.CreditLineError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTemplates = `-- name: ListTemplates :many
 SELECT id, tenant_id, whatsapp_account_id, meta_template_id, name, language, category, status, rejected_reason, quality_score, parameter_format, components, created_by, submitted_at, status_updated_at, created_at, updated_at FROM templates
 WHERE ($1::uuid IS NULL OR whatsapp_account_id = $1)
@@ -218,6 +264,8 @@ WHERE ($1::uuid IS NULL OR whatsapp_account_id = $1)
   AND ($4::text IS NULL OR name = $4)
   AND ($5::uuid IS NULL OR id < $5)
   AND status <> 'deleted'
+  -- Templates of an account whose numbers are all disconnected are not usable, so they are hidden.
+  AND EXISTS (SELECT 1 FROM phone_numbers p WHERE p.whatsapp_account_id = templates.whatsapp_account_id AND p.status <> 'disconnected')
 ORDER BY id DESC
 LIMIT $6
 `
