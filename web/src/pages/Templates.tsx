@@ -21,8 +21,9 @@ export default function Templates() {
     setError("");
     setNote("");
     try {
-      const r = await api<{ synced: number }>("POST", "/internal/templates/sync");
+      const r = await api<{ synced: number; failed?: string[] }>("POST", "/internal/templates/sync");
       setNote(t("templates.synced", { count: r.synced }));
+      if (r.failed?.length) setError(t("templates.syncFailed", { ids: r.failed.join(", ") }));
       await qc.invalidateQueries({ queryKey: ["templates"] });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t("common.error"));
