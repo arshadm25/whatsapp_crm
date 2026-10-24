@@ -209,6 +209,8 @@ function Progress({ id, onRestart }: { id: string; onRestart: () => void }) {
 
   const steps = STEPS[s.flow];
   const reached = s.state === "completed" ? steps.length : steps.indexOf(s.step) + 1;
+  // A failure before the code was accepted is the Meta sign-up itself; its code has expired, so only Start again helps.
+  const signupStep = s.step === "started" || s.step === "code_received";
   const pct = Math.round((reached / steps.length) * 100);
 
   const retry = async () => {
@@ -230,8 +232,8 @@ function Progress({ id, onRestart }: { id: string; onRestart: () => void }) {
       {s.state === "failed" && s.error && (
         <div className="banner danger" style={{ margin: 0 }}>
           <Icon name="alert" size="s" />
-          <div><b>{t("connect.stepFailed", { step: t(`connect.steps.${s.step}`) })}</b><span>{s.error.message}</span></div>
-          {s.step !== "code_received" && <button className="sm" onClick={retry}><Icon name="refresh" size="xs" />{t("connect.retry")}</button>}
+          <div><b>{t("connect.stepFailed", { step: t(`connect.steps.${signupStep ? "code_received" : s.step}`) })}</b><span>{s.error.message}</span></div>
+          {!signupStep && <button className="sm" onClick={retry}><Icon name="refresh" size="xs" />{t("connect.retry")}</button>}
         </div>
       )}
       {retryError && <div className="error" style={{ margin: 0 }}>{retryError}</div>}
