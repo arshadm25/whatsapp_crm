@@ -525,7 +525,7 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 	var accts []dbq.WhatsappAccount
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
-		accts, err = q.ListWhatsAppAccounts(r.Context())
+		accts, err = q.ListLiveWhatsAppAccounts(r.Context())
 		return err
 	})
 	if err != nil {

@@ -1,6 +1,13 @@
 -- name: ListWhatsAppAccounts :many
 SELECT * FROM whatsapp_accounts ORDER BY created_at;
 
+-- name: ListLiveWhatsAppAccounts :many
+-- Connected accounts that still have a number in use; template sync reads only these.
+SELECT w.* FROM whatsapp_accounts w
+WHERE w.status = 'connected'
+  AND EXISTS (SELECT 1 FROM phone_numbers p WHERE p.whatsapp_account_id = w.id AND p.status <> 'disconnected')
+ORDER BY w.created_at;
+
 -- name: GetWhatsAppAccount :one
 SELECT * FROM whatsapp_accounts WHERE id = $1;
 
@@ -12,6 +19,8 @@ WHERE (sqlc.narg(whatsapp_account_id)::uuid IS NULL OR whatsapp_account_id = sql
   AND (sqlc.narg(name)::text IS NULL OR name = sqlc.narg(name))
   AND (sqlc.narg(before)::uuid IS NULL OR id < sqlc.narg(before))
   AND status <> 'deleted'
+  -- Templates of an account whose numbers are all disconnected are not usable, so they are hidden.
+  AND EXISTS (SELECT 1 FROM phone_numbers p WHERE p.whatsapp_account_id = templates.whatsapp_account_id AND p.status <> 'disconnected')
 ORDER BY id DESC
 LIMIT @lim;
 
