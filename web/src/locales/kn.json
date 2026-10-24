@@ -470,6 +470,7 @@
     "description": "ವಿವರಣೆ",
     "events": "ಈವೆಂಟ್‌ಗಳು",
     "event_message.received": "ಸಂದೇಶ ಸ್ವೀಕರಿಸಲಾಗಿದೆ",
+    "event_message.media_ready": "ಸಂದೇಶದ ಫೈಲ್ ಸಿದ್ಧವಾಗಿದೆ",
     "event_message.status": "ಸಂದೇಶದ ಸ್ಥಿತಿ",
     "event_template.status": "ಟೆಂಪ್ಲೇಟ್ ಸ್ಥಿತಿ",
     "event_number.quality": "ಸಂಖ್ಯೆಯ ಗುಣಮಟ್ಟ",

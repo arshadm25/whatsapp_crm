@@ -470,6 +470,7 @@
     "description": "വിവരണം",
     "events": "ഇവന്റുകൾ",
     "event_message.received": "സന്ദേശം ലഭിച്ചു",
+    "event_message.media_ready": "സന്ദേശത്തിലെ ഫയൽ തയ്യാർ",
     "event_message.status": "സന്ദേശ സ്റ്റാറ്റസ്",
     "event_template.status": "ടെംപ്ലേറ്റ് സ്റ്റാറ്റസ്",
     "event_number.quality": "നമ്പറിന്റെ ഗുണനിലവാരം",

@@ -470,6 +470,7 @@
     "description": "বিবরণ",
     "events": "ইভেন্ট",
     "event_message.received": "মেসেজ পাওয়া গেছে",
+    "event_message.media_ready": "মেসেজের ফাইল প্রস্তুত",
     "event_message.status": "মেসেজের অবস্থা",
     "event_template.status": "টেমপ্লেটের অবস্থা",
     "event_number.quality": "নম্বরের মান",

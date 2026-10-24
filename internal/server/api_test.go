@@ -377,12 +377,14 @@ func newHarness(t *testing.T) *harness {
 	botRunner := bots.NewWorker(d, log)
 	botRunner.Jobs = rc
 	botRunner.AI = agent
+	downloader := media.NewDownloadWorker(d, keys, meta, store, log)
+	downloader.Ready = messaging.MediaReady(rc)
 	return &harness{
 		t: t, db: d, meta: fm, api: api,
 		worker:     onboarding.NewWorker(d, keys, meta, templates.NewSyncer(d, meta), log),
 		sender:     sender,
 		events:     proc,
-		downloader: media.NewDownloadWorker(d, keys, meta, store, log),
+		downloader: downloader,
 		campaigns:  runner,
 		bots:       botRunner,
 		ingest:     ai.NewIngestWorker(d, ai.Fetcher{AllowPrivate: true}, log),

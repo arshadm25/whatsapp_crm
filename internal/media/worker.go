@@ -42,6 +42,9 @@ type DownloadWorker struct {
 	meta  Meta
 	store storage.Store
 	log   *slog.Logger
+	// Ready runs in the transaction that links the stored file to its message, to tell clients
+	// the file can be fetched (the message.media_ready event). Nil sends nothing.
+	Ready func(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID, messageID uuid.UUID) error
 }
 
 func NewDownloadWorker(d *db.DB, keys *envelope.Keyring, meta Meta, store storage.Store, log *slog.Logger) *DownloadWorker {
@@ -116,7 +119,7 @@ func (w *DownloadWorker) Work(ctx context.Context, job *river.Job[DownloadArgs])
 	if err := w.store.Put(ctx, key, file, file.size, mimeType); err != nil {
 		return err
 	}
-	return w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+	return w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, tx pgx.Tx) error {
 		_, err := q.InsertMedia(ctx, dbq.InsertMediaParams{
 			ID: id, TenantID: a.TenantID, PhoneNumberID: &row.Message.PhoneNumberID, StorageKey: key, MimeType: mimeType,
 			SizeBytes: file.size, Sha256: file.sha256, Filename: nonEmpty(a.Filename), MetaMediaID: &a.MetaMediaID,
@@ -124,7 +127,13 @@ func (w *DownloadWorker) Work(ctx context.Context, job *river.Job[DownloadArgs])
 		if err != nil {
 			return err
 		}
-		return q.SetMessageMedia(ctx, dbq.SetMessageMediaParams{ID: a.MessageID, MediaID: &id})
+		if err := q.SetMessageMedia(ctx, dbq.SetMessageMediaParams{ID: a.MessageID, MediaID: &id}); err != nil {
+			return err
+		}
+		if w.Ready == nil {
+			return nil
+		}
+		return w.Ready(ctx, q, tx, a.TenantID, a.MessageID)
 	})
 }
 

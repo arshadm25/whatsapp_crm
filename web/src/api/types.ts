@@ -223,7 +223,7 @@ export interface CreatedAPIKey extends APIKey {
   key: string;
 }
 
-export type WebhookEventType = "message.received" | "message.status" | "template.status" | "number.quality" | "bot.handoff" | "flow.submission";
+export type WebhookEventType = "message.received" | "message.media_ready" | "message.status" | "template.status" | "number.quality" | "bot.handoff" | "flow.submission";
 
 export interface WebhookEndpoint {
   id: string;
