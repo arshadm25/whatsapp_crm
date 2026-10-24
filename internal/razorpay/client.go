@@ -147,6 +147,13 @@ func (c *Client) CreateSubscription(ctx context.Context, s NewSubscription) (Sub
 	return out, err
 }
 
+// Subscription fetches a subscription's current state.
+func (c *Client) Subscription(ctx context.Context, subscriptionID string) (Subscription, error) {
+	var out Subscription
+	err := c.do(ctx, http.MethodGet, "/v1/subscriptions/"+subscriptionID, nil, &out)
+	return out, err
+}
+
 // ChangePlan moves an active subscription to another plan from its next cycle.
 func (c *Client) ChangePlan(ctx context.Context, subscriptionID, planID string) (Subscription, error) {
 	var out Subscription

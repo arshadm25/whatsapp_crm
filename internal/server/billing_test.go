@@ -35,6 +35,8 @@ type fakeRazorpay struct {
 	calls  []string
 	bodies []map[string]any
 	n      int
+	// states answers GET /v1/subscriptions/{id}; a missing one is "created" (not paid yet).
+	states map[string]string
 }
 
 func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +57,14 @@ func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/v1/subscriptions":
 		f.n++
 		fmt.Fprintf(w, `{"id":"sub_%d","plan_id":%q,"status":"created","short_url":"https://rzp.io/i/sub%d"}`, f.n, body["plan_id"], f.n)
+	case r.Method == http.MethodGet:
+		id := strings.Split(r.URL.Path, "/")[3]
+		st := f.states[id]
+		if st == "" {
+			st = "created"
+		}
+		start, end := time.Now().Add(-time.Minute).Unix(), time.Now().Add(30*24*time.Hour).Unix()
+		fmt.Fprintf(w, `{"id":%q,"plan_id":"plan_G1","status":%q,"current_start":%d,"current_end":%d}`, id, st, start, end)
 	default:
 		id := strings.Split(r.URL.Path, "/")[3]
 		fmt.Fprintf(w, `{"id":%q,"status":"active"}`, id)
@@ -233,6 +243,59 @@ func TestBilling(t *testing.T) {
 	staff.do("POST", "/internal/admin/tenants/"+otherMe.Tenant.ID.String()+"/extend-trial", map[string]any{"days": 7, "reason": "Meta verification pending"}, http.StatusOK, &extended)
 	if time.Until(extended.PeriodEnd) < 20*24*time.Hour {
 		t.Fatalf("extended = %+v", extended)
+	}
+}
+
+// A paid checkout shows up even when Razorpay's webhook never reaches us: the billing page asks
+// Razorpay for the subscription while the workspace cannot send.
+func TestBillingSyncWithoutWebhook(t *testing.T) {
+	h := newHarness(t)
+	owner, me, phone := h.connected()
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	staff.do("PUT", "/internal/admin/plans/growth", map[string]any{"name": "Growth", "price_minor": 299900, "included_numbers": 1,
+		"included_seats": 5, "is_active": true, "razorpay_plan_id": "plan_G1"}, http.StatusOK, nil)
+
+	// The trial has run out.
+	err := h.db.InTenant(context.Background(), me.Tenant.ID, func(_ *dbq.Queries, tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE subscriptions SET current_period_end = now() - interval '1 day'`)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ov billing.Overview
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "growth"}, http.StatusOK, nil)
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Subscription.Usable || !ov.Subscription.PaymentPending {
+		t.Fatalf("before paying = %+v", ov.Subscription)
+	}
+	call, _ := h.razorpay.last()
+	if call != "GET /v1/subscriptions/sub_1" {
+		t.Fatalf("last razorpay call = %s", call)
+	}
+
+	// Paid on Razorpay, no webhook delivered.
+	h.razorpay.mu.Lock()
+	h.razorpay.states = map[string]string{"sub_1": "active"}
+	h.razorpay.mu.Unlock()
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Subscription.Status != "active" || !ov.Subscription.Usable || ov.Subscription.PaymentPending ||
+		ov.Plan == nil || ov.Plan.Code != "growth" || time.Until(ov.Subscription.PeriodEnd) < 29*24*time.Hour {
+		t.Fatalf("after paying = %+v plan %+v", ov.Subscription, ov.Plan)
+	}
+	h.inbound(customer, "wamid.sync1", "Are you open?")
+	owner.send(text(phone.ID, "back on"), "", http.StatusAccepted, nil)
+
+	// Once active, the page no longer asks Razorpay.
+	h.razorpay.mu.Lock()
+	n := len(h.razorpay.calls)
+	h.razorpay.mu.Unlock()
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	h.razorpay.mu.Lock()
+	extra := h.razorpay.calls[n:]
+	h.razorpay.mu.Unlock()
+	if len(extra) != 0 {
+		t.Fatalf("extra razorpay calls: %v", extra)
 	}
 }
 

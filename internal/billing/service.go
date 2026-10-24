@@ -187,6 +187,7 @@ type Overview struct {
 func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	out := Overview{Plans: []Plan{}, PaymentsEnabled: s.rp.Configured()}
+	s.sync(r.Context(), p.TenantID)
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		sub, err := q.GetSubscription(r.Context())
 		if err != nil {
@@ -515,6 +516,57 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 			TargetType: &target, TargetID: &rs.ID, Metadata: meta,
 		})
 	})
+}
+
+// syncEvents maps the Razorpay subscription states that start or keep a paid plan onto the
+// webhook event that reports them. Endings are left to the webhooks.
+var syncEvents = map[string]string{
+	"authenticated": "subscription.authenticated",
+	"active":        "subscription.activated",
+}
+
+// sync asks Razorpay for the state of a checkout the webhooks have not confirmed yet (payment
+// pending, or a workspace that cannot send), so a paid plan shows up even when a webhook is
+// late or never arrives. Failures are logged; the webhooks stay the main path.
+func (s *Service) sync(ctx context.Context, tenantID uuid.UUID) {
+	if !s.rp.Configured() {
+		return
+	}
+	var sub dbq.Subscription
+	err := s.db.InTenant(ctx, tenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		var err error
+		sub, err = q.GetSubscription(ctx)
+		return err
+	})
+	if err != nil {
+		if !db.IsNotFound(err) {
+			s.log.Warn("billing sync", "tenant_id", tenantID, "err", err)
+		}
+		return
+	}
+	if sub.ProviderSubscriptionID == nil || sub.Status == dbq.SubscriptionStatusCancelled ||
+		(sub.PlanCode != nil && Usable(sub, s.now())) {
+		return
+	}
+	rs, err := s.rp.Subscription(ctx, *sub.ProviderSubscriptionID)
+	if err != nil {
+		s.log.Warn("billing sync: razorpay", "tenant_id", tenantID, "err", err)
+		return
+	}
+	event, ok := syncEvents[rs.Status]
+	if !ok {
+		return
+	}
+	var ev razorpay.Event
+	ev.Event = event
+	ev.Payload.Subscription = &struct {
+		Entity razorpay.Subscription `json:"entity"`
+	}{Entity: rs}
+	if err := s.apply(ctx, "", ev); err != nil {
+		s.log.Warn("billing sync: apply", "tenant_id", tenantID, "err", err)
+		return
+	}
+	s.log.Info("billing synced from razorpay", "tenant_id", tenantID, "subscription", rs.ID, "status", rs.Status)
 }
 
 // payment is the charge a subscription.charged event reports, if it carries one.
