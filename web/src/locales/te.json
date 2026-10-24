@@ -470,6 +470,7 @@
     "description": "వివరణ",
     "events": "ఈవెంట్‌లు",
     "event_message.received": "సందేశం స్వీకరించబడింది",
+    "event_message.media_ready": "సందేశం ఫైల్ సిద్ధంగా ఉంది",
     "event_message.status": "సందేశ స్థితి",
     "event_template.status": "టెంప్లేట్ స్థితి",
     "event_number.quality": "నంబర్ నాణ్యత",

@@ -470,6 +470,7 @@
     "description": "விவரம்",
     "events": "நிகழ்வுகள்",
     "event_message.received": "செய்தி பெறப்பட்டது",
+    "event_message.media_ready": "செய்தியின் கோப்பு தயார்",
     "event_message.status": "செய்தி நிலை",
     "event_template.status": "டெம்ப்ளேட் நிலை",
     "event_number.quality": "எண் தரம்",

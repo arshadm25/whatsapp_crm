@@ -470,6 +470,7 @@
     "description": "Description",
     "events": "Events",
     "event_message.received": "Message received",
+    "event_message.media_ready": "Message file ready",
     "event_message.status": "Message status",
     "event_template.status": "Template status",
     "event_number.quality": "Number quality",

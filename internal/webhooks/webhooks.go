@@ -1,5 +1,5 @@
 // Package webhooks sends events to clients' own HTTPS endpoints (D8): message.received,
-// message.status, template.status and number.quality. An event is stored as one delivery per
+// message.media_ready, message.status, template.status and number.quality. An event is stored as one delivery per
 // subscribed endpoint in the transaction that caused it, and a River job posts each delivery,
 // signed, retrying with backoff for about a day.
 package webhooks
@@ -20,15 +20,18 @@ import (
 // Event types.
 const (
 	MessageReceived = "message.received"
-	MessageStatus   = "message.status"
-	TemplateStatus  = "template.status"
-	NumberQuality   = "number.quality"
-	BotHandoff      = "bot.handoff"
-	FlowSubmission  = "flow.submission"
+	// MessageMediaReady follows message.received for an image, video, audio, document or
+	// sticker once its file is copied from Meta and media_id is set.
+	MessageMediaReady = "message.media_ready"
+	MessageStatus     = "message.status"
+	TemplateStatus    = "template.status"
+	NumberQuality     = "number.quality"
+	BotHandoff        = "bot.handoff"
+	FlowSubmission    = "flow.submission"
 )
 
 // EventTypes lists every event type a client can subscribe to.
-var EventTypes = []string{MessageReceived, MessageStatus, TemplateStatus, NumberQuality, BotHandoff, FlowSubmission}
+var EventTypes = []string{MessageReceived, MessageMediaReady, MessageStatus, TemplateStatus, NumberQuality, BotHandoff, FlowSubmission}
 
 // Envelope matches the EventEnvelope schema in api/openapi.yaml.
 type Envelope struct {

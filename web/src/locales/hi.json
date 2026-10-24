@@ -470,6 +470,7 @@
     "description": "विवरण",
     "events": "इवेंट",
     "event_message.received": "मैसेज मिला",
+    "event_message.media_ready": "मैसेज की फ़ाइल तैयार",
     "event_message.status": "मैसेज की स्थिति",
     "event_template.status": "टेम्पलेट की स्थिति",
     "event_number.quality": "नंबर की क्वालिटी",

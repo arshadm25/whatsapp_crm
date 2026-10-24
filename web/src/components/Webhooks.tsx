@@ -7,7 +7,7 @@ import type { CreatedWebhookEndpoint, Page, WebhookDelivery, WebhookEndpoint, We
 import Icon from "./Icon";
 import { shortTime } from "../lib/time";
 
-const EVENTS: WebhookEventType[] = ["message.received", "message.status", "template.status", "number.quality", "bot.handoff", "flow.submission"];
+const EVENTS: WebhookEventType[] = ["message.received", "message.media_ready", "message.status", "template.status", "number.quality", "bot.handoff", "flow.submission"];
 
 // The Developers screen's webhook section: endpoints with their events, then the delivery log
 // of the endpoint picked (the first one by default).

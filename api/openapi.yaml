@@ -1491,6 +1491,29 @@ webhooks:
                     data: { $ref: '#/components/schemas/Message' }
       responses:
         '2XX': { description: Return any 2xx within 10 seconds to acknowledge. }
+  message.media_ready:
+    post:
+      summary: The file of a received image, video, audio (voice note), document or sticker is stored and can be downloaded
+      description: |
+        message.received arrives as soon as the message does, before its file is copied from Meta, so its
+        media_id is still null. This event follows once the copy is stored, with the same message and its
+        media_id set. Fetch the file with GET /v1/media/{media_id}. It is sent once per message, and not at
+        all when Meta no longer has the file or it is larger than WhatsApp allows.
+      parameters:
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EventEnvelope'
+                - type: object
+                  properties:
+                    type: { const: message.media_ready }
+                    data: { $ref: '#/components/schemas/Message' }
+      responses:
+        '2XX': { description: Acknowledged }
   message.status:
     post:
       summary: An outbound message changed status (sent, delivered, read, failed)
@@ -1773,7 +1796,7 @@ components:
       enum: [queued, sent, delivered, read, failed, received, deleted]
     EventType:
       type: string
-      enum: [message.received, message.status, template.status, number.quality, bot.handoff, flow.submission]
+      enum: [message.received, message.media_ready, message.status, template.status, number.quality, bot.handoff, flow.submission]
 
     SendMessageRequest:
       type: object

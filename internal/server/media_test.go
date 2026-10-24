@@ -165,6 +165,9 @@ func TestInboundMediaIsCopied(t *testing.T) {
 	h := newHarness(t)
 	c, me, _ := h.connected()
 	h.meta.inbound["media-777"] = []byte("\xff\xd8\xff\xe0 jpeg bytes")
+	c.do("POST", "/v1/webhook-endpoints", map[string]any{
+		"url": "https://example.com/hook", "event_types": []string{"message.received", "message.media_ready"},
+	}, http.StatusCreated, nil)
 
 	err := h.webhook("messages", fmt.Sprintf(`{"messaging_product":"whatsapp",
 		"metadata":{"display_phone_number":"919876543210","phone_number_id":"555001"},
@@ -202,6 +205,30 @@ func TestInboundMediaIsCopied(t *testing.T) {
 	c.do("GET", "/v1/messages/"+args.MessageID.String(), nil, http.StatusOK, &msg)
 	if msg.MediaID == nil {
 		t.Fatal("message has no media after download")
+	}
+	// The download is announced once, as message.media_ready carrying the media id.
+	var ready [][]byte
+	err = h.db.InTenant(context.Background(), me.Tenant.ID, func(_ *dbq.Queries, tx pgx.Tx) error {
+		rows, err := tx.Query(context.Background(), "SELECT payload FROM webhook_deliveries WHERE event_type = 'message.media_ready'")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var b []byte
+			if err := rows.Scan(&b); err != nil {
+				return err
+			}
+			ready = append(ready, b)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev struct{ Data messaging.Message }
+	if len(ready) != 1 || json.Unmarshal(ready[0], &ev) != nil || ev.Data.MediaID == nil || *ev.Data.MediaID != *msg.MediaID {
+		t.Fatalf("media_ready events = %s", ready)
 	}
 	var m media.Media
 	c.do("GET", "/v1/media/"+msg.MediaID.String(), nil, http.StatusOK, &m)

@@ -195,6 +195,14 @@ func EmitEvent(ctx context.Context, q *dbq.Queries, tx pgx.Tx, ins jobs.Inserter
 		View(row.Message, row.ContactWaID, row.ContactName))
 }
 
+// MediaReady sends message.media_ready once an inbound file is stored; it is the media
+// download worker's Ready hook.
+func MediaReady(ins jobs.Inserter) func(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID, messageID uuid.UUID) error {
+	return func(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID, messageID uuid.UUID) error {
+		return EmitEvent(ctx, q, tx, ins, tenantID, messageID, webhooks.MessageMediaReady)
+	}
+}
+
 // fail marks a still-queued message as failed and records the status event.
 func (w *Worker) fail(ctx context.Context, a SendArgs, code int32, title *string) {
 	ctx = context.WithoutCancel(ctx)
