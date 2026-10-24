@@ -532,6 +532,8 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	total, synced := 0, 0
+	failed := []string{}
+	var firstErr error
 	for _, a := range accts {
 		if a.Status != dbq.ConnectionStatusConnected {
 			continue
@@ -541,9 +543,15 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
+		// One account Meta refuses (access removed, account deleted) must not stop the others.
 		n, err := s.syncer.SyncAccount(r.Context(), p.TenantID, a, token)
 		if err != nil {
-			return metaError(err)
+			slog.WarnContext(r.Context(), "templates: sync failed for account", "waba_id", a.WabaID, "err", err)
+			failed = append(failed, a.WabaID)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		total += n
 	}
@@ -552,8 +560,17 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 	if synced == 0 {
 		return errNoConnectedAccount
 	}
-	httpx.JSON(w, http.StatusOK, map[string]int{"synced": total})
+	if len(failed) == synced {
+		return metaError(firstErr)
+	}
+	httpx.JSON(w, http.StatusOK, syncResult{Synced: total, Failed: failed})
 	return nil
+}
+
+// syncResult reports the templates loaded and the WABA IDs Meta refused to read.
+type syncResult struct {
+	Synced int      `json:"synced"`
+	Failed []string `json:"failed"`
 }
 
 // accountToken loads a connected WhatsApp account of the tenant and decrypts its token.

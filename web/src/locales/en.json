@@ -288,6 +288,7 @@
     "sync": "Sync from Meta",
     "syncing": "Syncing…",
     "synced": "{{count}} templates loaded from Meta.",
+    "syncFailed": "Meta would not let Ecogo read the templates of WhatsApp account {{ids}}. Its access may have been removed; reconnect it from Numbers or disconnect it.",
     "empty": "No templates yet. Templates load from the WhatsApp accounts you connect on the Numbers page. Create one, or sync the ones you made in WhatsApp Manager.",
     "needNumber": "Connect a WhatsApp number first.",
     "account": "WhatsApp account",
