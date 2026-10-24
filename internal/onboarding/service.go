@@ -198,6 +198,10 @@ func (s *Service) resolveShared(ctx context.Context, token string) (wabaID, phon
 		return fail("Could not read which WhatsApp Business Account was shared: "+msg,
 			"Meta did not say which WhatsApp Business Account you chose. Start the connection again.")
 	}
+	if len(ids) == 0 {
+		return fail("The sign-up shared no WhatsApp Business Account with the app (no WhatsApp scopes on the token).",
+			"Meta's sign-up did not share a WhatsApp Business Account with Ecogo. Start again, pick a business you manage, choose or create a WhatsApp Business Account and finish every step in the Meta window.")
+	}
 	if len(ids) != 1 {
 		return fail(fmt.Sprintf("The sign-up shared %d WhatsApp Business Accounts; expected one.", len(ids)),
 			"Meta did not say which WhatsApp Business Account you chose. Start the connection again and pick one account.")
