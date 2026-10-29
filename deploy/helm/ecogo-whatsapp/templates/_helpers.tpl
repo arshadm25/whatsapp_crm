@@ -165,4 +165,10 @@ spec:
             periodSeconds: 10
           resources: {{- toYaml $v.resources | nindent 12 }}
           securityContext: {{- toYaml .root.Values.securityContext | nindent 12 }}
+          volumeMounts:
+            # Media files are spooled to /tmp (uploads, and copies of inbound files from Meta),
+            # which must be writable under a read-only root filesystem.
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
 {{- end -}}
