@@ -1868,6 +1868,8 @@ components:
             values are not accepted here), an optional `body.text` (up to 160 characters, 2 line
             breaks), and either one `cta_url` action (label up to 20 characters) or `quick_reply`
             buttons (title up to 20, id up to 256). Every card must use the same button type and count.
+            A tap on a card's quick reply arrives as an inbound message of type `button` with the id
+            in `content.button.payload`, not as `interactive.button_reply`.
           required: [type]
           properties:
             type: { type: string, enum: [button, list, cta_url, flow, carousel] }
@@ -1921,7 +1923,13 @@ components:
         type: { type: string }
         content:
           type: object
-          description: Normalised body; same field names as the request for each type.
+          description: |
+            Outbound: the message object as sent, same field names as the request for each type.
+            Inbound: Meta's message object as received, unchanged. Where a customer's tap lands:
+            a list row is `type: interactive` with `interactive.list_reply.id`; a reply button of a
+            `button` interactive is `type: interactive` with `interactive.button_reply.id`; a quick
+            reply on a template or on an interactive carousel card is `type: button` with the id in
+            `button.payload` and the label in `button.text`.
         media_id:
           type: [string, 'null']
           format: uuid
