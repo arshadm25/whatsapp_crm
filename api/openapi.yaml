@@ -1849,14 +1849,28 @@ components:
             language: { type: string, examples: [en, hi, ta, te, mr, bn, kn, ml, gu] }
             components:
               type: array
-              description: Parameter values, same shape as Meta's Cloud API template components.
+              description: |
+                Parameter values, same shape as Meta's Cloud API template components. For a carousel
+                template, add a `carousel` component with one entry in `cards` per approved card
+                (same count, `card_index` from 0), each with its header media parameter and any card
+                body or button parameters. Card media is passed to Meta as is: use a public `link`
+                or a Meta media `id`, not a `media_id` from `POST /media`.
               items: { type: object }
         interactive:
           type: object
-          description: Reply buttons (up to 3) or a list message, same shape as Meta's Cloud API interactive object.
+          description: |
+            Reply buttons (up to 3), a list, a URL button, a Flow, or a media carousel, same shape as
+            Meta's Cloud API interactive object. Only allowed inside the 24-hour customer service window.
+
+            A `carousel` has a required `body.text` (up to 1024 characters), no main header, footer or
+            buttons, and 2 to 10 `action.cards`. Each card has `card_index` (0, 1, 2 ... in order), an
+            `image` or `video` header with a public HTTPS `link` (or a Meta media `id`; our `media_id`
+            values are not accepted here), an optional `body.text` (up to 160 characters, 2 line
+            breaks), and either one `cta_url` action (label up to 20 characters) or `quick_reply`
+            buttons (title up to 20, id up to 256). Every card must use the same button type and count.
           required: [type]
           properties:
-            type: { type: string, enum: [button, list, cta_url] }
+            type: { type: string, enum: [button, list, cta_url, flow, carousel] }
           additionalProperties: true
         reaction:
           type: object
@@ -1964,7 +1978,7 @@ components:
       required: [type]
       description: Same shape as Meta's template components.
       properties:
-        type: { type: string, enum: [HEADER, BODY, FOOTER, BUTTONS] }
+        type: { type: string, enum: [HEADER, BODY, FOOTER, BUTTONS, CAROUSEL] }
         format: { type: string, enum: [TEXT, IMAGE, VIDEO, DOCUMENT, LOCATION] }
         text: { type: string }
         example: { type: object }
@@ -1980,6 +1994,19 @@ components:
               url: { type: string }
               phone_number: { type: string }
               example: { type: array, items: { type: string } }
+        cards:
+          type: array
+          minItems: 2
+          maxItems: 10
+          description: |
+            CAROUSEL only. Each card has `components`: a HEADER with format IMAGE or VIDEO (and its
+            `example.header_handle`), an optional BODY (up to 160 characters), and BUTTONS with one
+            or two QUICK_REPLY, URL or PHONE_NUMBER buttons. Every card must have the same layout.
+          items:
+            type: object
+            required: [components]
+            properties:
+              components: { type: array, items: { type: object } }
 
     CreateTemplateRequest:
       type: object
@@ -1997,6 +2024,10 @@ components:
           description: |
             An image, video or document header needs a sample in `example.header_handle`: upload
             the file in the dashboard's template editor, which returns the handle from Meta.
+
+            A carousel template is marketing only and has exactly one BODY (up to 1024 characters)
+            and one CAROUSEL component, nothing else. Carousel templates cannot be used in
+            campaigns or picked in the inbox yet; send them with `POST /messages`.
         draft:
           type: boolean
           default: false

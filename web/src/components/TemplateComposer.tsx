@@ -20,7 +20,10 @@ export default function TemplateComposer({
 }) {
   const { t } = useTranslation();
   const templates = useTemplates("approved");
-  const usable = (templates.data ?? []).filter((tp) => tp.whatsapp_account_id === accountId);
+  // Carousels need media for every card, which this form does not ask for; send them through the API.
+  const usable = (templates.data ?? []).filter(
+    (tp) => tp.whatsapp_account_id === accountId && !tp.components.some((c) => c.type.toUpperCase() === "CAROUSEL"),
+  );
   const [templateId, setTemplateId] = useState("");
   const [params, setParams] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);

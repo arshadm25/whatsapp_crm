@@ -86,14 +86,16 @@ type Shape struct {
 	HeaderFormat string // TEXT, IMAGE, VIDEO, DOCUMENT, LOCATION or ""
 	HeaderVars   int
 	BodyVars     int
+	Cards        int // carousel cards; 0 when the template is not a carousel
 }
 
 // ShapeOf reads a stored template's components (Meta's shape).
 func ShapeOf(components []byte) Shape {
 	var comps []struct {
-		Type   string `json:"type"`
-		Format string `json:"format"`
-		Text   string `json:"text"`
+		Type   string            `json:"type"`
+		Format string            `json:"format"`
+		Text   string            `json:"text"`
+		Cards  []json.RawMessage `json:"cards"`
 	}
 	_ = json.Unmarshal(components, &comps)
 	var s Shape
@@ -107,6 +109,8 @@ func ShapeOf(components []byte) Shape {
 			s.HeaderVars = len(Placeholders(c.Text))
 		case "BODY":
 			s.BodyVars = len(Placeholders(c.Text))
+		case "CAROUSEL":
+			s.Cards = len(c.Cards)
 		}
 	}
 	return s

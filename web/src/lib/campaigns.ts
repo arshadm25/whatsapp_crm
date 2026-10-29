@@ -33,9 +33,13 @@ export function templateSlots(components: TemplateComponent[]): Slot[] {
   return out;
 }
 
-// A location header cannot be filled from a campaign.
+// A location header or a carousel cannot be filled from a campaign.
 export function campaignSupported(components: TemplateComponent[]): boolean {
-  return !components.some((c) => c.type.toUpperCase() === "HEADER" && (c.format ?? "").toUpperCase() === "LOCATION");
+  return !components.some(
+    (c) =>
+      c.type.toUpperCase() === "CAROUSEL" ||
+      (c.type.toUpperCase() === "HEADER" && (c.format ?? "").toUpperCase() === "LOCATION"),
+  );
 }
 
 // Contact fields offered in the variable picker.

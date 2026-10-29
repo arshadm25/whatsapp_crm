@@ -81,11 +81,12 @@ export type TemplateStatus = "draft" | "pending" | "approved" | "rejected" | "pa
 export type TemplateCategory = "marketing" | "utility" | "authentication";
 
 export interface TemplateComponent {
-  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS" | "CAROUSEL";
   format?: string;
   text?: string;
   example?: Record<string, unknown>;
   buttons?: { type: string; text: string; url?: string; phone_number?: string }[];
+  cards?: { components: TemplateComponent[] }[]; // CAROUSEL only
 }
 
 export interface Template {

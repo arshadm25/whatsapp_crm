@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -214,7 +215,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 	if format != "positional" && format != "named" {
 		return httpx.BadRequest("parameter_format", "parameter_format must be positional or named.")
 	}
-	comps, err := checkComponents(req.Components)
+	comps, err := checkComponents(req.Components, cat)
 	if err != nil {
 		return err
 	}
@@ -453,7 +454,7 @@ func (s *Service) edit(w http.ResponseWriter, r *http.Request) error {
 		body["category"] = strings.ToUpper(*req.Category)
 	}
 	if req.Components != nil {
-		if comps, err = checkComponents(req.Components); err != nil {
+		if comps, err = checkComponents(req.Components, cat); err != nil {
 			return err
 		}
 		body["components"] = comps
@@ -603,11 +604,11 @@ var errNotConnected = httpx.NewError(http.StatusUnprocessableEntity, "number_not
 	"This WhatsApp account is not connected. Reconnect it from Numbers first.")
 
 // checkComponents does the checks Meta's errors explain poorly; Meta validates the rest.
-func checkComponents(raw []json.RawMessage) (json.RawMessage, error) {
+func checkComponents(raw []json.RawMessage, cat dbq.TemplateCategory) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, httpx.BadRequest("components", "A template needs at least a BODY component.")
 	}
-	bodies := 0
+	bodies, carousels, others := 0, 0, 0
 	for i, c := range raw {
 		var head struct {
 			Type string `json:"type"`
@@ -623,15 +624,94 @@ func checkComponents(raw []json.RawMessage) (json.RawMessage, error) {
 				return nil, httpx.BadRequest("components["+strconv.Itoa(i)+"].text", "The body text is empty.")
 			}
 		case "HEADER", "FOOTER", "BUTTONS":
+			others++
+		case "CAROUSEL":
+			carousels++
+			if err := checkCarouselCards(c, "components["+strconv.Itoa(i)+"]"); err != nil {
+				return nil, err
+			}
 		default:
-			return nil, httpx.BadRequest("components["+strconv.Itoa(i)+"].type", "type must be HEADER, BODY, FOOTER or BUTTONS.")
+			return nil, httpx.BadRequest("components["+strconv.Itoa(i)+"].type", "type must be HEADER, BODY, FOOTER, BUTTONS or CAROUSEL.")
 		}
 	}
 	if bodies != 1 {
 		return nil, httpx.BadRequest("components", "A template needs exactly one BODY component.")
 	}
+	if carousels > 0 {
+		if carousels > 1 || others > 0 {
+			return nil, httpx.BadRequest("components", "A carousel template has one BODY and one CAROUSEL component, nothing else.")
+		}
+		if cat != dbq.TemplateCategoryMarketing {
+			return nil, httpx.BadRequest("category", "Meta allows carousel templates only in the marketing category.")
+		}
+	}
 	b, err := json.Marshal(raw)
 	return b, err
+}
+
+// checkCarouselCards checks a CAROUSEL component against Meta's limits: 2 to 10 cards, each
+// with an image or video header and at most two buttons, and every card built the same way.
+func checkCarouselCards(raw json.RawMessage, p string) error {
+	var c struct {
+		Cards []struct {
+			Components []struct {
+				Type    string `json:"type"`
+				Format  string `json:"format"`
+				Text    string `json:"text"`
+				Buttons []struct {
+					Type string `json:"type"`
+				} `json:"buttons"`
+			} `json:"components"`
+		} `json:"cards"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return httpx.BadRequest(p+".cards", "cards must be a list of cards, each with components.")
+	}
+	if len(c.Cards) < 2 || len(c.Cards) > 10 {
+		return httpx.BadRequest(p+".cards", "A carousel needs 2 to 10 cards.")
+	}
+	var first string
+	for i, card := range c.Cards {
+		cp := p + ".cards[" + strconv.Itoa(i) + "]"
+		var layout []string
+		header := ""
+		for _, cc := range card.Components {
+			t := strings.ToUpper(cc.Type)
+			switch t {
+			case "HEADER":
+				header = strings.ToUpper(cc.Format)
+				layout = append(layout, t+":"+header)
+			case "BODY":
+				if utf8.RuneCountInString(cc.Text) > 160 {
+					return httpx.BadRequest(cp+".body", "Card body text can have at most 160 characters.")
+				}
+				layout = append(layout, t)
+			case "BUTTONS":
+				if len(cc.Buttons) == 0 || len(cc.Buttons) > 2 {
+					return httpx.BadRequest(cp+".buttons", "Each card has one or two buttons.")
+				}
+				for _, b := range cc.Buttons {
+					bt := strings.ToUpper(b.Type)
+					if bt != "QUICK_REPLY" && bt != "URL" && bt != "PHONE_NUMBER" {
+						return httpx.BadRequest(cp+".buttons", "Card buttons must be QUICK_REPLY, URL or PHONE_NUMBER.")
+					}
+					layout = append(layout, bt)
+				}
+			default:
+				return httpx.BadRequest(cp+".components", "A card has a HEADER, an optional BODY and BUTTONS.")
+			}
+		}
+		if header != "IMAGE" && header != "VIDEO" {
+			return httpx.BadRequest(cp+".header", "Each card needs an IMAGE or VIDEO header.")
+		}
+		l := strings.Join(layout, ",")
+		if i == 0 {
+			first = l
+		} else if l != first {
+			return httpx.BadRequest(cp, "Every card must have the same header format, body and buttons as the first card.")
+		}
+	}
+	return nil
 }
 
 // metaError turns a failed Graph call into an API error that carries Meta's explanation.
