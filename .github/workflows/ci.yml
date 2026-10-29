@@ -78,6 +78,10 @@ jobs:
           grep -q 'kind: ObjectStore' /tmp/plugin-out.yaml
           grep -q 'method: plugin' /tmp/plugin-out.yaml
           ! grep -q barmanObjectStore: /tmp/plugin-out.yaml
+      # The Go pods spool media to /tmp under a read-only root filesystem.
+      - run: |
+          helm template ci deploy/helm/ecogo-whatsapp -s templates/deployment-worker.yaml | grep -q 'mountPath: /tmp'
+          helm template ci deploy/helm/ecogo-whatsapp -s templates/deployment-api.yaml | grep -q 'mountPath: /tmp'
 
   # Images are pushed to GitHub Container Registry on main only.
   images:
