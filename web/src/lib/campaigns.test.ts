@@ -21,6 +21,7 @@ describe("campaign helpers", () => {
   it("refuses location headers", () => {
     expect(campaignSupported(comps)).toBe(true);
     expect(campaignSupported([{ type: "HEADER", format: "LOCATION" }])).toBe(false);
+    expect(campaignSupported([{ type: "BODY", text: "x" }, { type: "CAROUSEL" }])).toBe(false);
   });
 
   it("previews the body", () => {

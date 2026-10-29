@@ -583,8 +583,13 @@ func buildContent(req *SendRequest) (map[string]any, error) {
 		var head struct {
 			Type string `json:"type"`
 		}
-		if json.Unmarshal(req.Interactive, &head) != nil || (head.Type != "button" && head.Type != "list" && head.Type != "cta_url" && head.Type != "flow") {
-			return nil, httpx.BadRequest("interactive.type", "interactive.type must be button, list, cta_url or flow.")
+		if json.Unmarshal(req.Interactive, &head) != nil || (head.Type != "button" && head.Type != "list" && head.Type != "cta_url" && head.Type != "flow" && head.Type != "carousel") {
+			return nil, httpx.BadRequest("interactive.type", "interactive.type must be button, list, cta_url, flow or carousel.")
+		}
+		if head.Type == "carousel" {
+			if err := checkCarousel(req.Interactive); err != nil {
+				return nil, err
+			}
 		}
 		c["interactive"] = req.Interactive
 	case "reaction":
@@ -633,11 +638,12 @@ func mediaObject(typ string, m *MediaRef) (map[string]any, error) {
 // mismatch fails here with a clear error instead of later at Meta.
 func checkTemplateParams(t dbq.Template, comps []json.RawMessage) error {
 	shape := templates.ShapeOf(t.Components)
-	var header, body int
+	var header, body, cards int
 	for _, raw := range comps {
 		var c struct {
 			Type       string            `json:"type"`
 			Parameters []json.RawMessage `json:"parameters"`
+			Cards      []json.RawMessage `json:"cards"`
 		}
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return httpx.BadRequest("template.components", "Each component must be an object with a type and parameters.")
@@ -647,7 +653,17 @@ func checkTemplateParams(t dbq.Template, comps []json.RawMessage) error {
 			header += len(c.Parameters)
 		case "body":
 			body += len(c.Parameters)
+		case "carousel":
+			cards += len(c.Cards)
 		}
+	}
+	if cards != shape.Cards {
+		if shape.Cards == 0 {
+			return unprocessable("template_param_mismatch", "template.components", "This template is not a carousel; remove the carousel component.")
+		}
+		// Meta needs every card, with its header media, on each send.
+		return unprocessable("template_param_mismatch", "template.components",
+			"This carousel template has "+itoa(shape.Cards)+" cards; send a carousel component with "+itoa(shape.Cards)+" cards, the same number it was approved with.")
 	}
 	wantHeader := shape.HeaderVars
 	switch shape.HeaderFormat {
@@ -710,3 +726,131 @@ func deref[T any](p *T) T {
 func ptr[T any](v T) *T { return &v }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// checkCarousel validates an interactive media carousel against Meta's limits: 2 to 10 cards,
+// a required main body, no main header, footer or buttons, an image or video header on each
+// card, and the same button type and count on every card. Card media goes to Meta as is, so a
+// header takes a public link or a Meta media id, not one of our media_id values.
+func checkCarousel(raw json.RawMessage) error {
+	type button struct {
+		Type       string `json:"type"`
+		QuickReply *struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"quick_reply"`
+	}
+	type mediaObj struct {
+		ID      string `json:"id"`
+		Link    string `json:"link"`
+		MediaID string `json:"media_id"`
+	}
+	var c struct {
+		Header json.RawMessage `json:"header"`
+		Footer json.RawMessage `json:"footer"`
+		Body   *struct {
+			Text string `json:"text"`
+		} `json:"body"`
+		Action struct {
+			Buttons json.RawMessage `json:"buttons"`
+			Cards   []struct {
+				CardIndex *int   `json:"card_index"`
+				Type      string `json:"type"`
+				Header    struct {
+					Type  string    `json:"type"`
+					Image *mediaObj `json:"image"`
+					Video *mediaObj `json:"video"`
+				} `json:"header"`
+				Body *struct {
+					Text string `json:"text"`
+				} `json:"body"`
+				Action struct {
+					Name       string `json:"name"`
+					Parameters *struct {
+						DisplayText string `json:"display_text"`
+						URL         string `json:"url"`
+					} `json:"parameters"`
+					Buttons []button `json:"buttons"`
+				} `json:"action"`
+			} `json:"cards"`
+		} `json:"action"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return httpx.BadRequest("interactive", "interactive must be a carousel object with body and action.cards.")
+	}
+	if len(c.Header) > 0 || len(c.Footer) > 0 || len(c.Action.Buttons) > 0 {
+		return httpx.BadRequest("interactive", "A carousel has no main header, footer or buttons; put media and buttons on the cards.")
+	}
+	if c.Body == nil || strings.TrimSpace(c.Body.Text) == "" || utf8.RuneCountInString(c.Body.Text) > 1024 {
+		return httpx.BadRequest("interactive.body.text", "A carousel needs body text of 1 to 1024 characters.")
+	}
+	cards := c.Action.Cards
+	if len(cards) < 2 || len(cards) > 10 {
+		return httpx.BadRequest("interactive.action.cards", "A carousel needs 2 to 10 cards.")
+	}
+	var kind string
+	var count int
+	for i, card := range cards {
+		p := "interactive.action.cards[" + strconv.Itoa(i) + "]"
+		if card.CardIndex == nil || *card.CardIndex != i {
+			return httpx.BadRequest(p+".card_index", "card_index must count up from 0 in card order.")
+		}
+		var m *mediaObj
+		switch card.Header.Type {
+		case "image":
+			m = card.Header.Image
+		case "video":
+			m = card.Header.Video
+		default:
+			return httpx.BadRequest(p+".header.type", "Each card needs an image or video header.")
+		}
+		switch {
+		case m == nil || (m.ID == "" && m.Link == ""):
+			return httpx.BadRequest(p+".header", "The card header needs a link or a Meta media id.")
+		case m.MediaID != "":
+			return httpx.BadRequest(p+".header", "Carousel cards cannot use media_id from POST /v1/media yet; send a public HTTPS link.")
+		case m.Link != "":
+			if u, err := url.Parse(m.Link); err != nil || u.Scheme != "https" || u.Host == "" {
+				return httpx.BadRequest(p+".header.link", "link must be a public HTTPS URL.")
+			}
+		}
+		if card.Body != nil {
+			if n := utf8.RuneCountInString(card.Body.Text); n > 160 || strings.Count(card.Body.Text, "\n") > 2 {
+				return httpx.BadRequest(p+".body.text", "Card body text can have at most 160 characters and 2 line breaks.")
+			}
+		}
+		k, n := "", 0
+		switch {
+		case card.Action.Name == "cta_url" && len(card.Action.Buttons) == 0:
+			ps := card.Action.Parameters
+			if ps == nil || ps.DisplayText == "" || utf8.RuneCountInString(ps.DisplayText) > 20 {
+				return httpx.BadRequest(p+".action.parameters.display_text", "The URL button needs a label of 1 to 20 characters.")
+			}
+			if u, err := url.Parse(ps.URL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+				return httpx.BadRequest(p+".action.parameters.url", "The URL button needs a valid web address.")
+			}
+			k, n = "cta_url", 1
+		case card.Action.Name == "" && len(card.Action.Buttons) > 0:
+			for j, b := range card.Action.Buttons {
+				bp := p + ".action.buttons[" + strconv.Itoa(j) + "]"
+				if b.Type != "quick_reply" || b.QuickReply == nil {
+					return httpx.BadRequest(bp, "Card buttons must be quick_reply buttons, or use one cta_url action.")
+				}
+				if b.QuickReply.ID == "" || len(b.QuickReply.ID) > 256 {
+					return httpx.BadRequest(bp+".quick_reply.id", "The quick reply id must have 1 to 256 characters.")
+				}
+				if b.QuickReply.Title == "" || utf8.RuneCountInString(b.QuickReply.Title) > 20 {
+					return httpx.BadRequest(bp+".quick_reply.title", "The quick reply title must have 1 to 20 characters.")
+				}
+			}
+			k, n = "quick_reply", len(card.Action.Buttons)
+		default:
+			return httpx.BadRequest(p+".action", "Each card needs either a cta_url action or quick_reply buttons.")
+		}
+		if i == 0 {
+			kind, count = k, n
+		} else if k != kind || n != count {
+			return httpx.BadRequest(p+".action", "Every card must have the same button type and number of buttons.")
+		}
+	}
+	return nil
+}

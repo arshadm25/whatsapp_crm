@@ -59,6 +59,9 @@ func slotsOf(t dbq.Template) ([]slot, error) {
 					out = append(out, slot{key: "header." + n, part: "header", name: n})
 				}
 			}
+		case "CAROUSEL":
+			return nil, unprocessable("template_not_supported", "template.name",
+				"Carousel templates cannot be sent as a campaign yet.")
 		case "BODY":
 			for _, n := range templates.Placeholders(c.Text) {
 				out = append(out, slot{key: n, part: "body", name: n})
