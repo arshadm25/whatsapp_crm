@@ -70,6 +70,11 @@ func (s *Service) InternalRoutes(r chi.Router) {
 func Usable(sub dbq.Subscription, now time.Time) bool {
 	switch sub.Status {
 	case dbq.SubscriptionStatusActive:
+		// A plan granted from the admin console with an end date stops at that date; Razorpay
+		// says when a paid one ends.
+		if sub.AdminGranted && sub.CancelAtPeriodEnd {
+			return now.Before(sub.CurrentPeriodEnd)
+		}
 		return true
 	case dbq.SubscriptionStatusPastDue:
 		return now.Before(sub.CurrentPeriodEnd.Add(Grace))
@@ -200,6 +205,8 @@ type Subscription struct {
 	Usable            bool      `json:"usable"`
 	// PaymentPending is set after the owner was sent to Razorpay and before it confirmed.
 	PaymentPending bool `json:"payment_pending"`
+	// AdminGranted is set when Ecogo staff put the workspace on its plan without payment.
+	AdminGranted bool `json:"admin_granted"`
 	// ExtraSeats is how many seats beyond the plan's included ones are paid for.
 	ExtraSeats int32 `json:"extra_seats"`
 	// Interval is month or year: which of the plan's prices is paid.
@@ -210,7 +217,7 @@ func SubscriptionView(sub dbq.Subscription, now time.Time) Subscription {
 	return Subscription{Status: string(sub.Status), PlanCode: sub.PlanCode, PeriodStart: sub.CurrentPeriodStart,
 		PeriodEnd: sub.CurrentPeriodEnd, CancelAtPeriodEnd: sub.CancelAtPeriodEnd, Usable: Usable(sub, now),
 		PaymentPending: sub.ProviderSubscriptionID != nil && sub.PlanCode == nil, ExtraSeats: sub.ExtraSeats,
-		Interval: sub.BillingInterval}
+		Interval: sub.BillingInterval, AdminGranted: sub.AdminGranted}
 }
 
 type Overview struct {
@@ -246,7 +253,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 				v := PlanView(pl)
 				out.Plan = &v
 				// A checkout started from the free plan waits for Razorpay like one from a trial.
-				if v.Free && sub.ProviderSubscriptionID != nil {
+				if (v.Free || sub.AdminGranted) && sub.ProviderSubscriptionID != nil {
 					out.Subscription.PaymentPending = true
 				}
 			}
@@ -280,7 +287,8 @@ var errPaymentsOff = httpx.NewError(http.StatusServiceUnavailable, "payments_una
 	"Online payment is not set up yet. Contact Ecogo support to subscribe.")
 
 // subscribe starts paying for a plan. A new subscription returns Razorpay's payment page to
-// open; an active one switches plan from its next cycle.
+// open. A paid plan changes in place: a dearer plan billed the same way starts at once, any
+// other change from the next cycle.
 func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	var req struct {
@@ -300,10 +308,11 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	var (
-		plan   dbq.Plan
-		sub    dbq.Subscription
-		tenant dbq.Tenant
-		user   dbq.User
+		plan    dbq.Plan
+		current *dbq.Plan
+		sub     dbq.Subscription
+		tenant  dbq.Tenant
+		user    dbq.User
 	)
 	err := s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
@@ -319,6 +328,13 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 		}
 		if sub, err = q.GetSubscription(ctx); err != nil {
 			return err
+		}
+		if sub.PlanCode != nil {
+			cur, err := q.GetPlan(ctx, *sub.PlanCode)
+			if err != nil {
+				return err
+			}
+			current = &cur
 		}
 		// A plan that includes fewer numbers than are connected would leave the workspace over its limit.
 		if used, err := q.NumbersInUse(ctx, ""); err != nil {
@@ -356,7 +372,10 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 		rpPlan, total = *plan.YearlyRazorpayPlanID, yearlyCycles
 	}
 
-	if sub.Status == dbq.SubscriptionStatusActive && sub.ProviderSubscriptionID != nil {
+	// A plan the workspace pays Razorpay for changes in place. From the free plan or a granted
+	// one, any earlier checkout is replaced by a new one below.
+	unpaid := current != nil && (IsFree(*current) || sub.AdminGranted)
+	if sub.Status == dbq.SubscriptionStatusActive && sub.ProviderSubscriptionID != nil && !unpaid {
 		if sub.CancelAtPeriodEnd {
 			return httpx.NewError(http.StatusConflict, "conflict",
 				"Your plan is set to end on "+sub.CurrentPeriodEnd.Format("2 Jan 2006")+". Choose a plan again after that date.")
@@ -364,13 +383,22 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 		if sub.PlanCode != nil && *sub.PlanCode == plan.Code && sub.BillingInterval == req.Interval {
 			return httpx.NewError(http.StatusConflict, "conflict", "You are already on this plan.")
 		}
-		if _, err := s.rp.ChangePlan(ctx, *sub.ProviderSubscriptionID, rpPlan); err != nil {
+		// An upgrade (a dearer plan, billed the same way) starts now; Razorpay charges for it at
+		// once. Anything else, a cheaper plan or a move between monthly and yearly, waits for
+		// the end of the paid cycle.
+		upgrade := current != nil && sub.BillingInterval == req.Interval &&
+			MonthlyEquivalent(plan, req.Interval) > MonthlyEquivalent(*current, sub.BillingInterval)
+		if _, err := s.rp.ChangePlan(ctx, *sub.ProviderSubscriptionID, rpPlan, upgrade); err != nil {
 			return s.providerError(err)
 		}
-		if err := s.audit(r, "subscription.change_plan", plan.Code); err != nil {
+		action := "subscription.change_plan"
+		if upgrade {
+			action = "subscription.upgrade"
+		}
+		if err := s.audit(r, action, plan.Code); err != nil {
 			return err
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"scheduled": true})
+		httpx.JSON(w, http.StatusOK, map[string]any{"scheduled": !upgrade, "upgraded": upgrade})
 		return nil
 	}
 
@@ -490,10 +518,14 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// onFreePlan reports whether the workspace's current plan is a free one.
+// onFreePlan reports whether the workspace's current plan is one it does not pay Razorpay for:
+// a free plan, or a plan granted from the admin console.
 func (s *Service) onFreePlan(ctx context.Context, tenantID uuid.UUID, sub dbq.Subscription) (bool, error) {
 	if sub.PlanCode == nil {
 		return false, nil
+	}
+	if sub.AdminGranted {
+		return true, nil
 	}
 	free := false
 	err := s.db.InTenant(ctx, tenantID, func(q *dbq.Queries, _ pgx.Tx) error {
@@ -645,11 +677,12 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 				TargetType: &target, TargetID: &rs.ID, Metadata: meta,
 			})
 		}
-		// A checkout started from the free plan that ends unpaid leaves the workspace on it.
+		// A checkout started from the free plan (or a granted one) that ends unpaid leaves the
+		// workspace on it.
 		if endings[ev.Event] && sub.PlanCode != nil {
 			if cur, err := q.GetPlan(ctx, *sub.PlanCode); err != nil {
 				return err
-			} else if IsFree(cur) {
+			} else if IsFree(cur) || sub.AdminGranted {
 				return q.DropProviderSubscription(ctx, dbq.DropProviderSubscriptionParams{TenantID: tenantID, ProviderSubscriptionID: &rs.ID})
 			}
 		}
@@ -728,10 +761,10 @@ func (s *Service) sync(ctx context.Context, tenantID uuid.UUID) {
 	}
 	if sub.PlanCode != nil && Usable(sub, s.now()) {
 		// A paid plan is confirmed; a free one may have a checkout waiting.
-		free := false
+		free := sub.AdminGranted
 		_ = s.db.Global(ctx, func(q *dbq.Queries, _ pgx.Tx) error {
 			pl, err := q.GetPlan(ctx, *sub.PlanCode)
-			free = err == nil && IsFree(pl)
+			free = free || (err == nil && IsFree(pl))
 			return nil
 		})
 		if !free {

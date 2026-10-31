@@ -20,9 +20,11 @@ SET status = $1,
     current_period_end = coalesce($4, current_period_end),
     cancel_at_period_end = $5,
     billing_interval = coalesce($6, billing_interval),
+    -- A plan Razorpay reports replaces one granted from the admin console.
+    admin_granted = admin_granted AND $2::text IS NULL,
     updated_at = now()
 WHERE tenant_id = $7
-RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval, admin_granted
 `
 
 type ApplySubscriptionStateParams struct {
@@ -63,6 +65,7 @@ func (q *Queries) ApplySubscriptionState(ctx context.Context, arg ApplySubscript
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
 		&i.BillingInterval,
+		&i.AdminGranted,
 	)
 	return i, err
 }
@@ -162,7 +165,7 @@ func (q *Queries) DropTrialPlan(ctx context.Context, tenantID uuid.UUID) error {
 const extendTrial = `-- name: ExtendTrial :one
 UPDATE subscriptions SET current_period_end = $1, updated_at = now()
 WHERE tenant_id = $2 AND status = 'trialing'
-RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval, admin_granted
 `
 
 type ExtendTrialParams struct {
@@ -190,6 +193,7 @@ func (q *Queries) ExtendTrial(ctx context.Context, arg ExtendTrialParams) (Subsc
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
 		&i.BillingInterval,
+		&i.AdminGranted,
 	)
 	return i, err
 }
@@ -264,7 +268,7 @@ func (q *Queries) GetPlanByRazorpayID(ctx context.Context, razorpayPlanID string
 }
 
 const getSubscription = `-- name: GetSubscription :one
-SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval FROM subscriptions LIMIT 1
+SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval, admin_granted FROM subscriptions LIMIT 1
 `
 
 // Run inside the tenant.
@@ -288,12 +292,13 @@ func (q *Queries) GetSubscription(ctx context.Context) (Subscription, error) {
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
 		&i.BillingInterval,
+		&i.AdminGranted,
 	)
 	return i, err
 }
 
 const getSubscriptionForUpdate = `-- name: GetSubscriptionForUpdate :one
-SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval FROM subscriptions LIMIT 1 FOR UPDATE
+SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval, admin_granted FROM subscriptions LIMIT 1 FOR UPDATE
 `
 
 func (q *Queries) GetSubscriptionForUpdate(ctx context.Context) (Subscription, error) {
@@ -316,6 +321,57 @@ func (q *Queries) GetSubscriptionForUpdate(ctx context.Context) (Subscription, e
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
 		&i.BillingInterval,
+		&i.AdminGranted,
+	)
+	return i, err
+}
+
+const grantPlan = `-- name: GrantPlan :one
+UPDATE subscriptions
+SET status = 'active', plan_code = $1, billing_interval = 'month', provider_subscription_id = NULL,
+    admin_granted = true, cancel_at_period_end = $2, current_period_start = $3,
+    current_period_end = $4, updated_at = now()
+WHERE tenant_id = $5
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval, admin_granted
+`
+
+type GrantPlanParams struct {
+	PlanCode    *string
+	HasEnd      bool
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+	TenantID    uuid.UUID
+}
+
+// Staff put the workspace on a plan without Razorpay. With an end date (cancel_at_period_end)
+// it stops at period_end; without one it runs until the owner pays for a plan.
+func (q *Queries) GrantPlan(ctx context.Context, arg GrantPlanParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, grantPlan,
+		arg.PlanCode,
+		arg.HasEnd,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.TenantID,
+	)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.PlanCode,
+		&i.Status,
+		&i.Seats,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.PaymentProvider,
+		&i.ProviderCustomerID,
+		&i.ProviderSubscriptionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelAtPeriodEnd,
+		&i.ExtraSeats,
+		&i.SeatProviderSubscriptionID,
+		&i.BillingInterval,
+		&i.AdminGranted,
 	)
 	return i, err
 }
@@ -503,10 +559,10 @@ func (q *Queries) SetSeatSubscription(ctx context.Context, arg SetSeatSubscripti
 const startFreePlan = `-- name: StartFreePlan :one
 UPDATE subscriptions
 SET status = 'active', plan_code = $1, billing_interval = 'month', provider_subscription_id = NULL,
-    cancel_at_period_end = false, current_period_start = $2, current_period_end = $3,
+    cancel_at_period_end = false, admin_granted = false, current_period_start = $2, current_period_end = $3,
     updated_at = now()
 WHERE tenant_id = $4
-RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval, admin_granted
 `
 
 type StartFreePlanParams struct {
@@ -542,6 +598,7 @@ func (q *Queries) StartFreePlan(ctx context.Context, arg StartFreePlanParams) (S
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
 		&i.BillingInterval,
+		&i.AdminGranted,
 	)
 	return i, err
 }

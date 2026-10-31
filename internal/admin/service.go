@@ -66,6 +66,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/meta-fee-statements/{id}/view", httpx.Handler(s.log, s.viewMetaFeeStatement))
 	r.Post("/meta-fee-statements/{id}/status", httpx.Handler(s.log, s.setMetaFeeStatementStatus))
 	r.Post("/tenants/{id}/extend-trial", httpx.Handler(s.log, s.extendTrial))
+	r.Post("/tenants/{id}/plan", httpx.Handler(s.log, s.grantPlan))
 	r.Get("/deletion-requests", httpx.Handler(s.log, s.listDeletionRequests))
 	r.Post("/deletion-requests/{id}/status", httpx.Handler(s.log, s.setDeletionStatus))
 }
@@ -796,6 +797,67 @@ func (s *Service) extendTrial(w http.ResponseWriter, r *http.Request) error {
 		}
 		out = billing.SubscriptionView(sub, s.now())
 		return s.record(r, q, &id, "subscription.extend_trial", "tenant", id.String(), &why)
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
+}
+
+// grantPlan puts a workspace on a plan without payment: a pilot, a partner, or making good a
+// problem. Workspaces that pay through Razorpay are refused; their owner changes the plan.
+func (s *Service) grantPlan(w http.ResponseWriter, r *http.Request) error {
+	id, err := tenantID(r)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Plan string `json:"plan"`
+		// Until is the last day (YYYY-MM-DD, India time) the plan runs; empty for no end.
+		Until  string `json:"until"`
+		Reason string `json:"reason"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	why := strings.TrimSpace(req.Reason)
+	if len(why) < 5 || len(why) > 500 {
+		return httpx.BadRequest("reason", "Give a reason of 5 to 500 characters; it is kept in the audit log.")
+	}
+	now := s.now()
+	var until *time.Time
+	if req.Until != "" {
+		day, err := time.ParseInLocation(time.DateOnly, req.Until, ist)
+		if err != nil {
+			return httpx.BadRequest("until", "until must be a date like 2026-12-31.")
+		}
+		end := day.AddDate(0, 0, 1) // to the end of that day
+		if !end.After(now) || end.After(now.AddDate(2, 0, 0)) {
+			return httpx.BadRequest("until", "Choose an end date from today up to two years ahead.")
+		}
+		until = &end
+	}
+	var out billing.Subscription
+	err = s.db.InTenant(r.Context(), id, func(q *dbq.Queries, _ pgx.Tx) error {
+		plan, err := q.GetPlan(r.Context(), req.Plan)
+		if db.IsNotFound(err) {
+			return httpx.BadRequest("plan", "No such plan.")
+		}
+		if err != nil {
+			return err
+		}
+		sub, err := billing.GrantPlan(r.Context(), q, plan, until, now)
+		if err != nil {
+			return err
+		}
+		out = billing.SubscriptionView(sub, now)
+		note := why + " (plan " + plan.Code
+		if until != nil {
+			note += ", until " + req.Until
+		}
+		note += ")"
+		return s.record(r, q, &id, "subscription.admin_plan", "tenant", id.String(), &note)
 	})
 	if err != nil {
 		return err

@@ -189,3 +189,80 @@ func TestUsageMonth(t *testing.T) {
 		}
 	}
 }
+
+// Staff can put a workspace on a plan without Razorpay, with or without an end date. A plan
+// the workspace pays Razorpay for is left to its owner.
+func TestAdminGrantPlan(t *testing.T) {
+	h := newHarness(t)
+	owner, me, phone := h.connected()
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	staff.do("PUT", "/internal/admin/plans/starter", map[string]any{"name": "Starter", "price_minor": 99900, "included_numbers": 1,
+		"included_seats": 2, "is_active": true, "razorpay_plan_id": "plan_S1", "messages_per_month": 2500}, http.StatusOK, nil)
+	url := "/internal/admin/tenants/" + me.Tenant.ID.String() + "/plan"
+
+	staff.do("POST", url, map[string]any{"plan": "starter", "reason": "x"}, http.StatusBadRequest, nil)
+	staff.do("POST", url, map[string]any{"plan": "nope", "reason": "Pilot customer"}, http.StatusBadRequest, nil)
+	staff.do("POST", url, map[string]any{"plan": "starter", "until": "2020-01-01", "reason": "Pilot customer"}, http.StatusBadRequest, nil)
+	var e apiErr
+	until := time.Now().In(time.FixedZone("IST", 5*3600+1800)).AddDate(0, 0, 10).Format(time.DateOnly)
+	var sub billing.Subscription
+	staff.do("POST", url, map[string]any{"plan": "starter", "until": until, "reason": "Pilot customer"}, http.StatusOK, &sub)
+	if sub.Status != "active" || !sub.AdminGranted || !sub.CancelAtPeriodEnd || !sub.Usable {
+		t.Fatalf("granted = %+v", sub)
+	}
+	var ov billing.Overview
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan == nil || ov.Plan.Code != "starter" || !ov.Subscription.AdminGranted || ov.Subscription.PaymentPending {
+		t.Fatalf("owner view = %+v", ov)
+	}
+	h.inbound(customer, "wamid.pilot1", "Hello")
+	owner.send(text(phone.ID, "on the pilot"), "", http.StatusAccepted, nil)
+
+	// After the end date sending stops.
+	err := h.db.InTenant(context.Background(), me.Tenant.ID, func(_ *dbq.Queries, tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE subscriptions SET current_period_end = now() - interval '1 minute'`)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.send(text(phone.ID, "after"), "", http.StatusPaymentRequired, nil)
+
+	// The owner pays: a checkout that ends unpaid keeps the granted plan; one that is paid
+	// replaces it.
+	staff.do("POST", url, map[string]any{"plan": "starter", "reason": "Pilot extended"}, http.StatusOK, &sub)
+	if sub.CancelAtPeriodEnd || !sub.Usable {
+		t.Fatalf("no end = %+v", sub)
+	}
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "starter"}, http.StatusOK, nil)
+	if call, _ := h.razorpay.last(); call != "POST /v1/subscriptions" {
+		t.Fatalf("checkout = %s", call)
+	}
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if !ov.Subscription.PaymentPending || ov.Plan.Code != "starter" {
+		t.Fatalf("pending = %+v", ov)
+	}
+	// Choosing again replaces the checkout rather than changing an unpaid one in place.
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "starter"}, http.StatusOK, nil)
+	if call, _ := h.razorpay.last(); call != "POST /v1/subscriptions" {
+		t.Fatalf("second checkout = %s", call)
+	}
+	h.razorpayEvent("evt_g1", "subscription.expired", map[string]any{"id": "sub_1", "plan_id": "plan_S1"}, "whsec")
+	h.razorpayEvent("evt_g2", "subscription.expired", map[string]any{"id": "sub_2", "plan_id": "plan_S1"}, "whsec")
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if !ov.Subscription.AdminGranted || ov.Subscription.Status != "active" || ov.Subscription.PaymentPending {
+		t.Fatalf("after abandoned checkout = %+v", ov.Subscription)
+	}
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "starter"}, http.StatusOK, nil)
+	start, end := time.Now().Add(-time.Hour).Unix(), time.Now().AddDate(0, 1, 0).Unix()
+	h.razorpayEvent("evt_g3", "subscription.charged", map[string]any{"id": "sub_3", "plan_id": "plan_S1", "status": "active",
+		"current_start": start, "current_end": end}, "whsec")
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Subscription.AdminGranted || ov.Subscription.Status != "active" || ov.Subscription.PaymentPending {
+		t.Fatalf("paid = %+v", ov.Subscription)
+	}
+	staff.do("POST", url, map[string]any{"plan": "starter", "reason": "Pilot customer"}, http.StatusConflict, &e)
+	if e.Error.Code != "paid_plan" {
+		t.Fatalf("paid workspace = %+v", e)
+	}
+}

@@ -825,6 +825,28 @@ function TenantPlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetai
   const [days, setDays] = useState("7");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [grant, setGrant] = useState({ plan: "", until: "", reason: "" });
+  const [granted, setGranted] = useState(false);
+  const plans = useQuery({
+    queryKey: ["admin", "plans"],
+    queryFn: async () => (await api<{ data: Plan[] }>("GET", "/internal/admin/plans")).data,
+  });
+  // Staff can set the plan only of a workspace that does not pay Razorpay for it.
+  const paying = !!sub.plan_code && !sub.admin_granted && sub.status === "active" && !sub.payment_pending &&
+    !(plans.data?.find((p) => p.code === sub.plan_code)?.free ?? false);
+  const changePlan = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setGranted(false);
+    try {
+      await api("POST", `/internal/admin/tenants/${id}/plan`, grant);
+      setGrant({ plan: "", until: "", reason: "" });
+      setGranted(true);
+      await qc.invalidateQueries({ queryKey: ["admin", "tenant", id] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
   const extend = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
@@ -844,6 +866,7 @@ function TenantPlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetai
           date: new Date(sub.current_period_end).toLocaleDateString(),
         })}
         {!sub.usable && <> · <strong className="danger-text">{t("admin.sendingStopped")}</strong></>}
+        {sub.admin_granted && <> · {t("admin.grantedPlan")}</>}
       </p>
       {sub.status === "trialing" && (
         <form className="card inline-form" onSubmit={extend}>
@@ -858,6 +881,30 @@ function TenantPlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetai
           <button>{t("admin.extendTrial")}</button>
         </form>
       )}
+      {paying ? (
+        <p className="muted small">{t("admin.planPaidRazorpay")}</p>
+      ) : (
+        <form className="card inline-form" onSubmit={changePlan}>
+          <label className="field">
+            {t("admin.changePlanTo")}
+            <select value={grant.plan} onChange={(e) => setGrant({ ...grant, plan: e.target.value })} required>
+              <option value="" />
+              {plans.data?.map((p) => <option key={p.code} value={p.code}>{p.name}{p.is_active ? "" : ` (${t("admin.hiddenPlan")})`}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            {t("admin.planUntil")}
+            <input type="date" value={grant.until} onChange={(e) => setGrant({ ...grant, until: e.target.value })} />
+          </label>
+          <label className="field grow">
+            {t("admin.extendReason")}
+            <input value={grant.reason} onChange={(e) => setGrant({ ...grant, reason: e.target.value })} required minLength={5} maxLength={500} />
+          </label>
+          <button>{t("admin.changePlan")}</button>
+          <p className="muted small" style={{ flexBasis: "100%", margin: 0 }}>{t("admin.changePlanHelp")}</p>
+        </form>
+      )}
+      {granted && <div className="muted">{t("admin.planChanged")}</div>}
       {error && <div className="error">{error}</div>}
     </>
   );

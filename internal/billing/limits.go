@@ -17,6 +17,15 @@ const Unlimited = -1
 // IsFree reports whether a plan needs no payment.
 func IsFree(p dbq.Plan) bool { return p.PriceMinor == 0 }
 
+// MonthlyEquivalent is what a plan costs per month on the given billing interval, in paise,
+// for telling an upgrade from a downgrade.
+func MonthlyEquivalent(p dbq.Plan, interval string) int64 {
+	if interval == "year" && p.YearlyPriceMinor != nil {
+		return *p.YearlyPriceMinor / 12
+	}
+	return p.PriceMinor
+}
+
 // UsageMonth is the month a plan's monthly allowances (messages, AI replies) count over: the
 // month of the subscription that contains now, counted from the day the period started. For a
 // monthly plan this is the billing period; a yearly or free plan gets a fresh allowance on the
@@ -107,3 +116,40 @@ func ContactRoom(ctx context.Context, q *dbq.Queries) (int32, error) {
 // ErrContactLimit is returned when adding a contact would go over the plan's contacts.
 var ErrContactLimit = httpx.NewError(http.StatusConflict, "contact_limit",
 	"Your plan's contact limit is reached. Remove contacts or choose a larger plan under Settings, Billing.")
+
+// ErrPaidThroughRazorpay is returned when staff try to set the plan of a workspace that pays
+// Razorpay: the plan would change here but not in Razorpay.
+var ErrPaidThroughRazorpay = httpx.NewError(http.StatusConflict, "paid_plan",
+	"This workspace pays for its plan through Razorpay. The owner changes it under Settings, Billing, or cancels it first.")
+
+// GrantPlan puts the workspace on a plan without payment, from the admin console. until, when
+// set, is when the plan stops; otherwise it runs until the owner pays for a plan. A workspace
+// that pays Razorpay, or has more numbers or members than the plan includes, is refused. Run
+// it inside the tenant.
+func GrantPlan(ctx context.Context, q *dbq.Queries, plan dbq.Plan, until *time.Time, now time.Time) (dbq.Subscription, error) {
+	sub, err := q.GetSubscription(ctx)
+	if err != nil {
+		return sub, err
+	}
+	if sub.ProviderSubscriptionID != nil && sub.Status != dbq.SubscriptionStatusCancelled {
+		return sub, ErrPaidThroughRazorpay
+	}
+	if used, err := q.NumbersInUse(ctx, ""); err != nil {
+		return sub, err
+	} else if used > plan.IncludedNumbers {
+		return sub, httpx.NewError(http.StatusConflict, "plan_limit", fmt.Sprintf(
+			"The workspace has %d WhatsApp numbers connected and %s includes %d.", used, plan.Name, plan.IncludedNumbers))
+	}
+	if u, err := q.BillingUsage(ctx); err != nil {
+		return sub, err
+	} else if u.Seats > plan.IncludedSeats+sub.ExtraSeats {
+		return sub, httpx.NewError(http.StatusConflict, "seat_limit", fmt.Sprintf(
+			"The workspace has %d members and %s includes %d seats.", u.Seats, plan.Name, plan.IncludedSeats+sub.ExtraSeats))
+	}
+	end := now.AddDate(0, 1, 0)
+	if until != nil {
+		end = *until
+	}
+	return q.GrantPlan(ctx, dbq.GrantPlanParams{PlanCode: &plan.Code, HasEnd: until != nil, PeriodStart: now,
+		PeriodEnd: end, TenantID: sub.TenantID})
+}

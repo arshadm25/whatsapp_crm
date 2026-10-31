@@ -1848,6 +1848,7 @@ type Subscription struct {
 	ExtraSeats                 int32
 	SeatProviderSubscriptionID *string
 	BillingInterval            string
+	AdminGranted               bool
 }
 
 type Tag struct {

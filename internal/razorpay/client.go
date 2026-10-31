@@ -154,11 +154,15 @@ func (c *Client) Subscription(ctx context.Context, subscriptionID string) (Subsc
 	return out, err
 }
 
-// ChangePlan moves an active subscription to another plan from its next cycle.
-func (c *Client) ChangePlan(ctx context.Context, subscriptionID, planID string) (Subscription, error) {
+// ChangePlan moves an active subscription to another plan, now or from its next cycle.
+func (c *Client) ChangePlan(ctx context.Context, subscriptionID, planID string, now bool) (Subscription, error) {
+	when := "cycle_end"
+	if now {
+		when = "now"
+	}
 	var out Subscription
 	err := c.do(ctx, http.MethodPatch, "/v1/subscriptions/"+subscriptionID, map[string]any{
-		"plan_id": planID, "schedule_change_at": "cycle_end", "customer_notify": 1,
+		"plan_id": planID, "schedule_change_at": when, "customer_notify": 1,
 	}, &out)
 	return out, err
 }
