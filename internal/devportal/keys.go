@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -93,7 +94,8 @@ func (a *Authenticator) Middleware(session func(http.Handler) http.Handler) func
 			}
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			w = ww
-			defer func() { a.count(r, p, ww.Status()) }()
+			start := time.Now()
+			defer func() { a.count(r, p, ww.Status(), time.Since(start)) }()
 			if p.Sandbox && !sandboxAllows(r) {
 				httpx.WriteError(w, r, a.log, httpx.NewError(http.StatusForbidden, "sandbox_key",
 					"Sandbox keys can only send test messages and list numbers and templates. Use a live key for this."))
@@ -142,16 +144,37 @@ func (a *Authenticator) resolve(r *http.Request, key string) (auth.Principal, er
 	return p, err
 }
 
-// count records one API call for the Developers screen's call and error counts. A failure to
-// count is logged and does not fail the request.
-func (a *Authenticator) count(r *http.Request, p auth.Principal, status int) {
+// count records one API call: the per-key hourly call and error counts, and a row in the
+// request log for the API logs page. A failure to record is logged and does not fail the request.
+func (a *Authenticator) count(r *http.Request, p auth.Principal, status int, took time.Duration) {
 	ctx := context.WithoutCancel(r.Context())
+	if status == 0 {
+		status = http.StatusOK
+	}
+	route := ""
+	if rc := chi.RouteContext(r.Context()); rc != nil {
+		route = rc.RoutePattern()
+	}
 	err := a.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
-		return q.CountAPICall(ctx, dbq.CountAPICallParams{TenantID: p.TenantID, ApiKeyID: p.APIKeyID, Failed: status >= 400})
+		if err := q.CountAPICall(ctx, dbq.CountAPICallParams{TenantID: p.TenantID, ApiKeyID: p.APIKeyID, Failed: status >= 400}); err != nil {
+			return err
+		}
+		return q.InsertAPIRequestLog(ctx, dbq.InsertAPIRequestLogParams{
+			TenantID: p.TenantID, ApiKeyID: p.APIKeyID, Method: r.Method,
+			Path: truncate(r.URL.Path, 300), Route: truncate(route, 200), Status: int16(status),
+			DurationMs: int32(took.Milliseconds()), RequestID: httpx.GetRequestID(r.Context()),
+		})
 	})
 	if err != nil {
 		a.log.Error("count api call", "err", err, "api_key_id", p.APIKeyID)
 	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "")
 }
 
 // Limiter is a token bucket per API key, kept in each api pod's memory. With n api pods a key

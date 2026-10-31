@@ -13,7 +13,9 @@ import Templates from "./pages/Templates";
 import NewTemplate from "./pages/NewTemplate";
 import SendMessage from "./pages/SendMessage";
 import Inbox from "./pages/Inbox";
-import Developers from "./pages/Developers";
+import ApiKeys from "./pages/developers/ApiKeys";
+import WebhooksPage from "./pages/developers/WebhooksPage";
+import ApiLogs from "./pages/developers/ApiLogs";
 import Contacts from "./pages/Contacts";
 import Campaigns from "./pages/Campaigns";
 import Bots from "./pages/Bots";
@@ -68,7 +70,10 @@ export default function App() {
         <Route path="send" element={<SendMessage />} />
         <Route path="inbox" element={<Inbox />} />
         <Route path="inbox/:id" element={<Inbox />} />
-        <Route path="developers" element={<Developers />} />
+        <Route path="developers" element={<Navigate to="/developers/keys" replace />} />
+        <Route path="developers/keys" element={<ApiKeys />} />
+        <Route path="developers/webhooks" element={<WebhooksPage />} />
+        <Route path="developers/logs" element={<ApiLogs />} />
         <Route path="contacts" element={<Contacts />} />
         <Route path="campaigns" element={<Campaigns />} />
         <Route path="bots" element={<Bots />} />

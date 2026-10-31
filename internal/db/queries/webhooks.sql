@@ -56,3 +56,21 @@ SELECT * FROM webhook_deliveries WHERE id = @id AND endpoint_id = @endpoint_id;
 
 -- name: SetWebhookSecret :exec
 UPDATE webhook_endpoints SET secret_ciphertext = @secret_ciphertext WHERE id = @id;
+
+-- name: DeliverySeries :many
+-- Deliveries per endpoint and bucket (an hour, or a day in the workspace's time zone) since a time:
+-- by status, how many needed more than one attempt, and the attempts made.
+SELECT endpoint_id,
+       (CASE WHEN @hourly::bool THEN date_trunc('hour', created_at)
+             ELSE date_trunc('day', created_at AT TIME ZONE @tz::text) AT TIME ZONE @tz::text END)::timestamptz AS bucket,
+       count(*)::int AS deliveries,
+       count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
+       count(*) FILTER (WHERE status = 'dead')::int AS failed,
+       count(*) FILTER (WHERE status = 'retrying')::int AS retrying,
+       count(*) FILTER (WHERE status = 'pending')::int AS pending,
+       count(*) FILTER (WHERE attempt_count > 1)::int AS retried,
+       coalesce(sum(attempt_count), 0)::int AS attempts
+FROM webhook_deliveries
+WHERE created_at >= @since
+GROUP BY 1, 2
+ORDER BY 2;

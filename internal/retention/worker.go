@@ -61,6 +61,9 @@ func (w *Worker) Work(ctx context.Context, _ *river.Job[PurgeArgs]) error {
 	if err != nil {
 		return err
 	}
+	if err := w.purgeRequestLog(ctx); err != nil {
+		w.log.Error("retention: purge api request log", "err", err)
+	}
 	failed := 0
 	for _, t := range tenants {
 		if t.MessageRetentionDays == nil {
@@ -75,6 +78,34 @@ func (w *Worker) Work(ctx context.Context, _ *river.Job[PurgeArgs]) error {
 	}
 	if failed > 0 {
 		return &partialError{failed: failed}
+	}
+	return nil
+}
+
+// requestLogDays is how long the API logs page keeps single requests (devportal.logRetention).
+const requestLogDays = 30
+
+// purgeRequestLog deletes API request log rows older than requestLogDays, in every workspace.
+func (w *Worker) purgeRequestLog(ctx context.Context) error {
+	cutoff := w.now().AddDate(0, 0, -requestLogDays)
+	var total int64
+	for {
+		var n int64
+		err := w.db.Global(ctx, func(q *dbq.Queries, _ pgx.Tx) error {
+			var err error
+			n, err = q.PurgeAPIRequestLog(ctx, dbq.PurgeAPIRequestLogParams{Cutoff: cutoff, Batch: batch})
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		total += n
+		if n < batch {
+			break
+		}
+	}
+	if total > 0 {
+		w.log.Info("retention: purged api request log", "rows", total)
 	}
 	return nil
 }

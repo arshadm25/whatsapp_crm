@@ -43,11 +43,21 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "manage",
     items: [
       { to: "/numbers", key: "numbers", icon: "phone" },
-      { to: "/developers", key: "developers", icon: "code" },
       { to: "/settings", key: "settings", icon: "settings" },
     ],
   },
+  {
+    // Shown to owners, admins and developers only (see DEV_ROLES).
+    group: "developers",
+    items: [
+      { to: "/developers/keys", key: "apiKeys", icon: "key" },
+      { to: "/developers/webhooks", key: "webhooks", icon: "zap" },
+      { to: "/developers/logs", key: "apiLogs", icon: "activity" },
+    ],
+  },
 ];
+
+const DEV_ROLES = ["owner", "admin", "developer"];
 
 const ALL_ITEMS = NAV.flatMap((g) => g.items);
 
@@ -112,7 +122,7 @@ export default function Layout() {
           )}
         </div>
         <nav aria-label={t("nav.main")}>
-          {NAV.map((g) => (
+          {NAV.filter((g) => g.group !== "developers" || DEV_ROLES.includes(me.tenant?.role ?? "")).map((g) => (
             <div key={g.group} style={{ display: "contents" }}>
               <span className="gl">{t(`nav.group_${g.group}`)}</span>
               {g.items.map((n) => (

@@ -12,6 +12,217 @@ import (
 	"github.com/google/uuid"
 )
 
+const aPIRequestLogByRoute = `-- name: APIRequestLogByRoute :many
+SELECT method, (CASE WHEN route = '' THEN path ELSE route END)::text AS route,
+       count(*)::int AS calls,
+       count(*) FILTER (WHERE status >= 400)::int AS errors,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p95_ms
+FROM api_request_log
+WHERE created_at >= $1
+GROUP BY 1, 2
+ORDER BY calls DESC
+LIMIT 20
+`
+
+type APIRequestLogByRouteRow struct {
+	Method string
+	Route  string
+	Calls  int32
+	Errors int32
+	P95Ms  float64
+}
+
+func (q *Queries) APIRequestLogByRoute(ctx context.Context, since time.Time) ([]APIRequestLogByRouteRow, error) {
+	rows, err := q.db.Query(ctx, aPIRequestLogByRoute, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []APIRequestLogByRouteRow
+	for rows.Next() {
+		var i APIRequestLogByRouteRow
+		if err := rows.Scan(
+			&i.Method,
+			&i.Route,
+			&i.Calls,
+			&i.Errors,
+			&i.P95Ms,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const aPIRequestLogByStatus = `-- name: APIRequestLogByStatus :many
+SELECT status, count(*)::int AS n
+FROM api_request_log
+WHERE created_at >= $1
+GROUP BY status
+ORDER BY n DESC
+`
+
+type APIRequestLogByStatusRow struct {
+	Status int16
+	N      int32
+}
+
+func (q *Queries) APIRequestLogByStatus(ctx context.Context, since time.Time) ([]APIRequestLogByStatusRow, error) {
+	rows, err := q.db.Query(ctx, aPIRequestLogByStatus, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []APIRequestLogByStatusRow
+	for rows.Next() {
+		var i APIRequestLogByStatusRow
+		if err := rows.Scan(&i.Status, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const aPIRequestLogSeries = `-- name: APIRequestLogSeries :many
+SELECT (CASE WHEN $1::bool THEN date_trunc('hour', created_at)
+             ELSE date_trunc('day', created_at AT TIME ZONE $2::text) AT TIME ZONE $2::text END)::timestamptz AS bucket,
+       count(*)::int AS calls,
+       count(*) FILTER (WHERE status >= 400)::int AS errors,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p95_ms
+FROM api_request_log
+WHERE created_at >= $3
+GROUP BY 1
+ORDER BY 1
+`
+
+type APIRequestLogSeriesParams struct {
+	Hourly bool
+	Tz     string
+	Since  time.Time
+}
+
+type APIRequestLogSeriesRow struct {
+	Bucket time.Time
+	Calls  int32
+	Errors int32
+	P95Ms  float64
+}
+
+// Requests, errors and 95th percentile latency per bucket (an hour, or a day in the workspace's time zone).
+func (q *Queries) APIRequestLogSeries(ctx context.Context, arg APIRequestLogSeriesParams) ([]APIRequestLogSeriesRow, error) {
+	rows, err := q.db.Query(ctx, aPIRequestLogSeries, arg.Hourly, arg.Tz, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []APIRequestLogSeriesRow
+	for rows.Next() {
+		var i APIRequestLogSeriesRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.Calls,
+			&i.Errors,
+			&i.P95Ms,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const aPIRequestLogTotals = `-- name: APIRequestLogTotals :one
+SELECT count(*)::int AS calls,
+       count(*) FILTER (WHERE status >= 400)::int AS errors,
+       coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms), 0)::float8 AS p50_ms,
+       coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms), 0)::float8 AS p95_ms,
+       coalesce(max(duration_ms), 0)::int AS max_ms
+FROM api_request_log
+WHERE created_at >= $1
+`
+
+type APIRequestLogTotalsRow struct {
+	Calls  int32
+	Errors int32
+	P50Ms  float64
+	P95Ms  float64
+	MaxMs  int32
+}
+
+func (q *Queries) APIRequestLogTotals(ctx context.Context, since time.Time) (APIRequestLogTotalsRow, error) {
+	row := q.db.QueryRow(ctx, aPIRequestLogTotals, since)
+	var i APIRequestLogTotalsRow
+	err := row.Scan(
+		&i.Calls,
+		&i.Errors,
+		&i.P50Ms,
+		&i.P95Ms,
+		&i.MaxMs,
+	)
+	return i, err
+}
+
+const aPIUsageSeries = `-- name: APIUsageSeries :many
+SELECT api_key_id,
+       (CASE WHEN $1::bool THEN hour
+             ELSE date_trunc('day', hour AT TIME ZONE $2::text) AT TIME ZONE $2::text END)::timestamptz AS bucket,
+       sum(calls)::int AS calls, sum(errors)::int AS errors
+FROM api_usage_hourly
+WHERE hour >= date_trunc('hour', $3::timestamptz)
+GROUP BY 1, 2
+ORDER BY 2
+`
+
+type APIUsageSeriesParams struct {
+	Hourly bool
+	Tz     string
+	Since  time.Time
+}
+
+type APIUsageSeriesRow struct {
+	ApiKeyID uuid.UUID
+	Bucket   time.Time
+	Calls    int32
+	Errors   int32
+}
+
+// Calls and errors per key and bucket (an hour, or a day in the workspace's time zone) since a time.
+func (q *Queries) APIUsageSeries(ctx context.Context, arg APIUsageSeriesParams) ([]APIUsageSeriesRow, error) {
+	rows, err := q.db.Query(ctx, aPIUsageSeries, arg.Hourly, arg.Tz, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []APIUsageSeriesRow
+	for rows.Next() {
+		var i APIUsageSeriesRow
+		if err := rows.Scan(
+			&i.ApiKeyID,
+			&i.Bucket,
+			&i.Calls,
+			&i.Errors,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const aPIUsageSince = `-- name: APIUsageSince :many
 SELECT api_key_id, sum(calls)::int AS calls, sum(errors)::int AS errors
 FROM api_usage_hourly
@@ -109,6 +320,36 @@ func (q *Queries) InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (Api
 	return i, err
 }
 
+const insertAPIRequestLog = `-- name: InsertAPIRequestLog :exec
+INSERT INTO api_request_log (tenant_id, api_key_id, method, path, route, status, duration_ms, request_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`
+
+type InsertAPIRequestLogParams struct {
+	TenantID   uuid.UUID
+	ApiKeyID   uuid.UUID
+	Method     string
+	Path       string
+	Route      string
+	Status     int16
+	DurationMs int32
+	RequestID  string
+}
+
+func (q *Queries) InsertAPIRequestLog(ctx context.Context, arg InsertAPIRequestLogParams) error {
+	_, err := q.db.Exec(ctx, insertAPIRequestLog,
+		arg.TenantID,
+		arg.ApiKeyID,
+		arg.Method,
+		arg.Path,
+		arg.Route,
+		arg.Status,
+		arg.DurationMs,
+		arg.RequestID,
+	)
+	return err
+}
+
 const listAPIKeys = `-- name: ListAPIKeys :many
 SELECT id, tenant_id, name, prefix, key_hash, mode, phone_number_id, created_by, last_used_at, revoked_at, created_at FROM api_keys ORDER BY revoked_at IS NOT NULL, created_at DESC
 `
@@ -143,6 +384,101 @@ func (q *Queries) ListAPIKeys(ctx context.Context) ([]ApiKey, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const listAPIRequestLog = `-- name: ListAPIRequestLog :many
+SELECT l.id, l.api_key_id, k.name AS key_name, k.prefix AS key_prefix, l.method, l.path, l.route,
+       l.status, l.duration_ms, l.request_id, l.created_at
+FROM api_request_log l JOIN api_keys k ON k.id = l.api_key_id
+WHERE ($1::bigint IS NULL OR l.id < $1::bigint)
+  AND ($2::uuid IS NULL OR l.api_key_id = $2::uuid)
+  AND ($3::int = 0 OR l.status / 100 = $3::int)
+  AND ($4::bool = false OR l.status >= 400)
+  AND ($5::text = '' OR l.method = $5::text)
+  AND ($6::text = '' OR l.path ILIKE '%' || $6::text || '%')
+ORDER BY l.id DESC
+LIMIT $7
+`
+
+type ListAPIRequestLogParams struct {
+	Before      *int64
+	ApiKeyID    *uuid.UUID
+	StatusClass int32
+	ErrorsOnly  bool
+	Method      string
+	Path        string
+	Lim         int32
+}
+
+type ListAPIRequestLogRow struct {
+	ID         int64
+	ApiKeyID   uuid.UUID
+	KeyName    string
+	KeyPrefix  string
+	Method     string
+	Path       string
+	Route      string
+	Status     int16
+	DurationMs int32
+	RequestID  string
+	CreatedAt  time.Time
+}
+
+// Newest first, before an id for paging. status_class: 2, 3, 4 or 5 for that hundred, 0 for any.
+func (q *Queries) ListAPIRequestLog(ctx context.Context, arg ListAPIRequestLogParams) ([]ListAPIRequestLogRow, error) {
+	rows, err := q.db.Query(ctx, listAPIRequestLog,
+		arg.Before,
+		arg.ApiKeyID,
+		arg.StatusClass,
+		arg.ErrorsOnly,
+		arg.Method,
+		arg.Path,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAPIRequestLogRow
+	for rows.Next() {
+		var i ListAPIRequestLogRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ApiKeyID,
+			&i.KeyName,
+			&i.KeyPrefix,
+			&i.Method,
+			&i.Path,
+			&i.Route,
+			&i.Status,
+			&i.DurationMs,
+			&i.RequestID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const purgeAPIRequestLog = `-- name: PurgeAPIRequestLog :one
+SELECT purge_api_request_log($1::timestamptz, $2::int)::bigint AS n
+`
+
+type PurgeAPIRequestLogParams struct {
+	Cutoff time.Time
+	Batch  int32
+}
+
+func (q *Queries) PurgeAPIRequestLog(ctx context.Context, arg PurgeAPIRequestLogParams) (int64, error) {
+	row := q.db.QueryRow(ctx, purgeAPIRequestLog, arg.Cutoff, arg.Batch)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
 }
 
 const revokeAPIKey = `-- name: RevokeAPIKey :execrows

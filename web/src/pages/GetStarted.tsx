@@ -43,7 +43,7 @@ export default function GetStarted() {
   ];
   const links: { key: string; icon: IconName; to: string }[] = [
     { key: "Inbox", icon: "inbox", to: "/inbox" },
-    { key: "Api", icon: "code", to: "/developers" },
+    { key: "Api", icon: "code", to: "/developers/keys" },
     { key: "Team", icon: "userPlus", to: "/settings" },
   ];
 

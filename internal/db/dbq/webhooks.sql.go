@@ -24,6 +24,73 @@ func (q *Queries) DeleteWebhookEndpoint(ctx context.Context, id uuid.UUID) (int6
 	return result.RowsAffected(), nil
 }
 
+const deliverySeries = `-- name: DeliverySeries :many
+SELECT endpoint_id,
+       (CASE WHEN $1::bool THEN date_trunc('hour', created_at)
+             ELSE date_trunc('day', created_at AT TIME ZONE $2::text) AT TIME ZONE $2::text END)::timestamptz AS bucket,
+       count(*)::int AS deliveries,
+       count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
+       count(*) FILTER (WHERE status = 'dead')::int AS failed,
+       count(*) FILTER (WHERE status = 'retrying')::int AS retrying,
+       count(*) FILTER (WHERE status = 'pending')::int AS pending,
+       count(*) FILTER (WHERE attempt_count > 1)::int AS retried,
+       coalesce(sum(attempt_count), 0)::int AS attempts
+FROM webhook_deliveries
+WHERE created_at >= $3
+GROUP BY 1, 2
+ORDER BY 2
+`
+
+type DeliverySeriesParams struct {
+	Hourly bool
+	Tz     string
+	Since  time.Time
+}
+
+type DeliverySeriesRow struct {
+	EndpointID uuid.UUID
+	Bucket     time.Time
+	Deliveries int32
+	Succeeded  int32
+	Failed     int32
+	Retrying   int32
+	Pending    int32
+	Retried    int32
+	Attempts   int32
+}
+
+// Deliveries per endpoint and bucket (an hour, or a day in the workspace's time zone) since a time:
+// by status, how many needed more than one attempt, and the attempts made.
+func (q *Queries) DeliverySeries(ctx context.Context, arg DeliverySeriesParams) ([]DeliverySeriesRow, error) {
+	rows, err := q.db.Query(ctx, deliverySeries, arg.Hourly, arg.Tz, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeliverySeriesRow
+	for rows.Next() {
+		var i DeliverySeriesRow
+		if err := rows.Scan(
+			&i.EndpointID,
+			&i.Bucket,
+			&i.Deliveries,
+			&i.Succeeded,
+			&i.Failed,
+			&i.Retrying,
+			&i.Pending,
+			&i.Retried,
+			&i.Attempts,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deliveryStatsSince = `-- name: DeliveryStatsSince :many
 SELECT endpoint_id, status, count(*)::int AS n
 FROM webhook_deliveries
