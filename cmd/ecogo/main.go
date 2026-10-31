@@ -137,7 +137,7 @@ func runAPI(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Analytics:     analytics.NewService(d, log),
 		Notifications: notifications.NewService(d, log),
 		MetaFees:      metafees.NewService(d, cfg.Seller, cfg.MetaMarkupBP, log),
-		Admin:         admin.NewService(d, log),
+		Admin:         admin.NewService(d, cfg.Seller, log),
 		Billing: billing.NewService(d, razorpay.New(cfg.Razorpay.BaseURL, cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret),
 			cfg.Razorpay.WebhookSecret, cfg.Seller, rc, log),
 		Events:   hub,

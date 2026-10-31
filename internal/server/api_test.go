@@ -370,7 +370,7 @@ func newSeededHarness(t *testing.T) *harness {
 		AI:            ai.NewService(d, agent, rc, log).AllowPrivateURLs(),
 		Analytics:     analytics.NewService(d, log),
 		Notifications: notifications.NewService(d, log),
-		Admin:         admin.NewService(d, log),
+		Admin:         admin.NewService(d, sellerCfg, log),
 		Billing:       billing.NewService(d, razorpay.New(rpSrv.URL, "rzp_test", "rzp_secret"), "whsec", sellerCfg, rc, log),
 		Events:        hub,
 		Deletion:      deletion.NewHandler(d, "app-secret", "https://app.example", log),

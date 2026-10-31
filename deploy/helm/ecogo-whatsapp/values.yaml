@@ -57,7 +57,8 @@ config:
   s3Endpoint: minio.minio.svc:9000   # host:port, no scheme
   s3Bucket: ""                       # defaults to <release name>-media
   s3UseSSL: false
-  # GST invoices (issued when Razorpay confirms a charge). None are issued until sellerGstin is set.
+  # GST invoices (issued when Razorpay confirms a charge). None are issued until a seller GSTIN is set.
+  # Seller details saved in Admin console > Invoices replace these four values.
   sellerName: Ecogo AI Technologies Pvt Ltd
   sellerGstin: ""
   sellerAddress: ""

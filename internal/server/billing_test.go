@@ -752,3 +752,95 @@ func TestUPIPlanChange(t *testing.T) {
 		t.Fatalf("moved down = %+v", ov)
 	}
 }
+
+// Ecogo staff set the seller on GST invoices in the admin console; it replaces the deployment's
+// settings, and an empty GSTIN switches invoicing off.
+func TestSellerFromConsole(t *testing.T) {
+	h := newHarness(t)
+	owner := h.newClient()
+	owner.signup("owner@example.com", "Sharma Sweets")
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	staff.do("PUT", "/internal/admin/plans/team", map[string]any{"name": "Team", "price_minor": 118000, "included_numbers": 3,
+		"included_seats": 2, "is_active": true, "razorpay_plan_id": "plan_team"}, http.StatusOK, nil)
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "team"}, http.StatusOK, nil)
+	charge := func(evt, pay string) {
+		now := time.Now()
+		body, _ := json.Marshal(map[string]any{"event": "subscription.charged", "payload": map[string]any{
+			"subscription": map[string]any{"entity": map[string]any{"id": "sub_1", "plan_id": "plan_team", "status": "active", "quantity": 1,
+				"current_start": now.Unix(), "current_end": now.Add(30 * 24 * time.Hour).Unix()}},
+			"payment": map[string]any{"entity": map[string]any{"id": pay, "amount": 118000, "currency": "INR"}}}})
+		m := hmac.New(sha256.New, []byte("whsec"))
+		m.Write(body)
+		req, _ := http.NewRequest("POST", h.api.URL+"/webhooks/razorpay", bytes.NewReader(body))
+		req.Header.Set("X-Razorpay-Signature", hex.EncodeToString(m.Sum(nil)))
+		req.Header.Set("X-Razorpay-Event-Id", evt)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("charge %s: %v %v", evt, err, resp)
+		}
+		resp.Body.Close()
+	}
+	var seller struct {
+		Name, GSTIN, Address, SAC, Source string
+		Invoicing                         bool
+	}
+	staff.do("GET", "/internal/admin/seller", nil, http.StatusOK, &seller)
+	if seller.Source != "settings" || seller.GSTIN != sellerCfg.GSTIN || !seller.Invoicing {
+		t.Fatalf("seller = %+v", seller)
+	}
+	owner.do("GET", "/internal/admin/seller", nil, http.StatusNotFound, nil)
+	owner.do("PUT", "/internal/admin/seller", map[string]string{"name": "X"}, http.StatusNotFound, nil)
+	for _, bad := range []map[string]string{
+		{"name": "", "gstin": "", "address": "", "sac": ""},
+		{"name": "Ecogo", "gstin": "32ABC", "address": "Kochi", "sac": ""},
+		{"name": "Ecogo", "gstin": "29AABCE1234F1Z5", "address": "", "sac": ""},
+		{"name": "Ecogo", "gstin": "29AABCE1234F1Z5", "address": "Kochi", "sac": "99843"},
+	} {
+		staff.do("PUT", "/internal/admin/seller", bad, http.StatusBadRequest, nil)
+	}
+
+	// No GSTIN: invoicing is off and a charge is not invoiced.
+	staff.do("PUT", "/internal/admin/seller", map[string]string{"name": "Ecogo AI Technologies Pvt Ltd"}, http.StatusOK, &seller)
+	if seller.Source != "console" || seller.Invoicing {
+		t.Fatalf("seller = %+v", seller)
+	}
+	var prof struct {
+		Invoicing bool `json:"invoicing"`
+	}
+	owner.do("GET", "/internal/billing/profile", nil, http.StatusOK, &prof)
+	if prof.Invoicing {
+		t.Fatal("invoicing is on without a GSTIN")
+	}
+	charge("evt_1", "pay_1")
+	var list struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	owner.do("GET", "/internal/billing/invoices", nil, http.StatusOK, &list)
+	if len(list.Data) != 0 {
+		t.Fatalf("invoiced without a GSTIN: %+v", list.Data)
+	}
+
+	// With a GSTIN the next charge is invoiced with the console's details.
+	staff.do("PUT", "/internal/admin/seller", map[string]string{"name": "Ecogo AI Technologies Pvt Ltd", "gstin": " 29aabce1234f1z5 ",
+		"address": "MG Road,\n Bengaluru", "sac": "998314"}, http.StatusOK, &seller)
+	if seller.GSTIN != "29AABCE1234F1Z5" || seller.Address != "MG Road, Bengaluru" || !seller.Invoicing {
+		t.Fatalf("seller = %+v", seller)
+	}
+	owner.do("GET", "/internal/billing/profile", nil, http.StatusOK, &prof)
+	if !prof.Invoicing {
+		t.Fatal("invoicing is off with a GSTIN")
+	}
+	charge("evt_2", "pay_2")
+	owner.do("GET", "/internal/billing/invoices", nil, http.StatusOK, &list)
+	if len(list.Data) != 1 {
+		t.Fatalf("invoices = %+v", list.Data)
+	}
+	_, page := owner.page("/internal/billing/invoices/" + list.Data[0].ID + "/view")
+	for _, want := range []string{"GSTIN 29AABCE1234F1Z5", "MG Road, Bengaluru", "998314", "CGST @ 9%"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("invoice lacks %q:\n%s", want, page)
+		}
+	}
+}

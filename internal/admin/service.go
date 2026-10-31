@@ -20,6 +20,7 @@ import (
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
 	"github.com/arshadm25/whatsapp_crm/internal/billing"
+	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -27,13 +28,14 @@ import (
 )
 
 type Service struct {
-	db  *db.DB
-	log *slog.Logger
-	now func() time.Time
+	db     *db.DB
+	seller config.Seller // the ECOGO_SELLER_* settings, used until seller details are saved here
+	log    *slog.Logger
+	now    func() time.Time
 }
 
-func NewService(d *db.DB, log *slog.Logger) *Service {
-	return &Service{db: d, log: log, now: time.Now}
+func NewService(d *db.DB, seller config.Seller, log *slog.Logger) *Service {
+	return &Service{db: d, seller: seller, log: log, now: time.Now}
 }
 
 // Routes mounts /internal/admin. The caller applies RequireSession, not RequireTenant: an
@@ -54,6 +56,8 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/audit-log.csv", httpx.Handler(s.log, s.exportAuditLog))
 	r.Get("/plans", httpx.Handler(s.log, s.listPlans))
 	r.Put("/plans/{code}", httpx.Handler(s.log, s.savePlan))
+	r.Get("/seller", httpx.Handler(s.log, s.getSeller))
+	r.Put("/seller", httpx.Handler(s.log, s.saveSeller))
 	r.Get("/invoices", httpx.Handler(s.log, s.listInvoices))
 	r.Get("/invoices.csv", httpx.Handler(s.log, s.exportInvoices))
 	r.Get("/invoices/{id}/view", httpx.Handler(s.log, s.viewInvoice))

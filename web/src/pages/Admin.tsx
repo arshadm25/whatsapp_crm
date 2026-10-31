@@ -569,6 +569,7 @@ function Invoices() {
   });
   return (
     <>
+      <SellerForm />
       <div className="filters">
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t("admin.from")} />
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label={t("admin.to")} />
@@ -605,6 +606,61 @@ function Invoices() {
         </table>
       </div>
     </>
+  );
+}
+
+type Seller = {
+  name: string; gstin: string; address: string; sac: string; gst_rate_bp: number;
+  source: "console" | "settings"; updated_at: string | null; invoicing: boolean;
+};
+
+// SellerForm edits the seller printed on GST invoices. Invoicing is on while a GSTIN is saved.
+function SellerForm() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const seller = useQuery({ queryKey: ["admin", "seller"], queryFn: () => api<Seller>("GET", "/internal/admin/seller") });
+  const [form, setForm] = useState<{ name: string; gstin: string; address: string; sac: string } | null>(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  if (!seller.data) return null;
+  const f = form ?? { name: seller.data.name, gstin: seller.data.gstin, address: seller.data.address, sac: seller.data.sac };
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setSaved(false);
+    setForm({ ...f, [k]: e.target.value });
+  };
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    try {
+      const out = await api<Seller>("PUT", "/internal/admin/seller", f);
+      qc.setQueryData(["admin", "seller"], out);
+      setForm(null);
+      setSaved(true);
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  return (
+    <form className="card form" onSubmit={save}>
+      <h2>{t("admin.sellerTitle")}</h2>
+      <p className="muted small">{t("admin.sellerHelp")}</p>
+      <p className="small">
+        <span className={seller.data.invoicing ? "pill" : "pill danger-text"}>{seller.data.invoicing ? t("admin.sellerOn") : t("admin.sellerOff")}</span>{" "}
+        {seller.data.source === "settings" && <span className="muted">{t("admin.sellerFromSettings")}</span>}
+      </p>
+      <div className="plan-form">
+        <label className="field">{t("admin.sellerName")}<input value={f.name} onChange={set("name")} required maxLength={200} /></label>
+        <label className="field">{t("admin.sellerGstin")}<input value={f.gstin} onChange={set("gstin")} maxLength={15} placeholder="32ABCDE1234F1Z5" autoCapitalize="characters" /></label>
+        <label className="field">{t("admin.sellerSac")}<input value={f.sac} onChange={set("sac")} inputMode="numeric" pattern="[0-9]{6}" maxLength={6} /></label>
+      </div>
+      <label className="field">{t("admin.sellerAddress")}<textarea rows={2} value={f.address} onChange={set("address")} maxLength={500} required={f.gstin.trim() !== ""} /></label>
+      <p className="muted small">{t("admin.sellerGstRate", { rate: seller.data.gst_rate_bp / 100 })}</p>
+      {error && <div className="error">{error}</div>}
+      {saved && <div className="muted small">{t("admin.sellerSaved")}</div>}
+      <div className="actions">
+        <button className="primary" disabled={form === null}>{t("admin.sellerSave")}</button>
+      </div>
+    </form>
   );
 }
 

@@ -1817,6 +1817,16 @@ type RazorpayEvent struct {
 	ReceivedAt time.Time
 }
 
+type SellerSetting struct {
+	ID        bool
+	Name      string
+	Gstin     string
+	Address   string
+	Sac       string
+	UpdatedBy *uuid.UUID
+	UpdatedAt time.Time
+}
+
 type Session struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID
