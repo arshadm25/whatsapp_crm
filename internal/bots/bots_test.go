@@ -28,11 +28,17 @@ func TestValidateRejects(t *testing.T) {
 		"bad var":          `{"start":"a","nodes":{"a":{"type":"question","text":"x","var":"a b"}}}`,
 		"loop":             `{"start":"a","nodes":{"a":{"type":"message","text":"x","next":"b"},"b":{"type":"message","text":"y","next":"a"}}}`,
 		"unknown field":    `{"start":"a","nodes":{"a":{"type":"end","colour":"red"}}}`,
+		"far layout":       `{"start":"a","nodes":{"a":{"type":"end"}},"layout":{"a":{"x":2000000,"y":0}}}`,
 	}
 	for name, raw := range cases {
 		if _, err := ParseFlow([]byte(raw)); err == nil {
 			t.Errorf("%s: flow accepted", name)
 		}
+	}
+	// Canvas positions are kept, including stale ones for removed nodes.
+	f := mustFlow(t, `{"start":"a","nodes":{"a":{"type":"end"}},"layout":{"a":{"x":40,"y":-12.5},"gone":{"x":0,"y":0}}}`)
+	if f.Layout["a"] != (Position{X: 40, Y: -12.5}) {
+		t.Errorf("layout = %+v", f.Layout)
 	}
 	// A loop that waits for the customer is fine.
 	mustFlow(t, `{"start":"a","nodes":{"a":{"type":"question","text":"again?","var":"x","next":"a"}}}`)

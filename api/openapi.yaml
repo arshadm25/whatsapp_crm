@@ -2251,6 +2251,16 @@ components:
             required: [type]
             properties:
               type: { type: string, enum: [message, buttons, question, condition, set, tag, template, flow, ai, handoff, end] }
+        layout:
+          type: object
+          maxProperties: 100
+          description: Where each node sits on the dashboard's flow canvas, by node id. Optional; running the bot ignores it.
+          additionalProperties:
+            type: object
+            required: [x, y]
+            properties:
+              x: { type: number }
+              y: { type: number }
 
     Bot:
       allOf:

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
@@ -112,6 +112,8 @@ function FlowEditor(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [showPreview, setShowPreview] = useState(() => readPreviewPref());
   const editable = props.canManage && (!flow || flow.status === "draft");
   const acct = account || accounts[0]?.[0] || "";
 
@@ -141,6 +143,7 @@ function FlowEditor(props: {
       const body = { whatsapp_account_id: flow ? undefined : acct, name: name.trim(), categories: cats, flow_json: parsed };
       const out = flow ? await api<WhatsAppFlow>("PUT", `/v1/flows/${flow.id}`, body) : await api<WhatsAppFlow>("POST", "/v1/flows", body);
       setSaved(true);
+      setDirty(false);
       return out;
     });
 
@@ -159,6 +162,7 @@ function FlowEditor(props: {
 
   const toggle = (c: string) => {
     setSaved(false);
+    setDirty(true);
     setCats((cur) => (cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c]));
   };
 
@@ -189,7 +193,7 @@ function FlowEditor(props: {
         <div className="row">
           <label className="field">
             {t("flows.name")}
-            <input value={name} maxLength={200} disabled={!editable} placeholder={t("flows.namePlaceholder")} onChange={(e) => { setName(e.target.value); setSaved(false); }} />
+            <input value={name} maxLength={200} disabled={!editable} placeholder={t("flows.namePlaceholder")} onChange={(e) => { setName(e.target.value); setSaved(false); setDirty(true); }} />
           </label>
           {!flow && (
             <label className="field">
@@ -208,6 +212,17 @@ function FlowEditor(props: {
             ))}
           </div>
         </fieldset>
+        {flow && (
+          <label className="preview-toggle">
+            <input
+              type="checkbox"
+              checked={showPreview}
+              onChange={(e) => { setShowPreview(e.target.checked); writePreviewPref(e.target.checked); }}
+            />{" "}
+            {t("flows.showPreview")}
+          </label>
+        )}
+        <div className={flow && showPreview ? "flow-json-split" : undefined}>
         <label className="field">
           {t("flows.json")}
           <textarea
@@ -217,10 +232,12 @@ function FlowEditor(props: {
             value={json}
             disabled={!editable}
             placeholder={flow ? "" : t("flows.jsonStarter", { defaultValue: "Leave empty to start from a one-screen example." })}
-            onChange={(e) => { setJson(e.target.value); setSaved(false); }}
+            onChange={(e) => { setJson(e.target.value); setSaved(false); setDirty(true); }}
           />
           <span className="muted small">{t("flows.jsonHelp")}</span>
         </label>
+        {flow && showPreview && <FlowPreview flow={flow} canManage={props.canManage} dirty={dirty} onChanged={props.onChanged} />}
+        </div>
       </div>
 
       {flow && (
@@ -238,14 +255,85 @@ function FlowEditor(props: {
               ))}
             </ul>
           )}
-          {flow.preview_url && (
-            <p>
-              <a href={flow.preview_url} target="_blank" rel="noreferrer noopener">{t("flows.preview")}</a>{" "}
-              <span className="muted small">{t("flows.previewExpires")}</span>
-            </p>
-          )}
           {flow.status === "published" && <p className="muted small">{t("flows.sendHelp", { id: flow.meta_flow_id })}</p>}
         </>
+      )}
+    </div>
+  );
+}
+
+const PREVIEW_PREF = "ecogo.flows.preview";
+
+function readPreviewPref(): boolean {
+  try {
+    return window.localStorage.getItem(PREVIEW_PREF) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePreviewPref(on: boolean) {
+  try {
+    window.localStorage.setItem(PREVIEW_PREF, on ? "1" : "0");
+  } catch {
+    // Private windows can refuse storage; the toggle still works for this visit.
+  }
+}
+
+// previewUsable says whether Meta's preview link is there and not about to expire.
+function previewUsable(f: WhatsAppFlow): boolean {
+  if (!f.preview_url || !/^https:\/\/[a-z0-9.-]+\.facebook\.com\//i.test(f.preview_url)) return false;
+  if (!f.preview_expires_at) return true;
+  return new Date(f.preview_expires_at).getTime() - Date.now() > 60_000;
+}
+
+// FlowPreview shows Meta's interactive Flow preview inside the page. Meta's preview page allows
+// framing, and our CSP allows frames from *.facebook.com. The link expires, so an owner or admin
+// gets a fresh one from Meta when the stored link is missing or expired.
+function FlowPreview(props: { flow: WhatsAppFlow; canManage: boolean; dirty: boolean; onChanged: (f: WhatsAppFlow) => void }) {
+  const { t } = useTranslation();
+  const { flow } = props;
+  const usable = previewUsable(flow);
+  const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
+  const [reload, setReload] = useState(0);
+  const asked = useRef("");
+
+  // Ask Meta for a fresh link once per Flow while the preview is open and the stored one is unusable.
+  useEffect(() => {
+    if (usable || !props.canManage || asked.current === flow.id) return;
+    asked.current = flow.id;
+    setState("loading");
+    api<WhatsAppFlow>("POST", `/v1/flows/${flow.id}/refresh`)
+      .then((f) => {
+        setState(previewUsable(f) ? "idle" : "failed");
+        props.onChanged(f);
+      })
+      .catch(() => setState("failed"));
+  }, [flow.id, usable, props.canManage]);
+
+  return (
+    <div className="flow-preview" aria-label={t("flows.previewTitle")}>
+      <div className="flow-preview-bar">
+        <strong>{t("flows.previewTitle")}</strong>
+        {usable && (
+          <span className="actions">
+            <button type="button" className="link" onClick={() => setReload((n) => n + 1)}>{t("flows.previewReload")}</button>
+            <a className="small" href={flow.preview_url!} target="_blank" rel="noreferrer noopener">{t("flows.preview")}</a>
+          </span>
+        )}
+      </div>
+      {props.dirty && <div className="muted small">{t("flows.previewUnsaved")}</div>}
+      {usable ? (
+        <iframe
+          key={`${flow.preview_url}|${flow.updated_at}|${reload}`}
+          title={t("flows.previewTitle")}
+          src={flow.preview_url!}
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <div className="flow-preview-empty muted small">
+          {state === "loading" ? t("flows.previewLoading") : props.canManage ? t("flows.previewFailed") : t("flows.previewAskAdmin")}
+        </div>
       )}
     </div>
   );

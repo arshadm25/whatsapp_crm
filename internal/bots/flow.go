@@ -7,6 +7,7 @@ package bots
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -55,7 +56,19 @@ type Flow struct {
 	Start    string          `json:"start"`
 	Triggers []Trigger       `json:"triggers"`
 	Nodes    map[string]Node `json:"nodes"`
+	// Layout is where each node sits on the dashboard's flow canvas. Only the editor uses it;
+	// running a flow ignores it. Entries for ids that are not nodes are allowed and ignored.
+	Layout map[string]Position `json:"layout,omitempty"`
 }
+
+// Position is a node's place on the canvas, in canvas pixels.
+type Position struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// maxCoord keeps saved canvas positions to a sane range.
+const maxCoord = 1_000_000
 
 type Trigger struct {
 	Type     string   `json:"type"`
@@ -136,6 +149,14 @@ func (f Flow) Validate() error {
 	}
 	if _, ok := f.Nodes[f.Start]; !ok {
 		return bad("start must be the id of a node.")
+	}
+	if len(f.Layout) > maxNodes {
+		return bad("The layout can place at most %d nodes.", maxNodes)
+	}
+	for id, p := range f.Layout {
+		if math.IsNaN(p.X) || math.IsNaN(p.Y) || math.Abs(p.X) > maxCoord || math.Abs(p.Y) > maxCoord {
+			return bad("The layout position of %q is out of range.", id)
+		}
 	}
 	if len(f.Triggers) > maxTriggers {
 		return bad("A bot can have at most %d triggers.", maxTriggers)
