@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -665,6 +665,7 @@ function Conversations({ tenantId }: { tenantId: string }) {
   const { t } = useTranslation();
   const [q, setQ] = useState("");
   const [reading, setReading] = useState<AdminConversation | null>(null);
+  const closeReading = useCallback(() => setReading(null), []);
   const params = new URLSearchParams({ limit: "25" });
   if (q.trim()) params.set("q", q.trim());
   const list = usePaged<AdminConversation>(`conversations-${tenantId}`, `/internal/admin/tenants/${tenantId}/conversations`, params);
@@ -684,7 +685,7 @@ function Conversations({ tenantId }: { tenantId: string }) {
                 <td>+{c.contact_wa_id}</td>
                 <td>{c.status}</td>
                 <td className="small">{when(c.last_message_at)}</td>
-                <td><button className="link" onClick={() => setReading(c)}>{t("admin.readMessages")}</button></td>
+                <td><button type="button" className="link" onClick={() => setReading(c)}>{t("admin.readMessages")}</button></td>
               </tr>
             ))}
             {list.isSuccess && list.rows.length === 0 && <tr><td className="muted">{t("admin.noConversations")}</td></tr>}
@@ -692,56 +693,73 @@ function Conversations({ tenantId }: { tenantId: string }) {
         </table>
       </div>
       <More q={list} />
-      {reading && <ReadMessages tenantId={tenantId} conversation={reading} onClose={() => setReading(null)} />}
+      {reading && <ReadMessages key={reading.id} tenantId={tenantId} conversation={reading} onClose={closeReading} />}
     </>
   );
 }
 
 // ReadMessages shows message content only after the admin states why; the server audits it.
-function ReadMessages({ tenantId, conversation, onClose }: { tenantId: string; conversation: AdminConversation; onClose: () => void }) {
+// It opens as a dialog over the page: rendered inline it landed below the 25-row list, out of
+// view, so clicking "Read messages" looked like it did nothing.
+export function ReadMessages({ tenantId, conversation, onClose }: { tenantId: string; conversation: AdminConversation; onClose: () => void }) {
   const { t } = useTranslation();
   const [reason, setReason] = useState("");
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setBusy(true);
     try {
       const res = await api<{ data: Message[] }>(
         "POST", `/internal/admin/tenants/${tenantId}/conversations/${conversation.id}/messages`, { reason });
       setMessages(res.data);
     } catch (err) {
       setError(message(err, t("common.error")));
+    } finally {
+      setBusy(false);
     }
   };
 
+  const title = t("admin.messagesWith", { phone: conversation.contact_wa_id });
   return (
-    <div className="card">
-      <div className="page-head">
-        <h3>{t("admin.messagesWith", { phone: conversation.contact_wa_id })}</h3>
-        <button className="link" onClick={onClose}>{t("admin.close")}</button>
+    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="card modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="page-head">
+          <h3>{title}</h3>
+          <button type="button" className="link" onClick={onClose}>{t("admin.close")}</button>
+        </div>
+        {!messages ? (
+          <form className="form" onSubmit={submit}>
+            <label className="field">
+              {t("admin.viewReason")}
+              <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={500} autoFocus />
+            </label>
+            <div className="actions">
+              <button className="primary" disabled={busy}>{t("admin.showMessages")}</button>
+            </div>
+          </form>
+        ) : (
+          <ul className="admin-thread">
+            {[...messages].reverse().map((m) => (
+              <li key={m.id} className={m.direction}>
+                <span className="muted small">{when(m.created_at)} · {m.status}</span>
+                <div>{messageText(m)}</div>
+              </li>
+            ))}
+            {messages.length === 0 && <li className="muted">{t("admin.noMessages")}</li>}
+          </ul>
+        )}
+        {error && <div className="error">{error}</div>}
       </div>
-      {!messages ? (
-        <form className="inline-form" onSubmit={submit}>
-          <label className="field grow">
-            {t("admin.viewReason")}
-            <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={500} />
-          </label>
-          <button className="primary">{t("admin.showMessages")}</button>
-        </form>
-      ) : (
-        <ul className="admin-thread">
-          {[...messages].reverse().map((m) => (
-            <li key={m.id} className={m.direction}>
-              <span className="muted small">{when(m.created_at)} · {m.status}</span>
-              <div>{messageText(m)}</div>
-            </li>
-          ))}
-          {messages.length === 0 && <li className="muted">{t("admin.noMessages")}</li>}
-        </ul>
-      )}
-      {error && <div className="error">{error}</div>}
     </div>
   );
 }
