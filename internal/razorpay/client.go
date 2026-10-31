@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -189,6 +190,53 @@ func (c *Client) Cancel(ctx context.Context, subscriptionID string, atCycleEnd b
 	}
 	var out Subscription
 	err := c.do(ctx, http.MethodPost, "/v1/subscriptions/"+subscriptionID+"/cancel", map[string]any{"cancel_at_cycle_end": flag}, &out)
+	return out, err
+}
+
+// Invoice is the part of Razorpay's invoice entity we use: one per subscription charge.
+type Invoice struct {
+	ID           string `json:"id"`
+	PaymentID    string `json:"payment_id"`
+	Status       string `json:"status"` // paid, issued, expired, ...
+	AmountPaid   int64  `json:"amount_paid"`
+	BillingStart *int64 `json:"billing_start"`
+	BillingEnd   *int64 `json:"billing_end"`
+}
+
+// LastPaidInvoice returns the subscription's most recent paid invoice; ok is false when it
+// has none.
+func (c *Client) LastPaidInvoice(ctx context.Context, subscriptionID string) (inv Invoice, ok bool, err error) {
+	var out struct {
+		Items []Invoice `json:"items"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/invoices?subscription_id="+url.QueryEscape(subscriptionID), nil, &out); err != nil {
+		return inv, false, err
+	}
+	for _, it := range out.Items {
+		if it.Status == "paid" && it.PaymentID != "" && (!ok || unixOf(it.BillingStart) > unixOf(inv.BillingStart)) {
+			inv, ok = it, true
+		}
+	}
+	return inv, ok, nil
+}
+
+func unixOf(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+// Refund is the part of Razorpay's refund entity we use.
+type Refund struct {
+	ID     string `json:"id"`
+	Amount int64  `json:"amount"`
+}
+
+// RefundPayment refunds part of a payment, in paise.
+func (c *Client) RefundPayment(ctx context.Context, paymentID string, amount int64, notes map[string]string) (Refund, error) {
+	var out Refund
+	err := c.do(ctx, http.MethodPost, "/v1/payments/"+paymentID+"/refund", map[string]any{"amount": amount, "notes": notes}, &out)
 	return out, err
 }
 

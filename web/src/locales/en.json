@@ -1237,7 +1237,7 @@
     "upgrade": "Upgrade",
     "upgradeNow": "Upgrade now",
     "switchOn": "Switch on {{date}}",
-    "confirmUpgrade": "Upgrade to {{plan}} now? Its limits apply straight away, and Razorpay charges your saved payment method for the change.",
+    "confirmUpgrade": "Upgrade to {{plan}} now? It starts as soon as Razorpay confirms. If you pay by UPI Autopay, Razorpay asks you to approve the new plan, and the unused days of your current plan are refunded.",
     "upgraded": "Upgrading to {{plan}}. It shows here as soon as Razorpay confirms, usually within a minute.",
     "granted": "Provided by Ecogo. No payment and no end date.",
     "grantedUntil": "Provided by Ecogo until {{date}}. Choose a plan to keep sending after that.",

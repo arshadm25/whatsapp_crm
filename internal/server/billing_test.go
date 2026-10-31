@@ -63,6 +63,13 @@ func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPatch && f.upi[strings.Split(r.URL.Path, "/")[3]]:
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":{"code":"BAD_REQUEST_ERROR","description":"subscriptions cannot be updated when payment mode is upi"}}`)
+	case r.URL.Path == "/v1/invoices":
+		// One paid charge of ₹2,999 for a 30-day period that started 10 days ago.
+		start := time.Now().Add(-10 * 24 * time.Hour).Unix()
+		fmt.Fprintf(w, `{"items":[{"id":"inv_1","payment_id":"pay_1","status":"paid","amount_paid":299900,"billing_start":%d,"billing_end":%d}]}`,
+			start, start+30*24*3600)
+	case strings.HasSuffix(r.URL.Path, "/refund"):
+		fmt.Fprintf(w, `{"id":"rfnd_1","amount":%v}`, body["amount"])
 	case r.Method == http.MethodGet:
 		id := strings.Split(r.URL.Path, "/")[3]
 		st := f.states[id]
@@ -696,9 +703,17 @@ func TestUPIPlanChange(t *testing.T) {
 	h.razorpayEvent("evt_2", "subscription.cancelled", map[string]any{"id": "sub_2", "plan_id": "plan_P1"}, "whsec")
 	h.razorpayEvent("evt_3", "subscription.charged", map[string]any{"id": "sub_3", "plan_id": "plan_P1", "status": "active",
 		"current_start": time.Now().Unix(), "current_end": time.Now().AddDate(0, 1, 0).Unix()}, "whsec")
-	call, body = h.razorpay.last()
-	if call != "POST /v1/subscriptions/sub_1/cancel" || body["cancel_at_cycle_end"] != float64(0) {
-		t.Fatalf("old not cancelled = %s %v", call, body)
+	// Growth is cancelled at once and the unused 20 of its 30 paid days are refunded.
+	h.razorpay.mu.Lock()
+	n := len(h.razorpay.calls)
+	cancelCall, cancelBody := h.razorpay.calls[n-3], h.razorpay.bodies[n-3]
+	refundCall, refundBody := h.razorpay.calls[n-1], h.razorpay.bodies[n-1]
+	h.razorpay.mu.Unlock()
+	if cancelCall != "POST /v1/subscriptions/sub_1/cancel" || cancelBody["cancel_at_cycle_end"] != float64(0) {
+		t.Fatalf("old not cancelled = %s %v", cancelCall, cancelBody)
+	}
+	if amt, _ := refundBody["amount"].(float64); refundCall != "POST /v1/payments/pay_1/refund" || amt < 199900 || amt > 199934 {
+		t.Fatalf("refund = %s %v", refundCall, refundBody)
 	}
 	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
 	if ov.Plan.Code != "pro" || ov.Subscription.Status != "active" || ov.Subscription.PaymentPending || ov.Subscription.CancelAtPeriodEnd {

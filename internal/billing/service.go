@@ -707,6 +707,9 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 					if err := s.cancelReplaced(ctx, *sub.ProviderSubscriptionID, false); err != nil {
 						return err
 					}
+					if err := s.refundUnused(ctx, q, tenantID, *sub.ProviderSubscriptionID); err != nil {
+						return err
+					}
 				}
 				if sub, err = q.PromotePendingSubscription(ctx, tenantID); err != nil {
 					return err
@@ -984,6 +987,55 @@ func (s *Service) cancelReplaced(ctx context.Context, id string, atCycleEnd bool
 		s.log.Info("replaced razorpay subscription not cancelled", "subscription", id, "description", re.Description)
 	}
 	return nil
+}
+
+// refundUnused refunds the share of a replaced subscription's last payment that covers the
+// time after now, so an upgrade does not charge twice for the same days. A refund Razorpay
+// refuses is logged for staff and does not stop the upgrade; either way the audit log says
+// what happened.
+func (s *Service) refundUnused(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, oldID string) error {
+	meta := map[string]any{"subscription": oldID}
+	action := "subscription.refund_unused"
+	inv, ok, err := s.rp.LastPaidInvoice(ctx, oldID)
+	switch {
+	case err != nil:
+		action, meta["error"] = "subscription.refund_failed", err.Error()
+	case !ok || inv.BillingStart == nil || inv.BillingEnd == nil || *inv.BillingEnd <= *inv.BillingStart:
+		meta["skipped"] = "no paid invoice with a billing period"
+	default:
+		amount := UnusedShare(inv.AmountPaid, time.Unix(*inv.BillingStart, 0), time.Unix(*inv.BillingEnd, 0), s.now())
+		meta["payment"], meta["amount_minor"] = inv.PaymentID, amount
+		if amount < 100 { // under ₹1: nothing worth refunding
+			meta["skipped"] = "nothing unused"
+			break
+		}
+		ref, err := s.rp.RefundPayment(ctx, inv.PaymentID, amount, map[string]string{
+			"tenant_id": tenantID.String(), "reason": "unused days after plan upgrade"})
+		if err != nil {
+			action, meta["error"] = "subscription.refund_failed", err.Error()
+			s.log.Warn("refund of unused days failed", "tenant_id", tenantID, "payment", inv.PaymentID, "amount", amount, "err", err)
+		} else {
+			meta["refund"] = ref.ID
+		}
+	}
+	raw, _ := json.Marshal(meta)
+	target := "subscription"
+	return q.InsertAuditLog(ctx, dbq.InsertAuditLogParams{
+		TenantID: &tenantID, ActorType: dbq.ActorTypeSystem, Action: action,
+		TargetType: &target, TargetID: &oldID, Metadata: raw,
+	})
+}
+
+// UnusedShare is the part of amount (paise, rounded down) that pays for the time from now to
+// the end of the period start..end.
+func UnusedShare(amount int64, start, end, now time.Time) int64 {
+	if !now.Before(end) || !end.After(start) || amount <= 0 {
+		return 0
+	}
+	if now.Before(start) {
+		return amount
+	}
+	return amount * int64(end.Sub(now)/time.Second) / int64(end.Sub(start)/time.Second)
 }
 
 // dropPending cancels a replacement subscription that was never paid.
