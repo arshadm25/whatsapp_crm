@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers } from "../api/hooks";
-import type { FlowStatus, FlowSubmission, Page, WhatsAppFlow } from "../api/types";
+import type { FlowHealth, FlowStatus, FlowSubmission, Page, WhatsAppFlow } from "../api/types";
 
 const CATEGORIES = ["SIGN_UP", "SIGN_IN", "APPOINTMENT_BOOKING", "LEAD_GENERATION", "CONTACT_US", "CUSTOMER_SUPPORT", "SURVEY", "OTHER"];
 
@@ -255,10 +255,36 @@ function FlowEditor(props: {
               ))}
             </ul>
           )}
+          {flow.health && <FlowHealthView health={flow.health} />}
           {flow.status === "published" && <p className="muted small">{t("flows.sendHelp", { id: flow.meta_flow_id })}</p>}
         </>
       )}
     </div>
+  );
+}
+
+// FlowHealthView shows Meta's health_status: whether the Flow can be sent and, in Meta's words,
+// what blocks or limits it (the Flow, the WhatsApp account, the business or the app).
+function FlowHealthView({ health }: { health: FlowHealth }) {
+  const { t } = useTranslation();
+  const problems = (health.entities ?? []).flatMap((e) => [
+    ...(e.errors ?? []).map((er) => ({ cls: "field-error", text: `${e.entity_type}: ${er.error_description}`, code: er.error_code })),
+    ...(e.additional_info ?? []).map((info) => ({ cls: "muted", text: `${e.entity_type}: ${info}`, code: 0 })),
+  ]);
+  return (
+    <>
+      <h3>{t("flows.healthTitle")}: {health.can_send_message}</h3>
+      {problems.length > 0 && (
+        <ul className="problems-list">
+          {problems.map((p, i) => (
+            <li key={i} className={p.cls}>
+              {p.text}
+              {p.code ? <span className="muted small"> (#{p.code})</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 

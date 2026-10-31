@@ -79,6 +79,8 @@ type fakeMeta struct {
 	flowAssets  [][]byte          // Flow JSON files uploaded
 	flowErrs    string            // JSON array of validation errors returned for Flow uploads
 	flowStatus  map[string]string // Flow ID -> status Meta reports
+	flowHealth  string            // JSON health_status returned for GET /{flow}?fields=health_status, if set
+	publishErr  string            // JSON error body for Flow publishes, if set
 	pricing     string            // JSON data_points returned for pricing_analytics
 	creditLines []string          // WABAs a credit line was attached to
 	creditErr   string            // JSON error body for credit line attaches, if set
@@ -227,6 +229,15 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			errs = "[]"
 		}
 		fmt.Fprintf(w, `{"success":true,"validation_errors":%s}`, errs)
+	case len(parts) == 2 && parts[1] == "publish" && strings.HasPrefix(parts[0], "flow-") && f.publishErr != "":
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, f.publishErr)
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "flow-") && r.Method == http.MethodGet && r.URL.Query().Get("fields") == "health_status":
+		h := f.flowHealth
+		if h == "" {
+			h = `{"can_send_message":"AVAILABLE"}`
+		}
+		fmt.Fprintf(w, `{"id":%q,"health_status":%s}`, parts[0], h)
 	case len(parts) == 2 && (parts[1] == "publish" || parts[1] == "deprecate") && strings.HasPrefix(parts[0], "flow-"):
 		f.flowStatus[parts[0]] = map[string]string{"publish": "PUBLISHED", "deprecate": "DEPRECATED"}[parts[1]]
 		fmt.Fprint(w, `{"success":true}`)

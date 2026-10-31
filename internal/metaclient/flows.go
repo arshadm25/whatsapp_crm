@@ -89,6 +89,58 @@ func (c *Client) UploadFlowJSON(ctx context.Context, token, flowID string, flowJ
 	return out.ValidationErrors, nil
 }
 
+// FlowHealth is Meta's health_status of a Flow: whether messages with it can be sent, and what
+// blocks or limits the Flow, its WhatsApp account, the business and the app.
+type FlowHealth struct {
+	CanSendMessage string             `json:"can_send_message"` // AVAILABLE, LIMITED, BLOCKED
+	Entities       []FlowHealthEntity `json:"entities,omitempty"`
+}
+
+// FlowHealthEntity is one node of a Flow's health: FLOW, WABA, BUSINESS, APP or PHONE_NUMBER.
+type FlowHealthEntity struct {
+	EntityType     string `json:"entity_type"`
+	ID             string `json:"id"`
+	CanSendMessage string `json:"can_send_message"`
+	Errors         []struct {
+		ErrorCode        int    `json:"error_code"`
+		ErrorDescription string `json:"error_description"`
+		PossibleSolution string `json:"possible_solution,omitempty"`
+	} `json:"errors,omitempty"`
+	AdditionalInfo []string `json:"additional_info,omitempty"`
+}
+
+// Problems lists, in Meta's words, what blocks or limits the Flow.
+func (h *FlowHealth) Problems() []string {
+	if h == nil {
+		return nil
+	}
+	var out []string
+	for _, e := range h.Entities {
+		for _, er := range e.Errors {
+			if er.ErrorDescription != "" {
+				out = append(out, e.EntityType+": "+er.ErrorDescription)
+			}
+		}
+		for _, info := range e.AdditionalInfo {
+			out = append(out, e.EntityType+": "+info)
+		}
+	}
+	return out
+}
+
+// GetFlowHealth reads a Flow's health_status. It is a separate call from GetFlow so a failure
+// here never hides the Flow's status or preview.
+func (c *Client) GetFlowHealth(ctx context.Context, token, flowID string) (*FlowHealth, error) {
+	var out struct {
+		HealthStatus *FlowHealth `json:"health_status"`
+	}
+	q := url.Values{"fields": {"health_status"}}
+	if err := c.do(ctx, http.MethodGet, "/"+url.PathEscape(flowID), token, q, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.HealthStatus, nil
+}
+
 // GetFlow reads a Flow's status, validation errors and a fresh preview link.
 func (c *Client) GetFlow(ctx context.Context, token, flowID string) (*FlowInfo, error) {
 	var out FlowInfo

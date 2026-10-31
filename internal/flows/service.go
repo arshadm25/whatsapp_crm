@@ -29,6 +29,7 @@ type Meta interface {
 	CreateFlow(ctx context.Context, token, wabaID, name string, categories []string) (*metaclient.CreatedFlow, error)
 	UploadFlowJSON(ctx context.Context, token, flowID string, flowJSON []byte) ([]metaclient.FlowError, error)
 	GetFlow(ctx context.Context, token, flowID string) (*metaclient.FlowInfo, error)
+	GetFlowHealth(ctx context.Context, token, flowID string) (*metaclient.FlowHealth, error)
 	UpdateFlow(ctx context.Context, token, flowID string, body map[string]any) error
 	PublishFlow(ctx context.Context, token, flowID string) error
 	DeprecateFlow(ctx context.Context, token, flowID string) error
@@ -83,6 +84,9 @@ type Flow struct {
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
 	PublishedAt       *time.Time      `json:"published_at"`
+	// Health is Meta's health_status, read live on refresh: whether the Flow can be sent and,
+	// if not, what blocks it (the Flow, the WhatsApp account, the business or the app).
+	Health *metaclient.FlowHealth `json:"health,omitempty"`
 }
 
 func view(f dbq.Flow) Flow {
@@ -332,7 +336,8 @@ func (s *Service) refresh(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	info, err := s.meta.GetFlow(metaclient.WithTenant(r.Context(), p.TenantID.String()), token, f.MetaFlowID)
+	ctx := metaclient.WithTenant(r.Context(), p.TenantID.String())
+	info, err := s.meta.GetFlow(ctx, token, f.MetaFlowID)
 	if err != nil {
 		return metaError(err)
 	}
@@ -340,10 +345,34 @@ func (s *Service) refresh(w http.ResponseWriter, r *http.Request) error {
 	if !ok {
 		st = f.Status
 	}
-	return s.saveStatus(w, r, p, id, st, info)
+	return s.saveStatus(w, r, p, id, st, info, s.health(ctx, token, f.MetaFlowID))
 }
 
-func (s *Service) saveStatus(w http.ResponseWriter, r *http.Request, p auth.Principal, id uuid.UUID, status string, info *metaclient.FlowInfo) error {
+// health reads the Flow's health_status from Meta. It only explains a problem, so a failure to
+// read it is logged and nil returned.
+func (s *Service) health(ctx context.Context, token, metaFlowID string) *metaclient.FlowHealth {
+	h, err := s.meta.GetFlowHealth(ctx, token, metaFlowID)
+	if err != nil {
+		s.log.Warn("flows: could not read health_status", "meta_flow_id", metaFlowID, "err", err)
+		return nil
+	}
+	return h
+}
+
+// withHealth adds what Meta's health_status says blocks the Flow to a Meta error, so a refused
+// publish says why (for example an integrity block on the WhatsApp account).
+func withHealth(err error, h *metaclient.FlowHealth) error {
+	var he *httpx.Error
+	problems := h.Problems()
+	if len(problems) == 0 || !errors.As(err, &he) {
+		return err
+	}
+	out := *he
+	out.Message = strings.TrimSpace(out.Message + " Meta says: " + strings.Join(problems, "; "))
+	return &out
+}
+
+func (s *Service) saveStatus(w http.ResponseWriter, r *http.Request, p auth.Principal, id uuid.UUID, status string, info *metaclient.FlowInfo, health *metaclient.FlowHealth) error {
 	var out Flow
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		params := dbq.UpdateFlowStatusParams{ID: id, Status: status}
@@ -353,6 +382,7 @@ func (s *Service) saveStatus(w http.ResponseWriter, r *http.Request, p auth.Prin
 		}
 		f, err := q.UpdateFlowStatus(r.Context(), params)
 		out = view(f)
+		out.Health = health
 		return err
 	})
 	if err != nil {
@@ -378,10 +408,11 @@ func (s *Service) publish(w http.ResponseWriter, r *http.Request) error {
 	if string(f.ValidationErrors) != "[]" && len(f.ValidationErrors) > 0 {
 		return &httpx.Error{Status: http.StatusUnprocessableEntity, Code: "flow_invalid", Message: "Fix the validation errors before publishing."}
 	}
-	if err := s.meta.PublishFlow(metaclient.WithTenant(r.Context(), p.TenantID.String()), token, f.MetaFlowID); err != nil {
-		return metaError(err)
+	ctx := metaclient.WithTenant(r.Context(), p.TenantID.String())
+	if err := s.meta.PublishFlow(ctx, token, f.MetaFlowID); err != nil {
+		return withHealth(metaError(err), s.health(ctx, token, f.MetaFlowID))
 	}
-	return s.saveStatus(w, r, p, id, "published", nil)
+	return s.saveStatus(w, r, p, id, "published", nil, nil)
 }
 
 func (s *Service) deprecate(w http.ResponseWriter, r *http.Request) error {
@@ -400,7 +431,7 @@ func (s *Service) deprecate(w http.ResponseWriter, r *http.Request) error {
 	if err := s.meta.DeprecateFlow(metaclient.WithTenant(r.Context(), p.TenantID.String()), token, f.MetaFlowID); err != nil {
 		return metaError(err)
 	}
-	return s.saveStatus(w, r, p, id, "deprecated", nil)
+	return s.saveStatus(w, r, p, id, "deprecated", nil, nil)
 }
 
 func (s *Service) remove(w http.ResponseWriter, r *http.Request) error {

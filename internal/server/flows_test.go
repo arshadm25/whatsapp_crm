@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,5 +171,75 @@ func TestChatbotSendsFlowAndUsesAnswers(t *testing.T) {
 	h.scalar(tenant, "SELECT status FROM bot_sessions", &status)
 	if status != "completed" {
 		t.Fatalf("session = %s", status)
+	}
+}
+
+// Meta's Flow docs: mode defaults to published, health_status explains why a Flow is blocked.
+func TestFlowsDraftModeAndHealth(t *testing.T) {
+	h := newHarness(t)
+	c, me, phone := h.connected()
+	tenant := me.Tenant.ID
+	customer := "919800000077"
+
+	var f flows.Flow
+	c.do("POST", "/v1/flows", map[string]any{"whatsapp_account_id": phone.WhatsappAccountID, "name": "Traveller"}, http.StatusCreated, &f)
+
+	// An API send of a draft Flow without mode is sent with mode draft.
+	h.inbound(customer, "wamid.H1", "hi")
+	send := func(params map[string]any) map[string]any {
+		t.Helper()
+		var msg messaging.Message
+		c.send(map[string]any{"phone_number_id": phone.ID, "to": customer, "type": "interactive", "interactive": map[string]any{
+			"type": "flow", "body": map[string]any{"text": "Details"}, "action": map[string]any{"name": "flow", "parameters": params},
+		}}, "", http.StatusAccepted, &msg)
+		if err := h.runSend(tenant, msg.ID, 1); err != nil {
+			t.Fatal(err)
+		}
+		h.meta.mu.Lock()
+		defer h.meta.mu.Unlock()
+		body := h.meta.sent[len(h.meta.sent)-1]
+		return body["interactive"].(map[string]any)["action"].(map[string]any)["parameters"].(map[string]any)
+	}
+	if got := send(map[string]any{"flow_message_version": "3", "flow_id": f.MetaFlowID, "flow_cta": "Open"}); got["mode"] != "draft" {
+		t.Fatalf("draft Flow sent without mode draft: %v", got)
+	}
+	// A mode the caller set, and Flows that are not ours, are left alone.
+	if got := send(map[string]any{"flow_message_version": "3", "flow_id": f.MetaFlowID, "flow_cta": "Open", "mode": "published"}); got["mode"] != "published" {
+		t.Fatalf("caller's mode changed: %v", got)
+	}
+	if got := send(map[string]any{"flow_message_version": "3", "flow_id": "999", "flow_cta": "Open"}); got["mode"] != nil {
+		t.Fatalf("unknown Flow got a mode: %v", got)
+	}
+
+	// A refused publish says what Meta's health_status blames; refresh returns the health.
+	h.meta.mu.Lock()
+	h.meta.publishErr = `{"error":{"message":"Integrity requirements not met.","code":139000}}`
+	h.meta.flowHealth = `{"can_send_message":"BLOCKED","entities":[{"entity_type":"WABA","id":"1","can_send_message":"BLOCKED","errors":[{"error_code":139000,"error_description":"Blocked by integrity."}]}]}`
+	h.meta.mu.Unlock()
+	var e struct {
+		Error struct {
+			Message       string `json:"message"`
+			MetaErrorCode int    `json:"meta_error_code"`
+		} `json:"error"`
+	}
+	c.do("POST", "/v1/flows/"+f.ID.String()+"/publish", nil, http.StatusUnprocessableEntity, &e)
+	if e.Error.MetaErrorCode != 139000 || !strings.Contains(e.Error.Message, "WABA: Blocked by integrity.") {
+		t.Fatalf("publish error = %+v", e.Error)
+	}
+	var fresh flows.Flow
+	c.do("POST", "/v1/flows/"+f.ID.String()+"/refresh", nil, http.StatusOK, &fresh)
+	if fresh.Health == nil || fresh.Health.CanSendMessage != "BLOCKED" || len(fresh.Health.Problems()) != 1 {
+		t.Fatalf("health = %+v", fresh.Health)
+	}
+}
+
+// Flow alerts on the flows webhook field are accepted without changing the Flow.
+func TestFlowsAlertWebhook(t *testing.T) {
+	h := newHarness(t)
+	if err := h.webhook("flows", `{"event":"FLOW_VERSION_EXPIRY_WARNING","flow_id":"flow-9","warning":"Your current Flow version will freeze in 21 days."}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.webhook("flows", `{"event":"CLIENT_ERROR_RATE","flow_id":"flow-9","error_rate":12,"threshold":10,"alert_state":"ACTIVATED"}`); err != nil {
+		t.Fatal(err)
 	}
 }

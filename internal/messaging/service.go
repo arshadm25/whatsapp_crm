@@ -311,6 +311,10 @@ func (s *Service) queue(ctx context.Context, q *dbq.Queries, tx pgx.Tx, p auth.P
 		return Message{}, unprocessable("number_not_connected", "phone_number_id", "This number is not connected. Reconnect it from Numbers.")
 	}
 
+	if err := draftFlowMode(ctx, q, content); err != nil {
+		return Message{}, err
+	}
+
 	contact, err := q.UpsertContactFromWhatsApp(ctx, dbq.UpsertContactFromWhatsAppParams{ID: db.NewID(), TenantID: p.TenantID, WaID: req.To})
 	if err != nil {
 		return Message{}, err
@@ -861,5 +865,45 @@ func checkCarousel(raw json.RawMessage) error {
 			return httpx.BadRequest(p+".action", "Every card must have the same button type and number of buttons.")
 		}
 	}
+	return nil
+}
+
+// draftFlowMode adds mode "draft" to a Flow message that names one of the workspace's draft Flows
+// and sets no mode. Meta sends the published version unless told otherwise, so a draft that was
+// never published cannot be opened without it. A mode the caller set is left alone.
+func draftFlowMode(ctx context.Context, q *dbq.Queries, content map[string]any) error {
+	raw, ok := content["interactive"].(json.RawMessage)
+	if !ok {
+		return nil
+	}
+	var msg map[string]any
+	if json.Unmarshal(raw, &msg) != nil || msg["type"] != "flow" {
+		return nil
+	}
+	action, _ := msg["action"].(map[string]any)
+	params, _ := action["parameters"].(map[string]any)
+	flowID, _ := params["flow_id"].(string)
+	if flowID == "" {
+		return nil
+	}
+	if _, set := params["mode"]; set {
+		return nil
+	}
+	f, err := q.GetFlowByMetaID(ctx, flowID)
+	if db.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if f.Status != "draft" {
+		return nil
+	}
+	params["mode"] = "draft"
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	content["interactive"] = json.RawMessage(b)
 	return nil
 }
