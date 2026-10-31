@@ -1,13 +1,20 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import type { TFunction } from "i18next";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers, useTags, useTemplates } from "../api/hooks";
 import type { AudienceCounts, Campaign, CampaignStatus, Page, Recipient, RecipientStatus } from "../api/types";
-import { CONTACT_FIELDS, campaignSupported, fieldToken, previewBody, templateSlots } from "../lib/campaigns";
+import {
+  CONTACT_FIELDS, campaignSupported, estimateSend, fieldToken, previewBody, previewText, templateSlots, type SendEstimate,
+} from "../lib/campaigns";
 import Icon, { type IconName } from "../components/Icon";
-import { highestTier, tierLabel } from "../lib/numbers";
+import { dailyLimit } from "../lib/numbers";
+import { initials } from "../lib/time";
+
+// The server's rate when a campaign leaves it empty (campaigns.DefaultRate).
+const DEFAULT_RATE = 1000;
 
 const STATUS_PILL: Record<CampaignStatus, string> = {
   draft: "",
@@ -67,8 +74,6 @@ export default function Campaigns() {
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const numbers = usePhoneNumbers();
-  const connected = (numbers.data ?? []).filter((n) => n.status === "connected");
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
   }, [location, navigate]);
@@ -112,30 +117,39 @@ export default function Campaigns() {
 
   const needle = search.trim().toLowerCase();
   const shown = needle ? campaigns.filter((c) => c.name.toLowerCase().includes(needle) || c.template.name.includes(needle)) : campaigns;
-  const tier = highestTier(connected.map((n) => n.messaging_limit_tier));
+  const composing = creating || !!editing;
+  const none = !list.isLoading && !list.isError && all.length === 0;
+  const openNew = () => { setPickedIds(null); setEditing(null); setSelected(null); setCreating(true); };
+  const closeForm = () => { setCreating(false); setEditing(null); setPickedIds(null); };
 
   return (
     <section>
       <div className="page-head">
         <div>
-          <h1>{t("campaigns.title")}</h1>
-          <p className="sub">{t("campaigns.intro")}</p>
+          <h1>{composing ? (editing ? t("campaigns.editTitle", { name: editing.name }) : t("campaigns.new")) : t("campaigns.title")}</h1>
+          <p className="sub">{composing ? t("campaigns.formIntro") : t("campaigns.intro")}</p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={() => { setPickedIds(null); setEditing(null); setCreating(!creating); }}><Icon name="plus" size="s" />{t("campaigns.new")}</button>
+          {composing ? (
+            <button type="button" onClick={closeForm}><Icon name="x" size="s" />{t("campaigns.backToList")}</button>
+          ) : (
+            !none && <button className="primary" onClick={openNew}><Icon name="plus" size="s" />{t("campaigns.new")}</button>
+          )}
         </div>
       </div>
-      {(creating || editing) && (
+
+      {composing ? (
         <NewCampaign
           key={editing?.id ?? "new"}
           editing={editing}
           contactIds={editing ? editing.audience.contact_ids ?? null : pickedIds}
           onClearContacts={() => setPickedIds(null)}
-          onDone={(id) => { setCreating(false); setEditing(null); setPickedIds(null); setSelected(id); }}
-          onCancel={() => { setCreating(false); setEditing(null); }}
+          onDone={(id) => { closeForm(); setSelected(id); }}
+          onCancel={closeForm}
         />
-      )}
-
+      ) : none ? (
+        <FirstCampaign onStart={openNew} />
+      ) : (
       <div className="stack">
         {all.length > 0 && (
           <div className="grid g4">
@@ -180,7 +194,10 @@ export default function Campaigns() {
               </label>
             </div>
             {list.isLoading && <div className="cb muted">{t("common.loading")}</div>}
-            {!list.isLoading && shown.length === 0 && <div className="cb muted">{t("campaigns.empty")}</div>}
+            {list.isError && <div className="cb error">{t("common.error")}</div>}
+            {!list.isLoading && all.length > 0 && shown.length === 0 && (
+              <div className="cb muted">{needle ? t("campaigns.noMatch") : t("campaigns.emptyTab")}</div>
+            )}
             {shown.length > 0 && (
               <div className="table-wrap">
                 <table className="clickable">
@@ -246,20 +263,46 @@ export default function Campaigns() {
             )}
           </div>
           {selected && (
-            <CampaignDetail id={selected} onClose={() => setSelected(null)} onEdit={(c) => { setCreating(false); setEditing(c); }} />
+            <CampaignDetail id={selected} onClose={() => setSelected(null)} onEdit={(c) => { setCreating(false); setSelected(null); setEditing(c); }} />
           )}
         </div>
-        {tier && (
-          <div className="banner" style={{ margin: 0 }}>
-            <Icon name="alert" size="s" />
-            <div>
-              <b>{t("campaigns.pacedTitle")}</b>
-              <span>{t("campaigns.pacedText", { limit: tierLabel(tier, t("numbers.unlimited")) })}</span>
-            </div>
-          </div>
-        )}
       </div>
+      )}
     </section>
+  );
+}
+
+// FirstCampaign is the page before any campaign exists: what a campaign needs, with a link to
+// each place that sets it up, and what is already done.
+function FirstCampaign({ onStart }: { onStart: () => void }) {
+  const { t } = useTranslation();
+  const numbers = usePhoneNumbers();
+  const templates = useTemplates();
+  const tags = useTags();
+  const hasNumber = (numbers.data ?? []).some((n) => n.status === "connected");
+  const hasTemplate = (templates.data ?? []).some((tp) => tp.status === "approved");
+  const hasTags = (tags.data ?? []).some((tg) => tg.contacts > 0);
+  const steps: { key: string; done: boolean; to: string }[] = [
+    { key: "number", done: hasNumber, to: "/numbers/connect" },
+    { key: "template", done: hasTemplate, to: "/templates/new" },
+    { key: "tags", done: hasTags, to: "/contacts" },
+  ];
+  return (
+    <div className="card camp-first">
+      <span className="camp-first-ic"><Icon name="megaphone" size="lg" /></span>
+      <h2>{t("campaigns.firstTitle")}</h2>
+      <p className="muted">{t("campaigns.firstText")}</p>
+      <ol className="camp-setup">
+        {steps.map((s, i) => (
+          <li key={s.key} className={s.done ? "done" : ""}>
+            <span className="dot">{s.done ? <Icon name="check" size="xs" /> : i + 1}</span>
+            <span className="txt"><b>{t(`campaigns.first_${s.key}`)}</b><small>{t(`campaigns.first_${s.key}Hint`)}</small></span>
+            {s.done ? <span className="pill ok">{t("campaigns.firstDone")}</span> : <Link className="button sm" to={s.to}>{t(`campaigns.first_${s.key}Go`)}</Link>}
+          </li>
+        ))}
+      </ol>
+      <button className="primary" onClick={onStart} disabled={!hasNumber}><Icon name="plus" size="s" />{t("campaigns.new")}</button>
+    </div>
   );
 }
 
@@ -278,6 +321,7 @@ function NewCampaign({ editing, onDone, onCancel, contactIds, onClearContacts }:
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const me = useMe().data;
   const numbers = usePhoneNumbers();
   const allTemplates = useTemplates();
   const tags = useTags();
@@ -291,6 +335,8 @@ function NewCampaign({ editing, onDone, onCancel, contactIds, onClearContacts }:
   const [when, setWhen] = useState<"now" | "later">(editing?.scheduled_at ? "later" : "now");
   const [scheduledAt, setScheduledAt] = useState(editing?.scheduled_at ? localInput(editing.scheduled_at) : "");
   const [rate, setRate] = useState(editing ? String(editing.send_rate_per_min) : "");
+  const [reviewing, setReviewing] = useState(false);
+  const reviewRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // One key per form, so a double submit or a retry after a network error creates one campaign.
@@ -299,12 +345,18 @@ function NewCampaign({ editing, onDone, onCancel, contactIds, onClearContacts }:
   useEffect(() => {
     if (!phoneId && connected.length > 0) setPhoneId(connected[0].id);
   }, [phoneId, connected]);
+  // Bring the review summary into view when it opens below a long form.
+  useEffect(() => {
+    if (reviewing) reviewRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  }, [reviewing]);
 
   const number = connected.find((n) => n.id === phoneId);
   // Drafts may use a template still waiting for Meta's review; sending needs it approved.
   const choices = (allTemplates.data ?? []).filter(
     (tp) => number && tp.whatsapp_account_id === number.whatsapp_account_id && (tp.status === "approved" || tp.status === "pending" || tp.status === "draft"),
   );
+  const approved = choices.filter((tp) => tp.status === "approved");
+  const waiting = choices.filter((tp) => tp.status !== "approved");
   const template = choices.find((tp) => tp.id === templateId);
   const slots = useMemo(() => (template ? templateSlots(template.components) : []), [template]);
 
@@ -314,9 +366,15 @@ function NewCampaign({ editing, onDone, onCancel, contactIds, onClearContacts }:
       api<AudienceCounts>("POST", "/internal/campaigns/audience", contactIds ? { contact_ids: contactIds } : { tags: chosenTags }),
     enabled: chosenTags.length > 0 || !!contactIds?.length,
   });
+  const hasAudience = chosenTags.length > 0 || !!contactIds?.length;
+  const counts = hasAudience ? audience.data : undefined;
 
   const toggleTag = (name: string) =>
     setChosenTags((cur) => (cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]));
+
+  const limit = dailyLimit(number?.messaging_limit_tier);
+  const perMin = rate ? Number(rate) : DEFAULT_RATE;
+  const estimate = counts ? estimateSend(counts.eligible, perMin, limit) : null;
 
   const save = async (draft: boolean) => {
     if (!template) return;
@@ -344,143 +402,322 @@ function NewCampaign({ editing, onDone, onCancel, contactIds, onClearContacts }:
       onDone(res.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t("common.error"));
+      setReviewing(false);
     } finally {
       setBusy(false);
     }
   };
 
   if (numbers.data && connected.length === 0) {
-    return <div className="card muted">{t("campaigns.noNumber")}</div>;
+    return (
+      <div className="card camp-first">
+        <span className="camp-first-ic"><Icon name="phone" size="lg" /></span>
+        <h2>{t("campaigns.noNumberTitle")}</h2>
+        <p className="muted">{t("campaigns.noNumber")}</p>
+        <Link className="button primary" to="/numbers/connect">{t("campaigns.first_numberGo")}</Link>
+      </div>
+    );
   }
+
+  // What still stops the campaign from sending, shown as a checklist beside the form.
+  const valuesFilled = slots.every((s) => (vars[s.key] ?? "").trim() !== "");
+  const checks: { key: string; ok: boolean }[] = [
+    { key: "name", ok: name.trim() !== "" },
+    { key: "template", ok: !!template && template.status === "approved" },
+    { key: "values", ok: !!template && valuesFilled },
+    { key: "audience", ok: hasAudience && (counts?.eligible ?? 0) > 0 },
+    { key: "when", ok: when === "now" || scheduledAt !== "" },
+  ];
+  const ready = checks.every((c) => c.ok);
+  const passed = checks.filter((c) => c.ok).length;
+  const canSend = !busy && !!template && template.status === "approved" && hasAudience && audience.data?.eligible !== 0;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (!reviewing) {
+      setReviewing(true);
+      return;
+    }
     void save(false);
   };
 
+  const header = template?.components.find((c) => c.type.toUpperCase() === "HEADER");
+  const headerFormat = (header?.format ?? "TEXT").toUpperCase();
+  const footer = template?.components.find((c) => c.type.toUpperCase() === "FOOTER")?.text;
+  const buttons = template?.components.find((c) => c.type.toUpperCase() === "BUTTONS")?.buttons ?? [];
+  const skipped = counts ? counts.total - counts.eligible : 0;
+  const whenText = when === "later" && scheduledAt ? new Date(scheduledAt).toLocaleString() : t("campaigns.rightAway");
+
   return (
-    <form className="card form" onSubmit={submit}>
-      {editing && <h2>{t("campaigns.editTitle", { name: editing.name })}</h2>}
-      <div className="row">
-        <label className="field">
-          {t("campaigns.name")}
-          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} placeholder={t("campaigns.namePlaceholder")} />
-        </label>
-        <label className="field">
-          {t("campaigns.number")}
-          <select value={phoneId} onChange={(e) => { setPhoneId(e.target.value); setTemplateId(""); }}>
-            {connected.map((n) => (
-              <option key={n.id} value={n.id}>{n.display_phone_number}{n.verified_name ? ` · ${n.verified_name}` : ""}</option>
-            ))}
-          </select>
-          {number && (
-            <span className="muted small">{t("campaigns.limitHint", { tier: number.messaging_limit_tier ?? "TIER_250" })}</span>
-          )}
-        </label>
-      </div>
-
-      <label className="field">
-        {t("campaigns.template")}
-        <select value={templateId} onChange={(e) => { setTemplateId(e.target.value); setVars({}); }} required>
-          <option value="">{t("campaigns.pickTemplate")}</option>
-          {choices.map((tp) => (
-            <option key={tp.id} value={tp.id} disabled={!campaignSupported(tp.components)}>
-              {tp.name} ({tp.language}) · {t(`templates.category_${tp.category}`)}
-              {tp.status !== "approved" && ` · ${t(`templates.status_${tp.status}`)}`}
-            </option>
-          ))}
-        </select>
-        {number && choices.length === 0 && <span className="muted small">{t("campaigns.noTemplates")}</span>}
-      </label>
-
-      {template && slots.length > 0 && (
-        <fieldset className="vars">
-          <legend>{t("campaigns.variables")}</legend>
-          <span className="muted small">{t("campaigns.variablesHint")}</span>
-          {slots.map((s) => (
-            <div key={s.key} className="var-row">
-              <label className="field">
-                {t(`campaigns.slot_${s.part}`, { key: s.key.replace(/^(header|button)\.?/, "") })}
-                <input
-                  value={vars[s.key] ?? ""}
-                  onChange={(e) => setVars({ ...vars, [s.key]: e.target.value })}
-                  required
-                  type={s.media ? "url" : "text"}
-                  placeholder={s.media ? `https://…/${s.media}` : fieldToken("first_name", "there")}
-                />
-              </label>
-              {!s.media && (
-                <select
-                  aria-label={t("campaigns.insertField")}
-                  value=""
-                  onChange={(e) => e.target.value && setVars({ ...vars, [s.key]: (vars[s.key] ?? "") + fieldToken(e.target.value) })}
-                >
-                  <option value="">{t("campaigns.insertField")}</option>
-                  {CONTACT_FIELDS.map((f) => <option key={f} value={f}>{t(`campaigns.field_${f}`)}</option>)}
-                </select>
-              )}
-            </div>
-          ))}
-          <div className="preview small">{previewBody(template.components, vars)}</div>
-        </fieldset>
-      )}
-
-      <div className="field">
-        {t("campaigns.audience")}
-        {contactIds ? (
-          <div>
-            <span className="chip">{t("campaigns.pickedCount", { count: contactIds.length })}</span>
-            {!editing && <button type="button" className="link" onClick={onClearContacts}>{t("campaigns.useTags")}</button>}
-          </div>
-        ) : (
-        <div>
-          {(tags.data ?? []).map((tg) => (
-            <label key={tg.id} className={`chip selectable ${chosenTags.includes(tg.name) ? "on" : ""}`}>
-              <input type="checkbox" checked={chosenTags.includes(tg.name)} onChange={() => toggleTag(tg.name)} />
-              {tg.name} ({tg.contacts})
+    <div className="split camp-compose">
+      <form className="card flush tpl" onSubmit={submit}>
+        <fieldset className="camp-fs" disabled={reviewing || busy}>
+        <div className="sec">
+          <h3><span className="stepn">1</span>{t("campaigns.stepBasics")}</h3>
+          <div className="grid g2">
+            <label className="field">
+              {t("campaigns.name")}
+              <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} placeholder={t("campaigns.namePlaceholder")} />
+              <span className="hint">{t("campaigns.nameHint")}</span>
             </label>
-          ))}
-          {tags.data?.length === 0 && <span className="muted small">{t("campaigns.noTags")}</span>}
+            <label className="field">
+              {t("campaigns.number")}
+              <select value={phoneId} onChange={(e) => { setPhoneId(e.target.value); setTemplateId(""); }}>
+                {connected.map((n) => (
+                  <option key={n.id} value={n.id}>{n.display_phone_number}{n.verified_name ? ` · ${n.verified_name}` : ""}</option>
+                ))}
+              </select>
+              {number && (
+                <span className="hint">
+                  {limit < 0 ? t("campaigns.limitNone") : t("campaigns.limitPlain", { limit: limit.toLocaleString() })}{" "}
+                  <Link to="/numbers/limits">{t("campaigns.limitLink")}</Link>
+                </span>
+              )}
+            </label>
+          </div>
         </div>
-        )}
-        {audience.data && (
-          <span className="muted small">{t("campaigns.audienceCounts", { ...audience.data })}</span>
-        )}
-      </div>
 
-      <div className="row">
-        <div className="field">
-          {t("campaigns.when")}
-          <label className="check">
-            <input type="radio" checked={when === "now"} onChange={() => setWhen("now")} /> {t("campaigns.sendNow")}
-          </label>
-          <label className="check">
-            <input type="radio" checked={when === "later"} onChange={() => setWhen("later")} /> {t("campaigns.sendLater")}
-          </label>
-          {when === "later" && (
-            <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} required />
+        <div className="sec">
+          <h3><span className="stepn">2</span>{t("campaigns.stepMessage")}</h3>
+          {number && allTemplates.data && choices.length === 0 ? (
+            <div className="camp-callout">
+              <Icon name="file" size="s" />
+              <div>
+                <b>{t("campaigns.noTemplatesTitle")}</b>
+                <span>{t("campaigns.noTemplatesText")}</span>
+              </div>
+              <Link className="button sm" to="/templates/new">{t("campaigns.first_templateGo")}</Link>
+            </div>
+          ) : (
+            <label className="field">
+              {t("campaigns.template")}
+              <select value={templateId} onChange={(e) => { setTemplateId(e.target.value); setVars({}); }} required>
+                <option value="">{t("campaigns.pickTemplate")}</option>
+                {approved.length > 0 && (
+                  <optgroup label={t("campaigns.groupApproved")}>
+                    {approved.map((tp) => (
+                      <option key={tp.id} value={tp.id} disabled={!campaignSupported(tp.components)}>
+                        {tp.name} ({tp.language}) · {t(`templates.category_${tp.category}`)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {waiting.length > 0 && (
+                  <optgroup label={t("campaigns.groupWaiting")}>
+                    {waiting.map((tp) => (
+                      <option key={tp.id} value={tp.id} disabled={!campaignSupported(tp.components)}>
+                        {tp.name} ({tp.language}) · {t(`templates.status_${tp.status}`)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              {template && template.status !== "approved" ? (
+                <span className="hint warn-t">{t("campaigns.templateWaiting")}</span>
+              ) : approved.length === 0 && waiting.length > 0 ? (
+                <span className="hint">{t("campaigns.onlyWaiting")}</span>
+              ) : (
+                <span className="hint">{t("campaigns.templateHint")} <Link to="/templates">{t("campaigns.manageTemplates")}</Link></span>
+              )}
+            </label>
+          )}
+
+          {template && slots.length > 0 && (
+            <div className="samples">
+              <div className="sl"><b>{t("campaigns.variables")}</b></div>
+              <span className="hint">{t("campaigns.variablesHint")}</span>
+              {slots.map((s) => (
+                <div key={s.key} className="var-row">
+                  <label className="field">
+                    {t(`campaigns.slot_${s.part}`, { key: s.key.replace(/^(header|button)\.?/, "") })}
+                    <input
+                      value={vars[s.key] ?? ""}
+                      onChange={(e) => setVars({ ...vars, [s.key]: e.target.value })}
+                      required
+                      type={s.media ? "url" : "text"}
+                      placeholder={s.media ? `https://…/${s.media}` : fieldToken("first_name", "there")}
+                    />
+                  </label>
+                  {!s.media && (
+                    <select
+                      aria-label={t("campaigns.insertField")}
+                      value=""
+                      onChange={(e) => e.target.value && setVars({ ...vars, [s.key]: (vars[s.key] ?? "") + fieldToken(e.target.value) })}
+                    >
+                      <option value="">{t("campaigns.insertField")}</option>
+                      {CONTACT_FIELDS.map((f) => <option key={f} value={f}>{t(`campaigns.field_${f}`)}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
-        <label className="field">
-          {t("campaigns.rate")}
-          <input type="number" min={1} max={10000} value={rate} onChange={(e) => setRate(e.target.value)} placeholder="1000" />
-          <span className="muted small">{t("campaigns.rateHint")}</span>
-        </label>
-      </div>
 
-      {error && <div className="error">{error}</div>}
-      <div className="actions">
-        <button type="button" onClick={onCancel}>{t("common.cancel")}</button>
-        <button type="button" disabled={busy || !template || !name.trim()} onClick={() => save(true)}>{t("campaigns.saveDraft")}</button>
-        <button
-          className="primary"
-          disabled={busy || !template || template.status !== "approved" || (chosenTags.length === 0 && !contactIds?.length) || audience.data?.eligible === 0}
-        >
-          {when === "later" ? t("campaigns.schedule") : t("campaigns.start")}
-        </button>
-      </div>
-    </form>
+        <div className="sec">
+          <h3><span className="stepn">3</span>{t("campaigns.stepAudience")}</h3>
+          {contactIds ? (
+            <div className="camp-picked">
+              <span className="chip">{t("campaigns.pickedCount", { count: contactIds.length })}</span>
+              {!editing && <button type="button" className="lnk" onClick={onClearContacts}>{t("campaigns.useTags")}</button>}
+            </div>
+          ) : tags.data && tags.data.length === 0 ? (
+            <div className="camp-callout">
+              <Icon name="tag" size="s" />
+              <div>
+                <b>{t("campaigns.noTagsTitle")}</b>
+                <span>{t("campaigns.noTagsText")}</span>
+              </div>
+              <Link className="button sm" to="/contacts">{t("campaigns.first_tagsGo")}</Link>
+            </div>
+          ) : (
+            <div className="field">
+              {t("campaigns.audience")}
+              <div className="camp-tags">
+                {(tags.data ?? []).map((tg) => (
+                  <label key={tg.id} className={`chip selectable ${chosenTags.includes(tg.name) ? "on" : ""}`}>
+                    <input type="checkbox" checked={chosenTags.includes(tg.name)} onChange={() => toggleTag(tg.name)} />
+                    {tg.name} <span className="muted">{tg.contacts.toLocaleString()}</span>
+                  </label>
+                ))}
+              </div>
+              <span className="hint">{t("campaigns.audienceHint")}</span>
+            </div>
+          )}
+          {hasAudience && (
+            <div className="camp-reach" aria-live="polite">
+              {audience.isLoading ? (
+                <span className="muted">{t("campaigns.counting")}</span>
+              ) : counts ? (
+                <>
+                  <div className="camp-reach-main">
+                    <b>{counts.eligible.toLocaleString()}</b>
+                    <span>{t("campaigns.willReceive", { count: counts.eligible })}</span>
+                  </div>
+                  {skipped > 0 && (
+                    <div className="camp-reach-skip">
+                      <span>{t("campaigns.skippedTotal", { count: skipped })}</span>
+                      <ul>
+                        {counts.no_opt_in > 0 && <li>{t("campaigns.skipNoOptIn", { count: counts.no_opt_in })}</li>}
+                        {counts.opted_out > 0 && <li>{t("campaigns.skipOptedOut", { count: counts.opted_out })}</li>}
+                        {counts.blocked > 0 && <li>{t("campaigns.skipBlocked", { count: counts.blocked })}</li>}
+                      </ul>
+                    </div>
+                  )}
+                  {counts.total > 0 && counts.eligible === 0 && <span className="hint warn-t">{t("campaigns.nobodyEligible")}</span>}
+                </>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <div className="sec last">
+          <h3><span className="stepn">4</span>{t("campaigns.stepWhen")}</h3>
+          <div className="field">
+            {t("campaigns.when")}
+            <div className="segmented" role="radiogroup" aria-label={t("campaigns.when")}>
+              <button type="button" role="radio" aria-checked={when === "now"} className={when === "now" ? "on" : ""} onClick={() => setWhen("now")}>{t("campaigns.sendNow")}</button>
+              <button type="button" role="radio" aria-checked={when === "later"} className={when === "later" ? "on" : ""} onClick={() => setWhen("later")}>{t("campaigns.sendLater")}</button>
+            </div>
+            {when === "later" && (
+              <input type="datetime-local" className="camp-when" aria-label={t("campaigns.sendLater")} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} required />
+            )}
+          </div>
+          <details className="camp-adv" open={!!rate && rate !== String(DEFAULT_RATE)}>
+            <summary>{t("campaigns.advanced")}</summary>
+            <label className="field">
+              {t("campaigns.rate")}
+              <input type="number" min={1} max={10000} value={rate} onChange={(e) => setRate(e.target.value)} placeholder={String(DEFAULT_RATE)} />
+              <span className="hint">{t("campaigns.rateHelp", { rate: DEFAULT_RATE })}</span>
+            </label>
+          </details>
+        </div>
+        </fieldset>
+
+        {reviewing && (
+          <div ref={reviewRef} className="sec camp-review" role="region" aria-label={t("campaigns.reviewTitle")}>
+            <h3><Icon name="check" size="s" />{t("campaigns.reviewTitle")}</h3>
+            <dl>
+              <div><dt>{t("campaigns.number")}</dt><dd>{number ? `${number.display_phone_number}${number.verified_name ? ` · ${number.verified_name}` : ""}` : "—"}</dd></div>
+              <div><dt>{t("campaigns.template")}</dt><dd>{template ? `${template.name} (${template.language})` : "—"}</dd></div>
+              <div><dt>{t("campaigns.reviewReach")}</dt><dd>{counts ? t("campaigns.reviewReachValue", { count: counts.eligible, skipped }) : "—"}</dd></div>
+              <div><dt>{t("campaigns.when")}</dt><dd>{whenText}</dd></div>
+              {estimate && <div><dt>{t("campaigns.reviewTime")}</dt><dd>{estimateText(t, estimate, limit)}</dd></div>}
+            </dl>
+            <p className="hint">{t("campaigns.reviewNote")}</p>
+          </div>
+        )}
+
+        {error && <div className="error camp-error">{error}</div>}
+        <div className="camp-actions">
+          {reviewing ? (
+            <>
+              <button type="button" onClick={() => setReviewing(false)} disabled={busy}>{t("campaigns.backToEdit")}</button>
+              <button className="primary" disabled={!canSend}>
+                {busy ? t("common.loading") : when === "later" ? t("campaigns.confirmSchedule") : t("campaigns.confirmSend")}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={onCancel}>{t("common.cancel")}</button>
+              <span className="end-group">
+                <button type="button" disabled={busy || !template || !name.trim()} onClick={() => save(true)}>{t("campaigns.saveDraft")}</button>
+                <button className="primary" disabled={!canSend}>{t("campaigns.reviewBtn")}</button>
+              </span>
+            </>
+          )}
+        </div>
+      </form>
+
+      <aside className="stack">
+        <div className="card flush">
+          <div className="chd"><h2>{t("campaigns.preview")}</h2></div>
+          <div className="cb phone-wrap">
+            <div className="phone">
+              <div className="phone-head">
+                <span className="av">{initials(number?.verified_name || me?.tenant?.name || "")}</span>
+                <span><b>{number?.verified_name || me?.tenant?.name}</b><span>{t("templates.businessAccount")}</span></span>
+              </div>
+              <div className="phone-body">
+                {template ? (
+                  <>
+                    <div className="pbubble">
+                      {header && headerFormat === "TEXT" && header.text && <span className="ph">{previewText(header.text, vars, "header.")}</span>}
+                      {header && headerFormat !== "TEXT" && <span className="ph muted">{t(`templates.header_${headerFormat}`, { defaultValue: headerFormat })}</span>}
+                      {previewBody(template.components, vars)}
+                      {footer && <span className="pf">{footer}</span>}
+                      <span className="pt">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    {buttons.map((b, i) => <div key={i} className="pbtn">{b.text}</div>)}
+                  </>
+                ) : (
+                  <div className="pbubble muted">{t("campaigns.previewEmpty")}</div>
+                )}
+              </div>
+            </div>
+          </div>
+          {template && slots.some((s) => !s.media) && <div className="cf"><span>{t("campaigns.previewHint")}</span></div>}
+        </div>
+        <div className="card flush">
+          <div className="chd">
+            <div><h2>{t("campaigns.checks")}</h2></div>
+            <span className={`pill ${ready ? "ok" : "wa"}`}>{t("templates.checksCount", { passed, total: checks.length })}</span>
+          </div>
+          <ul className="lst cb">
+            {checks.map((c) => (
+              <li key={c.key} className={c.ok ? "ok" : "no"}><Icon name={c.ok ? "check" : "x"} size="s" />{t(`campaigns.check_${c.key}`)}</li>
+            ))}
+          </ul>
+          {estimate && <div className="cf"><span><Icon name="clock" size="xs" /> {estimateText(t, estimate, limit)}</span></div>}
+        </div>
+      </aside>
+    </div>
   );
+}
+
+function estimateText(t: TFunction, e: SendEstimate, limit: number): string {
+  if (e.kind === "days") return t("campaigns.estimateDays", { count: e.value, limit: limit.toLocaleString() });
+  return t("campaigns.estimateMinutes", { count: e.value });
 }
 
 // POST /v1/campaigns with an Idempotency-Key header, which the shared api() helper does not set.
