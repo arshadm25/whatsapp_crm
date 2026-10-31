@@ -1573,5 +1573,15 @@
     "hideDetails": "దాచు",
     "route": "రూట్",
     "requestId": "అభ్యర్థన ID"
+  },
+  "pager": {
+    "rangeOf": "{{total}}లో {{from}}–{{to}}",
+    "range": "{{from}}–{{to}}",
+    "perPage": "ఒక్కో పేజీకి",
+    "first": "మొదటి",
+    "prev": "మునుపటి",
+    "next": "తదుపరి",
+    "pageOf": "పేజీ {{page}} / {{pages}}",
+    "page": "పేజీ {{page}}"
   }
 }

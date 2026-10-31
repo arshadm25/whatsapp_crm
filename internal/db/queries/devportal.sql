@@ -96,3 +96,13 @@ LIMIT 20;
 
 -- name: PurgeAPIRequestLog :one
 SELECT purge_api_request_log(@cutoff::timestamptz, @batch::int)::bigint AS n;
+
+-- name: CountAPIRequestLog :one
+-- How many log rows match ListAPIRequestLog's filters (without paging).
+SELECT count(*)::int
+FROM api_request_log l
+WHERE (sqlc.narg(api_key_id)::uuid IS NULL OR l.api_key_id = sqlc.narg(api_key_id)::uuid)
+  AND (@status_class::int = 0 OR l.status / 100 = @status_class::int)
+  AND (@errors_only::bool = false OR l.status >= 400)
+  AND (@method::text = '' OR l.method = @method::text)
+  AND (@path::text = '' OR l.path ILIKE '%' || @path::text || '%');

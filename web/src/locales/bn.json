@@ -1573,5 +1573,15 @@
     "hideDetails": "লুকান",
     "route": "রুট",
     "requestId": "অনুরোধ ID"
+  },
+  "pager": {
+    "rangeOf": "{{total}}-এর মধ্যে {{from}}–{{to}}",
+    "range": "{{from}}–{{to}}",
+    "perPage": "প্রতি পৃষ্ঠায়",
+    "first": "প্রথম",
+    "prev": "আগের",
+    "next": "পরের",
+    "pageOf": "পৃষ্ঠা {{page}} / {{pages}}",
+    "page": "পৃষ্ঠা {{page}}"
   }
 }

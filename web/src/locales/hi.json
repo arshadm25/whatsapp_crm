@@ -1573,5 +1573,15 @@
     "hideDetails": "छिपाएँ",
     "route": "रूट",
     "requestId": "अनुरोध ID"
+  },
+  "pager": {
+    "rangeOf": "{{total}} में से {{from}}–{{to}}",
+    "range": "{{from}}–{{to}}",
+    "perPage": "प्रति पेज",
+    "first": "पहला",
+    "prev": "पिछला",
+    "next": "अगला",
+    "pageOf": "पेज {{page}} / {{pages}}",
+    "page": "पेज {{page}}"
   }
 }

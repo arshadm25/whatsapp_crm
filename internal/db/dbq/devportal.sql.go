@@ -275,6 +275,38 @@ func (q *Queries) CountAPICall(ctx context.Context, arg CountAPICallParams) erro
 	return err
 }
 
+const countAPIRequestLog = `-- name: CountAPIRequestLog :one
+SELECT count(*)::int
+FROM api_request_log l
+WHERE ($1::uuid IS NULL OR l.api_key_id = $1::uuid)
+  AND ($2::int = 0 OR l.status / 100 = $2::int)
+  AND ($3::bool = false OR l.status >= 400)
+  AND ($4::text = '' OR l.method = $4::text)
+  AND ($5::text = '' OR l.path ILIKE '%' || $5::text || '%')
+`
+
+type CountAPIRequestLogParams struct {
+	ApiKeyID    *uuid.UUID
+	StatusClass int32
+	ErrorsOnly  bool
+	Method      string
+	Path        string
+}
+
+// How many log rows match ListAPIRequestLog's filters (without paging).
+func (q *Queries) CountAPIRequestLog(ctx context.Context, arg CountAPIRequestLogParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countAPIRequestLog,
+		arg.ApiKeyID,
+		arg.StatusClass,
+		arg.ErrorsOnly,
+		arg.Method,
+		arg.Path,
+	)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const insertAPIKey = `-- name: InsertAPIKey :one
 INSERT INTO api_keys (id, tenant_id, name, prefix, key_hash, mode, phone_number_id, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

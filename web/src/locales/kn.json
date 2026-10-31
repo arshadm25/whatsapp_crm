@@ -1573,5 +1573,15 @@
     "hideDetails": "ಮರೆಮಾಡಿ",
     "route": "ರೂಟ್",
     "requestId": "ವಿನಂತಿ ID"
+  },
+  "pager": {
+    "rangeOf": "{{total}} ರಲ್ಲಿ {{from}}–{{to}}",
+    "range": "{{from}}–{{to}}",
+    "perPage": "ಪ್ರತಿ ಪುಟಕ್ಕೆ",
+    "first": "ಮೊದಲ",
+    "prev": "ಹಿಂದಿನ",
+    "next": "ಮುಂದಿನ",
+    "pageOf": "ಪುಟ {{page}} / {{pages}}",
+    "page": "ಪುಟ {{page}}"
   }
 }

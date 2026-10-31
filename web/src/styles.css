@@ -887,3 +887,7 @@ button.ql.on { background: var(--accent-soft); }
 .log-detail dt { color: var(--muted); }
 .log-detail dd { margin: 0; overflow-wrap: anywhere; }
 .dev-tabs { width: fit-content; max-width: 100%; }
+.pager { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
+.pager-size { display: inline-flex; align-items: center; gap: 8px; }
+.pager-size select { font: inherit; min-height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; }
+.pager-nav { display: inline-flex; align-items: center; gap: 8px; margin-inline-start: auto; }
