@@ -226,7 +226,8 @@ type LogEntry struct {
 }
 
 // listLogs serves the request log, newest first. Filters: api_key_id, status (2xx, 3xx, 4xx,
-// 5xx or errors), method, path (contains), before (an id, for the next page), limit.
+// 5xx or errors), method, path (contains), before (an id, for the next page), limit. The
+// response carries next_before (null on the last page) and total, the matching count.
 func (s *Service) listLogs(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	qs := r.URL.Query()
@@ -269,22 +270,34 @@ func (s *Service) listLogs(w http.ResponseWriter, r *http.Request) error {
 	// ILIKE wildcards in the search text are matched literally.
 	arg.Path = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(arg.Path)
 	out := []LogEntry{}
+	var total int32
+	var next *int64
+	lim := arg.Lim
+	arg.Lim = lim + 1 // one extra row tells whether there is a next page
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		rows, err := q.ListAPIRequestLog(r.Context(), arg)
+		if err != nil {
+			return err
+		}
+		if len(rows) > int(lim) {
+			rows = rows[:lim]
+			id := rows[len(rows)-1].ID
+			next = &id
+		}
 		for _, l := range rows {
 			out = append(out, LogEntry{ID: l.ID, APIKeyID: l.ApiKeyID, KeyName: l.KeyName, KeyPrefix: l.KeyPrefix,
 				Method: l.Method, Path: l.Path, Route: l.Route, Status: l.Status, DurationMs: l.DurationMs,
 				RequestID: l.RequestID, CreatedAt: l.CreatedAt})
 		}
+		total, err = q.CountAPIRequestLog(r.Context(), dbq.CountAPIRequestLogParams{ApiKeyID: arg.ApiKeyID,
+			StatusClass: arg.StatusClass, ErrorsOnly: arg.ErrorsOnly, Method: arg.Method, Path: arg.Path})
 		return err
 	})
 	if err != nil {
 		return err
 	}
-	resp := map[string]any{"data": out, "next_before": nil}
-	if len(out) == int(arg.Lim) {
-		resp["next_before"] = out[len(out)-1].ID
-	}
+	// total counts every matching request kept, for "1–50 of 2,556".
+	resp := map[string]any{"data": out, "next_before": next, "total": total}
 	httpx.JSON(w, http.StatusOK, resp)
 	return nil
 }

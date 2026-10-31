@@ -37,6 +37,7 @@ func TestDeveloperAnalyticsAndRequestLog(t *testing.T) {
 	var logs struct {
 		Data       []devportal.LogEntry `json:"data"`
 		NextBefore *int64               `json:"next_before"`
+		Total      int                  `json:"total"`
 	}
 	c.do("GET", "/internal/developers/logs", nil, http.StatusOK, &logs)
 	if len(logs.Data) != 4 || logs.Data[0].KeyName != "CRM" || logs.Data[0].Route != "/v1/phone-numbers" || logs.Data[0].Status != 200 || logs.NextBefore != nil {
@@ -47,15 +48,15 @@ func TestDeveloperAnalyticsAndRequestLog(t *testing.T) {
 		t.Fatalf("error logs = %+v", logs)
 	}
 	c.do("GET", "/internal/developers/logs?api_key_id="+shop.ID.String()+"&status=2xx&path=templ", nil, http.StatusOK, &logs)
-	if len(logs.Data) != 1 || logs.Data[0].Path != "/v1/templates" {
+	if len(logs.Data) != 1 || logs.Data[0].Path != "/v1/templates" || logs.Total != 1 {
 		t.Fatalf("filtered logs = %+v", logs)
 	}
 	c.do("GET", "/internal/developers/logs?limit=2", nil, http.StatusOK, &logs)
-	if len(logs.Data) != 2 || logs.NextBefore == nil {
+	if len(logs.Data) != 2 || logs.NextBefore == nil || logs.Total != 4 {
 		t.Fatalf("page 1 = %+v", logs)
 	}
 	c.do("GET", fmt.Sprintf("/internal/developers/logs?limit=2&before=%d", *logs.NextBefore), nil, http.StatusOK, &logs)
-	if len(logs.Data) != 2 || logs.Data[1].Path != "/v1/phone-numbers" {
+	if len(logs.Data) != 2 || logs.Data[1].Path != "/v1/phone-numbers" || logs.NextBefore != nil || logs.Total != 4 {
 		t.Fatalf("page 2 = %+v", logs)
 	}
 	c.do("GET", "/internal/developers/logs?status=teapot", nil, http.StatusBadRequest, nil)

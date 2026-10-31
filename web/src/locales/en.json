@@ -1574,5 +1574,15 @@
     "hideDetails": "Hide",
     "route": "Route",
     "requestId": "Request ID"
+  },
+  "pager": {
+    "rangeOf": "{{from}}–{{to}} of {{total}}",
+    "range": "{{from}}–{{to}}",
+    "perPage": "Per page",
+    "first": "First",
+    "prev": "Previous",
+    "next": "Next",
+    "pageOf": "Page {{page}} of {{pages}}",
+    "page": "Page {{page}}"
   }
 }

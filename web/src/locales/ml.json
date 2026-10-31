@@ -1574,5 +1574,15 @@
     "hideDetails": "മറയ്ക്കുക",
     "route": "റൂട്ട്",
     "requestId": "അഭ്യർത്ഥന ID"
+  },
+  "pager": {
+    "rangeOf": "{{total}}-ൽ {{from}}–{{to}}",
+    "range": "{{from}}–{{to}}",
+    "perPage": "ഓരോ പേജിലും",
+    "first": "ആദ്യം",
+    "prev": "മുമ്പത്തേത്",
+    "next": "അടുത്തത്",
+    "pageOf": "പേജ് {{page}} / {{pages}}",
+    "page": "പേജ് {{page}}"
   }
 }

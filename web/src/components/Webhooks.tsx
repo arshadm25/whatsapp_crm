@@ -1,10 +1,11 @@
 import { Fragment, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { usePhoneNumbers } from "../api/hooks";
 import type { CreatedWebhookEndpoint, Page, WebhookDelivery, WebhookEndpoint, WebhookEventType } from "../api/types";
 import Icon from "./Icon";
+import { Pager, usePager, type PageSize } from "./Pager";
 import { shortTime } from "../lib/time";
 
 const EVENTS: WebhookEventType[] = ["message.received", "message.media_ready", "message.status", "template.status", "number.quality", "bot.handoff", "flow.submission"];
@@ -183,16 +184,21 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
     queryFn: () => api<{ payload: unknown }>("GET", `/v1/webhook-endpoints/${endpoint.id}/deliveries/${payloadOf}`),
     enabled: !!payloadOf,
   });
-  const key = ["webhook-deliveries", endpoint.id, status];
+  const [size, setSize] = useState<PageSize>(50);
+  const pager = usePager<string>(`${endpoint.id}|${status}|${size}`);
+  const key = ["webhook-deliveries", endpoint.id, status, size, pager.cursor];
   const q = useQuery({
     queryKey: key,
     queryFn: () =>
-      api<Page<WebhookDelivery>>("GET", `/v1/webhook-endpoints/${endpoint.id}/deliveries?limit=50${status ? `&status=${status}` : ""}`),
-    refetchInterval: 10_000,
+      api<Page<WebhookDelivery>>("GET", `/v1/webhook-endpoints/${endpoint.id}/deliveries?limit=${size}${status ? `&status=${status}` : ""}${
+        pager.cursor ? `&cursor=${encodeURIComponent(pager.cursor)}` : ""}`),
+    placeholderData: keepPreviousData,
+    // Only the first page picks up new deliveries; later pages stay put while you read them.
+    refetchInterval: pager.page === 1 ? 10_000 : false,
   });
   const retry = async (d: WebhookDelivery) => {
     await api("POST", `/v1/webhook-endpoints/${endpoint.id}/deliveries/${d.id}/retry`);
-    await qc.invalidateQueries({ queryKey: key });
+    await qc.invalidateQueries({ queryKey: ["webhook-deliveries", endpoint.id] });
   };
   const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
   const recent = (q.data?.data ?? []).filter((d) => d.created_at >= dayAgo && d.status !== "pending");
@@ -213,7 +219,7 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
           <h2>{t("developers.deliveryLog")}</h2>
           <p>
             {endpoint.url}
-            {!status && recent.length > 0 && <> · {t("developers.successRate", { pct: Math.round((ok * 100) / recent.length), count: recent.length })}</>}
+            {!status && pager.page === 1 && recent.length > 0 && <> · {t("developers.successRate", { pct: Math.round((ok * 100) / recent.length), count: recent.length })}</>}
           </p>
         </div>
         <div className="segmented">
@@ -274,6 +280,12 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
             </tbody>
           </table>
         </div>
+      )}
+      {q.data && (q.data.data.length > 0 || pager.page > 1) && (
+        <Pager page={pager.page} size={size} shown={q.data.data.length} hasNext={!!q.data.next_cursor}
+          busy={q.isFetching && q.isPlaceholderData}
+          onPrev={pager.prev} onFirst={pager.first} onSize={setSize}
+          onNext={() => { if (q.data?.next_cursor) pager.next(q.data.next_cursor); }} />
       )}
     </div>
   );

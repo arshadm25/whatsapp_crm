@@ -1,10 +1,10 @@
 import { Fragment, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { useMe } from "../../api/hooks";
 import type { APIKey, APILogEntry, APILogSummary } from "../../api/types";
-import Icon from "../../components/Icon";
+import { Pager, usePager, type PageSize } from "../../components/Pager";
 import { canUseDevelopers, DevTabs, RangePicker, ShareRows, StackedBars, Stat, type DevRange } from "../../components/DevCharts";
 import { buckets, fill, ms, pct, statusTone } from "../../lib/devAnalytics";
 import { shortTime } from "../../lib/time";
@@ -122,20 +122,23 @@ function RequestLog({ keys }: { keys: APIKey[] }) {
   const [method, setMethod] = useState<(typeof METHODS)[number]>("");
   const [path, setPath] = useState("");
   const [open, setOpen] = useState<number | null>(null);
-  const params = new URLSearchParams({ limit: "50" });
+  const [size, setSize] = useState<PageSize>(50);
+  const params = new URLSearchParams({ limit: String(size) });
   if (key) params.set("api_key_id", key);
   if (status) params.set("status", status);
   if (method) params.set("method", method);
   if (path.trim()) params.set("path", path.trim());
-  const q = useInfiniteQuery({
-    queryKey: ["api-logs", params.toString()],
-    queryFn: ({ pageParam }) =>
-      api<{ data: APILogEntry[]; next_before: number | null }>("GET", `/internal/developers/logs?${params}${pageParam ? `&before=${pageParam}` : ""}`),
-    initialPageParam: 0,
-    getNextPageParam: (last) => last.next_before ?? undefined,
-    refetchInterval: 15_000,
+  const pager = usePager<number>(params.toString());
+  const q = useQuery({
+    queryKey: ["api-logs", params.toString(), pager.cursor],
+    queryFn: () =>
+      api<{ data: APILogEntry[]; next_before: number | null; total: number }>(
+        "GET", `/internal/developers/logs?${params}${pager.cursor ? `&before=${pager.cursor}` : ""}`),
+    placeholderData: keepPreviousData,
+    // Only the first page picks up new requests; later pages stay put while you read them.
+    refetchInterval: pager.page === 1 ? 15_000 : false,
   });
-  const rows = q.data?.pages.flatMap((p) => p.data) ?? [];
+  const rows = q.data?.data ?? [];
   const dayAgo = Date.now() - 24 * 3600_000;
 
   return (
@@ -206,10 +209,11 @@ function RequestLog({ keys }: { keys: APIKey[] }) {
           </table>
         </div>
       )}
-      {q.hasNextPage && (
-        <div className="cf">
-          <button disabled={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}><Icon name="refresh" size="xs" />{t("common.loadMore")}</button>
-        </div>
+      {q.data && (rows.length > 0 || pager.page > 1) && (
+        <Pager page={pager.page} size={size} shown={rows.length} total={q.data.total} hasNext={!!q.data.next_before}
+          busy={q.isFetching && q.isPlaceholderData}
+          onPrev={pager.prev} onFirst={pager.first} onSize={setSize}
+          onNext={() => { if (q.data?.next_before) pager.next(q.data.next_before); }} />
       )}
     </div>
   );

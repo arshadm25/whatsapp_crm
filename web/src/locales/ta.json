@@ -1574,5 +1574,15 @@
     "hideDetails": "மறை",
     "route": "வழி",
     "requestId": "கோரிக்கை ID"
+  },
+  "pager": {
+    "rangeOf": "{{total}}-இல் {{from}}–{{to}}",
+    "range": "{{from}}–{{to}}",
+    "perPage": "ஒரு பக்கத்திற்கு",
+    "first": "முதல்",
+    "prev": "முந்தைய",
+    "next": "அடுத்த",
+    "pageOf": "பக்கம் {{page}} / {{pages}}",
+    "page": "பக்கம் {{page}}"
   }
 }
