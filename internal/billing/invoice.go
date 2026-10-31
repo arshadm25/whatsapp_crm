@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/config"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -69,8 +70,7 @@ func ValidStateCode(c string) bool {
 	return len(c) == 2 && err == nil && ((n >= 1 && n <= 38) || n == 97 || n == 99)
 }
 
-func (s *Service) sellerParty() Party {
-	sl := s.seller
+func sellerParty(sl config.Seller) Party {
 	return Party{Name: sl.Name, GSTIN: sl.GSTIN, Address: sl.Address, StateCode: sl.GSTIN[:2]}
 }
 
@@ -78,8 +78,12 @@ func (s *Service) sellerParty() Party {
 // transaction that applied the webhook. It does nothing until the seller's GSTIN is set, and a
 // payment is invoiced once.
 func (s *Service) issueInvoice(ctx context.Context, q *dbq.Queries, tx pgx.Tx, tenantID uuid.UUID, pay *razorpay.Payment, description string, start, end *time.Time) error {
-	if s.seller.GSTIN == "" || pay == nil || pay.ID == "" || pay.Amount <= 0 {
+	if pay == nil || pay.ID == "" || pay.Amount <= 0 {
 		return nil
+	}
+	sl, err := LoadSeller(ctx, q, s.seller)
+	if err != nil || sl.GSTIN == "" {
+		return err
 	}
 	if pay.Currency != "" && pay.Currency != "INR" {
 		s.log.Warn("not invoicing a payment in another currency", "payment", pay.ID, "currency", pay.Currency)
@@ -88,7 +92,7 @@ func (s *Service) issueInvoice(ctx context.Context, q *dbq.Queries, tx pgx.Tx, t
 	if done, err := q.PaymentInvoiced(ctx, pay.ID); err != nil || done {
 		return err
 	}
-	seller := s.sellerParty()
+	seller := sellerParty(sl)
 	buyer := Party{}
 	prof, err := q.GetBillingProfile(ctx)
 	switch {
@@ -114,7 +118,7 @@ func (s *Service) issueInvoice(ctx context.Context, q *dbq.Queries, tx pgx.Tx, t
 	if place == "" {
 		place = seller.StateCode
 	}
-	tax := SplitGST(pay.Amount, s.seller.GSTRateBP, place == seller.StateCode)
+	tax := SplitGST(pay.Amount, sl.GSTRateBP, place == seller.StateCode)
 
 	now := s.now()
 	fy := FinancialYear(now)
@@ -125,14 +129,14 @@ func (s *Service) issueInvoice(ctx context.Context, q *dbq.Queries, tx pgx.Tx, t
 	sj, _ := json.Marshal(seller)
 	bj, _ := json.Marshal(buyer)
 	var sac *string
-	if s.seller.SAC != "" {
-		sac = &s.seller.SAC
+	if sl.SAC != "" {
+		sac = &sl.SAC
 	}
 	id := db.NewID()
 	rows, err := q.InsertInvoice(ctx, dbq.InsertInvoiceParams{
 		ID: id, TenantID: tenantID, Number: fmt.Sprintf("ECO/%s/%06d", fy, n), RazorpayPaymentID: pay.ID,
 		Description: description, PeriodStart: start, PeriodEnd: end, Sac: sac,
-		TotalMinor: pay.Amount, TaxableMinor: tax.Taxable, GstRateBp: int32(s.seller.GSTRateBP),
+		TotalMinor: pay.Amount, TaxableMinor: tax.Taxable, GstRateBp: int32(sl.GSTRateBP),
 		CgstMinor: tax.CGST, SgstMinor: tax.SGST, IgstMinor: tax.IGST, PlaceOfSupply: place,
 		Seller: sj, Buyer: bj, IssuedAt: now,
 	})
@@ -179,8 +183,13 @@ type Profile struct {
 
 func (s *Service) getProfile(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
-	out := map[string]any{"profile": nil, "invoicing": s.seller.GSTIN != ""}
+	out := map[string]any{"profile": nil, "invoicing": false}
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		sl, err := LoadSeller(r.Context(), q, s.seller)
+		if err != nil {
+			return err
+		}
+		out["invoicing"] = sl.GSTIN != ""
 		prof, err := q.GetBillingProfile(r.Context())
 		if db.IsNotFound(err) {
 			return nil

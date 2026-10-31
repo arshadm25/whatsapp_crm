@@ -159,8 +159,9 @@ func MonthStart(t time.Time) time.Time {
 // the month's first day when the workspace switched to paying through Ecogo mid-month. Run it
 // inside the tenant. It returns whether a statement was created.
 func Issue(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, loc *time.Location, month, from time.Time, p Params) (bool, error) {
-	if p.Seller.GSTIN == "" {
-		return false, nil
+	var err error
+	if p.Seller, err = billing.LoadSeller(ctx, q, p.Seller); err != nil || p.Seller.GSTIN == "" {
+		return false, err
 	}
 	if done, err := q.MetaFeeStatementExists(ctx, date(month)); err != nil || done {
 		return false, err

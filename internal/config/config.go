@@ -302,6 +302,10 @@ func parseMasterKeys(s string) (map[int][]byte, int, error) {
 
 var gstinPattern = regexp.MustCompile(`^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$`)
 
+// ValidGSTIN checks the shape of a 15-character GSTIN (upper case). It does not check the
+// checksum character or that the GSTIN is registered.
+func ValidGSTIN(g string) bool { return gstinPattern.MatchString(g) }
+
 func env(name, def string) string {
 	if v := os.Getenv(name); v != "" {
 		return v

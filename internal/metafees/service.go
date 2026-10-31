@@ -97,8 +97,13 @@ type MonthToDate struct {
 
 func (s *Service) overview(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
-	out := Overview{Statements: []Statement{}, Invoicing: s.seller.GSTIN != ""}
+	out := Overview{Statements: []Statement{}}
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		sl, err := billing.LoadSeller(r.Context(), q, s.seller)
+		if err != nil {
+			return err
+		}
+		out.Invoicing = sl.GSTIN != ""
 		t, err := q.GetTenant(r.Context(), p.TenantID)
 		if err != nil {
 			return err
@@ -131,7 +136,7 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		tot := Price(use.FeeMinor, s.markupBP, s.seller.GSTRateBP, true)
+		tot := Price(use.FeeMinor, s.markupBP, sl.GSTRateBP, true)
 		out.MonthToDate = &MonthToDate{Month: month.Format("2006-01"), Lines: use.Lines, FeeMinor: use.FeeMinor,
 			MarkupMinor: tot.MarkupMinor, EstimateMinor: tot.TotalMinor, Unrated: use.Unrated}
 		return nil

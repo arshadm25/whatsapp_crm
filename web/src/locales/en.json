@@ -1140,7 +1140,19 @@
     "changePlan": "Change plan",
     "changePlanHelp": "No payment is taken. Without an end date the plan runs until the owner pays for one. Workspaces paying through Razorpay are refused.",
     "planChanged": "Plan changed.",
-    "hiddenPlan": "hidden"
+    "hiddenPlan": "hidden",
+    "sellerTitle": "Seller on GST invoices",
+    "sellerHelp": "Printed on every invoice and Meta fee statement. Invoices already issued keep the details they were issued with. Leave the GSTIN empty to stop issuing invoices.",
+    "sellerFromSettings": "These come from the deployment settings until you save them here.",
+    "sellerOn": "Invoicing is on.",
+    "sellerOff": "Invoicing is off until a GSTIN is saved.",
+    "sellerName": "Legal name",
+    "sellerGstin": "GSTIN",
+    "sellerAddress": "Registered address",
+    "sellerSac": "SAC code (6 digits, confirm with your accountant)",
+    "sellerGstRate": "GST rate {{rate}}%, set in the deployment.",
+    "sellerSave": "Save seller details",
+    "sellerSaved": "Saved. New invoices use these details."
   },
   "billing": {
     "onPlan": "{{plan}} plan",
