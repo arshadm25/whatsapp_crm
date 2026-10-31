@@ -201,12 +201,17 @@ func (a *Agent) Answer(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, 
 	if in := strings.TrimSpace(opts.Instructions); in != "" {
 		extra = "- Additional guidance from the business: " + in + "\n"
 	}
+	model, err := ModelOverride(ctx, q)
+	if err != nil {
+		return Result{}, err
+	}
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	resp, err := a.provider.Complete(callCtx, Request{
 		System:    fmt.Sprintf(systemPrompt, business, extra, strings.TrimSpace(kb.String())),
 		Messages:  []Message{{Role: "user", Content: "<customer_message>\n" + question + "\n</customer_message>"}},
 		MaxTokens: 500,
+		Model:     model,
 	})
 	if err != nil {
 		a.log.Warn("ai answer failed", "tenant_id", tenantID, "error", err)
@@ -260,4 +265,19 @@ func ParseAnswer(s string) (answer string, confidence float64, handoff, ok bool)
 		v.Confidence = 1
 	}
 	return v.Answer, v.Confidence, v.Handoff, true
+}
+
+// ModelOverride returns the model saved in Admin > Settings, or "" to use ECOGO_AI_MODEL.
+func ModelOverride(ctx context.Context, q *dbq.Queries) (string, error) {
+	ps, err := q.GetPlatformSettings(ctx)
+	if db.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if ps.AiModel == nil {
+		return "", nil
+	}
+	return *ps.AiModel, nil
 }

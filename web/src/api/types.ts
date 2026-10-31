@@ -452,6 +452,8 @@ export interface AdminTenant {
   time_zone: string;
   created_at: string;
   meta_payment_mode: "direct" | "through_us";
+  // The workspace's own markup on Meta's fees in basis points, or null for the platform's.
+  meta_markup_bp: number | null;
 }
 
 // A workspace in the console's list, with its list columns.
@@ -825,4 +827,19 @@ export interface APILogSummary extends SeriesMeta {
   points: { bucket: string; calls: number; errors: number; p95_ms: number }[];
   by_route: { method: string; route: string; calls: number; errors: number; p95_ms: number }[];
   retention_days: number;
+}
+
+// One value in Admin > Settings: what applies now, the deployment's value, and whether staff saved their own.
+export interface PlatformSetting<T> {
+  value: T;
+  deployment: T;
+  overridden: boolean;
+}
+
+export interface PlatformSettings {
+  gst_rate_bp: PlatformSetting<number>;
+  meta_markup_bp: PlatformSetting<number>;
+  ai_model: PlatformSetting<string>;
+  ai_configured: boolean;
+  updated_at: string | null;
 }

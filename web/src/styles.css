@@ -446,6 +446,13 @@ li:last-child > .conv .conv-main { border-bottom: 0; }
 .ws-danger { border-color: var(--danger); }
 .ws-danger > h3 .i { color: var(--danger); }
 .segmented.tabs button { display: inline-flex; align-items: center; gap: 6px; }
+.pct-input { display: flex; align-items: center; gap: 8px; max-width: 200px; }
+.pct-input input { flex: 1; min-width: 0; }
+.pct-input > span { color: var(--muted); font-weight: 500; }
+.ws-action > .page-head { margin: 0; }
+.ws-action > .page-head > h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; line-height: 24px; }
+.ws-action > .page-head > h3 .i { color: var(--accent); }
+.ws-action > .banner { margin: 0; }
 .inline-note { align-self: center; max-width: 80%; margin: 4px 0; font-size: 12px; color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; padding: 4px 12px; text-align: center; box-shadow: var(--wa-shadow); }
 .bubble-tag { font-size: 11px; font-weight: 600; color: var(--accent-ink); margin-bottom: 2px; }
 .bubble-tag.phone { color: var(--wa-meta); font-weight: 500; }

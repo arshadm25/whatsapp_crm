@@ -384,7 +384,7 @@ func (q *Queries) TenantRequiresTwoFactor(ctx context.Context, id uuid.UUID) (bo
 
 const updateTenantSettings = `-- name: UpdateTenantSettings :one
 UPDATE tenants SET name = $2, legal_name = $3, timezone = $4, message_retention_days = $5, updated_at = now() WHERE id = $1
-RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor
+RETURNING id, name, slug, legal_name, status, suspended_reason, default_locale, timezone, message_retention_days, created_at, updated_at, meta_payment_mode, meta_payment_mode_since, require_two_factor, meta_markup_bp
 `
 
 type UpdateTenantSettingsParams struct {
@@ -419,6 +419,7 @@ func (q *Queries) UpdateTenantSettings(ctx context.Context, arg UpdateTenantSett
 		&i.MetaPaymentMode,
 		&i.MetaPaymentModeSince,
 		&i.RequireTwoFactor,
+		&i.MetaMarkupBp,
 	)
 	return i, err
 }

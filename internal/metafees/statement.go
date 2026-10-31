@@ -144,7 +144,9 @@ func Price(fee int64, markupBP, gstBP int, sameState bool) Totals {
 
 // Params are what issuing a statement needs besides the database.
 type Params struct {
-	Seller   config.Seller
+	Seller config.Seller
+	// MarkupBP is the deployment's markup; Issue replaces it with the workspace's or the
+	// platform's when either is set (see Markup).
 	MarkupBP int
 	Now      time.Time
 }
@@ -207,6 +209,13 @@ func Issue(ctx context.Context, q *dbq.Queries, tenantID uuid.UUID, loc *time.Lo
 	place := buyer.StateCode
 	if place == "" {
 		place = seller.StateCode
+	}
+	t, err := q.GetTenant(ctx, tenantID)
+	if err != nil {
+		return false, err
+	}
+	if p.MarkupBP, err = Markup(ctx, q, t.MetaMarkupBp, p.MarkupBP); err != nil {
+		return false, err
 	}
 	tot := Price(use.FeeMinor, p.MarkupBP, p.Seller.GSTRateBP, place == seller.StateCode)
 

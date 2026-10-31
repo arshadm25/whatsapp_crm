@@ -11,6 +11,7 @@ import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
 import { tierLabel } from "../lib/numbers";
 import MetaFeesAdmin, { PaymentMode } from "./AdminMetaFees";
+import AdminSettings, { MarkupCard } from "./AdminSettings";
 import Icon, { type IconName } from "../components/Icon";
 import ReasonField from "../components/ReasonField";
 import AdminShell, { ADMIN_TABS, adminPath, type AdminTab } from "../components/AdminShell";
@@ -79,6 +80,7 @@ export default function Admin() {
         <div>
           <h1>{tab === "overview" ? t("admin.title") : t(`admin.tab_${tab}`)}</h1>
           {tab === "overview" && <p className="sub">{t("admin.intro")}</p>}
+          {tab === "settings" && <p className="sub">{t("admin.settingsIntro")}</p>}
         </div>
       </div>
       {tab === "overview" && <Overview goTab={goTab} openTenant={(id) => navigate(`/admin/tenants?open=${encodeURIComponent(id)}`)} />}
@@ -90,6 +92,7 @@ export default function Admin() {
       {tab === "metaErrors" && <MetaErrors />}
       {tab === "deletions" && <Deletions />}
       {tab === "audit" && <Audit />}
+      {tab === "settings" && <AdminSettings />}
     </AdminShell>
   );
 }
@@ -394,6 +397,7 @@ function TenantPanel({ id, onBack }: { id: string; onBack: () => void }) {
           {sub?.status === "trialing" && <ExtendTrial key={`trial-${sub.current_period_end}`} id={id} sub={sub} />}
           {sub && <ChangePlan id={id} sub={sub} />}
           <PaymentMode key={d.meta_payment_mode} id={id} mode={d.meta_payment_mode} />
+          <MarkupCard key={`markup-${d.meta_markup_bp}`} id={id} own={d.meta_markup_bp} payingThroughUs={d.meta_payment_mode === "through_us"} />
         </div>
       )}
       {tab === "conversations" && <Conversations tenantId={id} />}
@@ -926,7 +930,7 @@ function SellerForm() {
         <label className="field">{t("admin.sellerSac")}<input value={f.sac} onChange={set("sac")} inputMode="numeric" pattern="[0-9]{6}" maxLength={6} /></label>
       </div>
       <label className="field">{t("admin.sellerAddress")}<textarea rows={2} value={f.address} onChange={set("address")} maxLength={500} required={f.gstin.trim() !== ""} /></label>
-      <p className="muted small">{t("admin.sellerGstRate", { rate: seller.data.gst_rate_bp / 100 })}</p>
+      <p className="muted small">{t("admin.sellerGstRateAdmin", { rate: seller.data.gst_rate_bp / 100 })} <Link to="/admin/settings">{t("admin.tab_settings")}</Link></p>
       {error && <div className="error">{error}</div>}
       {saved && <div className="muted small">{t("admin.sellerSaved")}</div>}
       <div className="actions">
