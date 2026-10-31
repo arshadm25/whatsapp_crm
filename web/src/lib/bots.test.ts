@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyFlow, layout, newNode, nextId, problems, renameNode, withoutNode, type BotFlow } from "./bots";
+import { belowAll, emptyFlow, layout, link, newNode, nextId, outlets, positions, problems, renameNode, withoutNode, type BotFlow } from "./bots";
 
 const flow = (): BotFlow => ({
   start: "menu",
@@ -89,5 +89,34 @@ describe("bot flows", () => {
     expect(problems(loop).map((p) => p.message).join()).toContain("loops");
     loop.nodes.b = { type: "question", text: "again?", var: "x", kind: "text", next: "a" };
     expect(problems(loop)).toEqual([]);
+  });
+
+  it("uses saved canvas places and falls back to the column layout", () => {
+    const f = { ...flow(), layout: { ask: { x: 500, y: 40 } } };
+    const at = positions(f);
+    expect(at.ask).toEqual({ x: 500, y: 40 });
+    expect(at.menu).toEqual({ x: 0, y: 0 });
+    expect(at.bye.x).toBeGreaterThan(0);
+    expect(belowAll(f).y).toBeGreaterThan(Math.max(...Object.values(at).map((p) => p.y)));
+  });
+
+  it("moves and drops canvas places with the node", () => {
+    const f = { ...flow(), layout: { ask: { x: 1, y: 2 }, bye: { x: 3, y: 4 } } };
+    expect(renameNode(f, "ask", "email").layout).toEqual({ email: { x: 1, y: 2 }, bye: { x: 3, y: 4 } });
+    expect(withoutNode(f, "bye").layout).toEqual({ ask: { x: 1, y: 2 } });
+    expect(withoutNode(flow(), "bye").layout).toBeUndefined();
+  });
+
+  it("links and unlinks each outlet", () => {
+    const f = flow();
+    expect(outlets(f.nodes.menu).map((o) => [o.handle, o.target])).toEqual([["button:0", "ask"], ["button:1", "bye"]]);
+    expect(outlets(f.nodes.bye)).toEqual([]);
+    expect(link(f.nodes.menu, "button:1", "orphan").buttons![1].next).toBe("orphan");
+    expect(link(f.nodes.menu, "button:0", "").buttons![0].next).toBeUndefined();
+    expect(link(f.nodes.ask, "next", "orphan").next).toBe("orphan");
+    const cond = newNode("condition");
+    expect(link(cond, "then", "bye").then).toBe("bye");
+    expect(link(link(cond, "then", "bye"), "then", "").then).toBe("");
+    expect(link(cond, "else", "bye").else).toBe("bye");
   });
 });
