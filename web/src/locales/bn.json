@@ -465,7 +465,12 @@
     "templateTag": "টেমপ্লেট",
     "optInSource": "সম্মতির উৎস",
     "optedIn": "সম্মতি দিয়েছেন",
-    "firstSeen": "প্রথম দেখা"
+    "firstSeen": "প্রথম দেখা",
+    "filter_unread": "অপঠিত",
+    "today": "আজ",
+    "yesterday": "গতকাল",
+    "typeMessage": "একটি বার্তা লিখুন",
+    "pickHint": "পড়তে ও উত্তর দিতে বাঁদিক থেকে একটি চ্যাট বেছে নিন।"
   },
   "developers": {
     "apiCalls": "API কল, গত ২৪ ঘণ্টা",
