@@ -1023,3 +1023,8 @@ button.ql.on { background: var(--accent-soft); }
 .profile-pick { max-width: 360px; margin-bottom: 16px; }
 .plain-list { margin: 0 0 12px; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-2); }
 .meters .hint { margin: 6px 0 0; }
+
+/* Modal dialog (admin Read messages) */
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; background: rgba(16, 24, 40, 0.45); overflow-y: auto; }
+.modal { width: min(640px, 100%); margin: 0; box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18); }
+.modal .page-head { margin-bottom: 0.5rem; }
