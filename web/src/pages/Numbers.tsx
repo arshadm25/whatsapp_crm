@@ -1,19 +1,23 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { useMe, usePhoneNumbers, useTemplates } from "../api/hooks";
-import NumberProfile from "./NumberProfile";
 import Icon from "../components/Icon";
+import NumbersHead from "./numbers/NumbersHead";
+import QualityAlerts from "./numbers/QualityAlerts";
 import type { PhoneNumber } from "../api/types";
 import { ago } from "../lib/time";
-import { TIERS, highestTier, tierLabel, tierValue } from "../lib/numbers";
+import { highestTier, registrationState, tierLabel, usageLevel, usagePct } from "../lib/numbers";
 
 const QUALITY_ORDER: PhoneNumber["quality_rating"][] = ["red", "yellow", "green", "unknown"];
-const QUALITY_PILL: Record<PhoneNumber["quality_rating"], string> = { green: "ok", yellow: "wa", red: "er", unknown: "" };
+export const QUALITY_PILL: Record<PhoneNumber["quality_rating"], string> = { green: "ok", yellow: "wa", red: "er", unknown: "" };
 const STATUS_PILL: Record<PhoneNumber["status"], string> = { connected: "ok", pending: "wa", disconnected: "", revoked: "er", error: "er" };
+const REGISTRATION_PILL = { registered: "ok", businessApp: "ok", notRegistered: "wa", none: "" } as const;
 
+// Numbers > Numbers: the numbers on the workspace's WhatsApp Business Accounts and their health.
+// The business profile and messaging limits have their own tabs.
 export default function Numbers() {
   const { t } = useTranslation();
   const q = usePhoneNumbers();
@@ -21,25 +25,7 @@ export default function Numbers() {
   const qc = useQueryClient();
   const role = useMe().data?.tenant?.role;
   const manager = role === "owner" || role === "admin";
-  const [editing, setEditing] = useState<string | null>(null);
-  const profileCard = useRef<HTMLDivElement>(null);
-  // The profile card sits below the table, already showing the first number, so the button
-  // must bring it into view or a click looks like it did nothing.
-  const editProfile = (id: string) => {
-    setEditing(id);
-    requestAnimationFrame(() => profileCard.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  };
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState("");
-  const sync = useMutation({
-    mutationFn: () => api<{ synced: number }>("POST", "/internal/numbers/sync"),
-    onSuccess: (r) => {
-      setError(null);
-      setNote(t("numbers.synced", { count: r.synced }));
-      void qc.invalidateQueries({ queryKey: ["phone-numbers"] });
-    },
-    onError: (e) => setError(e instanceof ApiError ? e.message : t("common.error")),
-  });
   const disconnect = useMutation({
     mutationFn: (id: string) => api("POST", `/internal/numbers/${id}/disconnect`),
     onSuccess: () => {
@@ -51,31 +37,16 @@ export default function Numbers() {
   // Disconnected numbers are history, not something to manage, so the page leaves them out.
   const numbers = q.data?.filter((n) => n.status !== "disconnected");
   const live = numbers?.filter((n) => n.status === "connected") ?? [];
-  const editingNumber = numbers?.find((n) => n.id === editing) ?? live[0];
   const lowest = QUALITY_ORDER.find((r) => live.some((n) => n.quality_rating === r));
   const approved = templates.data?.filter((tp) => tp.status === "approved").length ?? 0;
   const pending = templates.data?.filter((tp) => tp.status === "pending").length ?? 0;
   const lastSync = (numbers ?? []).map((n) => n.last_synced_at).filter((x): x is string => !!x).sort().pop();
   const topTier = highestTier(live.map((n) => n.messaging_limit_tier));
-  const lowQuality = live.filter((n) => n.quality_dropped || n.quality_rating === "yellow" || n.quality_rating === "red");
+  const regs = (numbers ?? []).map(registrationState);
 
   return (
     <section>
-      <div className="page-head">
-        <div>
-          <h1>{t("numbers.title")}</h1>
-          <p className="sub">{t("numbers.intro")}</p>
-        </div>
-        <div className="actions">
-          {manager && !!numbers?.length && (
-            <button onClick={() => sync.mutate()} disabled={sync.isPending}>
-              <Icon name="refresh" size="s" />{sync.isPending ? t("numbers.syncing") : t("numbers.sync")}
-            </button>
-          )}
-          <Link className="button primary" to="/numbers/connect"><Icon name="plus" size="s" />{t("numbers.connect")}</Link>
-        </div>
-      </div>
-      {note && <div className="banner ok"><Icon name="check" size="s" /><div><span>{note}</span></div></div>}
+      <NumbersHead />
       {!!numbers?.length && (
         <div className="grid g4">
           <div className="card stat">
@@ -100,11 +71,12 @@ export default function Numbers() {
           </div>
         </div>
       )}
+      <QualityAlerts numbers={live} />
       {error && <div className="field-error">{error}</div>}
       {q.isLoading && <div className="muted">{t("common.loading")}</div>}
       {numbers?.length === 0 && <div className="card muted">{t("numbers.empty")}</div>}
       {!!numbers?.length && (
-        <div className="card table-wrap">
+        <div className="card table-wrap numbers-table">
           <div className="chd">
             <div>
               <h2>{t("numbers.tableTitle")}</h2>
@@ -115,116 +87,104 @@ export default function Numbers() {
             <thead>
               <tr>
                 <th>{t("numbers.number")}</th>
-                <th>{t("numbers.name")}</th>
                 <th>{t("numbers.status")}</th>
                 <th>{t("numbers.quality")}</th>
-                <th>{t("numbers.limit")}</th>
                 <th>{t("numbers.limitUsed")}</th>
                 <th>{t("numbers.registration")}</th>
                 <th className="r"><span className="sr-only">{t("numbers.actions")}</span></th>
               </tr>
             </thead>
             <tbody>
-              {numbers.map((n) => (
-                <tr key={n.id}>
-                  <td>
-                    <div className="who">
-                      <span className={n.status === "connected" ? "ic" : "ic gy"}><Icon name="phone" size="s" /></span>
-                      <span>
-                        <b>{n.display_phone_number}</b>
-                        <small>{n.is_coexistence ? t("numbers.coexistence") : n.id === live[0]?.id ? t("numbers.defaultSender") : "—"}</small>
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    {n.verified_name ?? "—"}
-                    {n.name_status && (
-                      <span className={`pill ${n.name_status === "APPROVED" ? "ok" : n.name_status === "DECLINED" ? "er" : "wa"}`} style={{ marginInlineStart: 6 }}>
-                        {t(`numbers.name_${n.name_status}`, { defaultValue: n.name_status.toLowerCase().replace(/_/g, " ") })}
-                      </span>
-                    )}
-                  </td>
-                  <td><span className={`pill ${STATUS_PILL[n.status]}`}>{t(`numbers.status_${n.status}`)}</span></td>
-                  <td>{n.quality_rating === "unknown" && n.status !== "connected" ? <span className="muted">—</span> : <span className={`pill ${QUALITY_PILL[n.quality_rating]}`}>{t(`numbers.quality_${n.quality_rating}`)}</span>}</td>
-                  <td className="num-t">{n.messaging_limit_tier ? tierLabel(n.messaging_limit_tier, t("numbers.unlimited")) : <span className="muted">—</span>}</td>
-                  <td className="num-t">
-                    {n.limit_used_today === undefined || n.daily_limit === undefined
-                      ? <span className="muted">—</span>
-                      : n.daily_limit < 0
-                        ? t("numbers.usedUnlimited", { used: n.limit_used_today.toLocaleString() })
-                        : `${n.limit_used_today.toLocaleString()} / ${n.daily_limit.toLocaleString()}`}
-                  </td>
-                  <td>
-                    {n.registered_at
-                      ? <span className="pill ok" title={new Date(n.registered_at).toLocaleString()}>{t("numbers.registered")}</span>
-                      : <span className="pill wa">{t("numbers.notRegistered")}</span>}
-                  </td>
-                  <td className="r">
-                    {/* Pending and errored numbers can be disconnected too: a pending one still takes a
-                        plan slot, and nothing else on this page frees it. */}
-                    {manager && (n.status === "connected" || n.status === "pending" || n.status === "error") && (
-                      <span className="actions" style={{ justifyContent: "flex-end" }}>
-                        {n.status === "connected" && <button className="sm" onClick={() => editProfile(n.id)}>{t("numbers.editProfile")}</button>}
-                        <button
-                          className="sm bdg"
-                          disabled={disconnect.isPending}
-                          onClick={() => {
-                            if (window.confirm(t("numbers.disconnectConfirm", { number: n.display_phone_number }))) disconnect.mutate(n.id);
-                          }}
+              {numbers.map((n, i) => {
+                const reg = regs[i];
+                return (
+                  <tr key={n.id}>
+                    <td>
+                      <div className="who">
+                        <span className={n.status === "connected" ? "ic" : "ic gy"}><Icon name="phone" size="s" /></span>
+                        <span className="num-cell">
+                          <b className="nowrap">{n.display_phone_number}</b>
+                          <small>
+                            {n.verified_name ?? t("numbers.noName")}
+                            {n.name_status && (
+                              <span className={`pill ${n.name_status === "APPROVED" || n.name_status === "AVAILABLE_WITHOUT_REVIEW" ? "ok" : n.name_status === "DECLINED" ? "er" : "wa"}`} title={t("numbers.nameStatusHint")}>
+                                {t(`numbers.name_${n.name_status}`, { defaultValue: n.name_status.toLowerCase().replace(/_/g, " ") })}
+                              </span>
+                            )}
+                          </small>
+                          <small>{n.is_coexistence ? t("numbers.coexistenceShort") : n.id === live[0]?.id ? t("numbers.defaultSender") : t("numbers.cloudApi")}</small>
+                        </span>
+                      </div>
+                    </td>
+                    <td><span className={`pill ${STATUS_PILL[n.status]}`}>{t(`numbers.status_${n.status}`)}</span></td>
+                    <td>{n.quality_rating === "unknown" && n.status !== "connected" ? <span className="muted">—</span> : <span className={`pill ${QUALITY_PILL[n.quality_rating]}`}>{t(`numbers.quality_${n.quality_rating}`)}</span>}</td>
+                    <td className="num-t">
+                      {n.limit_used_today === undefined || n.daily_limit === undefined ? (
+                        <span className="muted">—</span>
+                      ) : n.daily_limit < 0 ? (
+                        t("numbers.usedUnlimited", { used: n.limit_used_today.toLocaleString() })
+                      ) : (
+                        <div className="usage-cell" title={t("numbers.limitHint")}>
+                          <span className="nowrap">{t("numbers.usedOf", { used: n.limit_used_today.toLocaleString(), limit: n.daily_limit.toLocaleString() })}</span>
+                          <span className={`meter ${usageLevel(n.limit_used_today, n.daily_limit) === "ok" ? "" : usageLevel(n.limit_used_today, n.daily_limit)}`}>
+                            <span style={{ width: `${usagePct(n.limit_used_today, n.daily_limit)}%` }} />
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {reg === "none" ? (
+                        <span className="muted">—</span>
+                      ) : (
+                        <span
+                          className={`pill ${REGISTRATION_PILL[reg]}`}
+                          title={reg === "registered" ? new Date(n.registered_at!).toLocaleString() : t(`numbers.reg_${reg}Hint`)}
                         >
-                          {t("numbers.disconnect")}
-                        </button>
+                          {t(`numbers.reg_${reg}`)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="r">
+                      {/* Pending and errored numbers can be disconnected too: a pending one still takes a
+                          plan slot, and nothing else on this page frees it. */}
+                      <span className="actions nowrap" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                        {n.status === "connected" && (
+                          <Link className="button sm" to={`/numbers/profile?number=${n.id}`}>{t("numbers.editProfile")}</Link>
+                        )}
+                        {manager && (n.status === "connected" || n.status === "pending" || n.status === "error") && (
+                          <button
+                            className="sm bdg"
+                            disabled={disconnect.isPending}
+                            onClick={() => {
+                              if (window.confirm(t("numbers.disconnectConfirm", { number: n.display_phone_number }))) disconnect.mutate(n.id);
+                            }}
+                          >
+                            {t("numbers.disconnect")}
+                          </button>
+                        )}
+                        {manager && (n.status === "error" || n.status === "revoked") && (
+                          <Link className="button sm ghost" to="/numbers/connect">{t("numbers.reconnect")}</Link>
+                        )}
                       </span>
-                    )}
-                    {manager && (n.status === "disconnected" || n.status === "error" || n.status === "revoked") && (
-                      <Link className="button sm ghost" to="/numbers/connect">{t("numbers.reconnect")}</Link>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
-      )}
-      {(editingNumber || topTier) && (
-        <div className="split">
-          <div className="stack" ref={profileCard}>
-            {editingNumber && <NumberProfile key={editingNumber.id} number={editingNumber} canEdit={manager} />}
-          </div>
-          <aside className="stack">
-            {topTier && (
-              <div className="card flush">
-                <div className="chd"><div><h2>{t("numbers.tiersTitle")}</h2><p>{t("numbers.tiersHint")}</p></div></div>
-                <ol className="tiers">
-                  {TIERS.map((tier) => (
-                    <li key={tier} className={tier === topTier ? "current" : tierValue(tier) < tierValue(topTier) ? "passed" : ""}>
-                      <span className="td" />
-                      <b>{tierLabel(tier, t("numbers.unlimited"))}</b>
-                      {tier !== "TIER_UNLIMITED" && <span className="muted">{t("numbers.statLimitHint")}</span>}
-                      {tier === topTier && <span className="chip">{t("numbers.current")}</span>}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-            {lowQuality.map((n) => (
-              <div key={n.id} className="banner" style={{ margin: 0 }}>
-                <Icon name="alert" size="s" />
-                <div>
-                  <b>
-                    {n.quality_dropped && n.previous_quality_rating
-                      ? t("numbers.qualityDropped", {
-                          number: n.display_phone_number,
-                          from: t(`numbers.quality_${n.previous_quality_rating}`),
-                          to: t(`numbers.quality_${n.quality_rating}`),
-                        })
-                      : t("numbers.qualityAlert", { number: n.display_phone_number, rating: t(`numbers.quality_${n.quality_rating}`) })}
-                  </b>
-                  <span>{t("numbers.qualityAlertHint")}</span>
-                </div>
-              </div>
-            ))}
-          </aside>
+          <dl className="numbers-legend">
+            <div>
+              <dt>{t("numbers.limitUsed")}</dt>
+              <dd>{t("numbers.limitHint")} <Link to="/numbers/limits">{t("numbers.limitMore")}</Link></dd>
+            </div>
+            <div>
+              <dt>{t("numbers.registration")}</dt>
+              <dd>
+                {regs.includes("businessApp") ? t("numbers.reg_businessAppHint") + " " : ""}
+                {regs.includes("notRegistered") ? t("numbers.reg_notRegisteredHint") : !regs.includes("businessApp") ? t("numbers.reg_registeredHint") : ""}
+              </dd>
+            </div>
+          </dl>
         </div>
       )}
     </section>
