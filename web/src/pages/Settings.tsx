@@ -6,7 +6,7 @@ import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
 import MetaFees from "../components/MetaFees";
 import type { BillingOverview, BillingProfile, Invite, Invoice, Me, NotificationSetting, Role, TeamMember, Workspace } from "../api/types";
-import { daysLeft, formatPaise, graceEnd } from "../lib/billing";
+import { daysLeft, formatCount, formatPaise, graceEnd } from "../lib/billing";
 import { gstStates } from "../lib/gst";
 import { assignable } from "../lib/team";
 import Icon, { type IconName } from "../components/Icon";
@@ -591,6 +591,7 @@ function Billing() {
   const qc = useQueryClient();
   const billing = useQuery({ queryKey: ["billing"], queryFn: () => api<BillingOverview>("GET", "/internal/billing") });
   const [busy, setBusy] = useState("");
+  const [interval, setInterval] = useState<"month" | "year" | null>(null);
   const [extra, setExtra] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -612,6 +613,10 @@ function Billing() {
   if (!b) return <div className="card muted">{t("common.loading")}</div>;
   const sub = b.subscription;
   const end = new Date(sub.current_period_end).toLocaleDateString();
+  const free = b.plan?.free === true;
+  const anyYearly = b.plans.some((p) => p.yearly_available);
+  const shown = interval ?? (anyYearly && sub.billing_interval === "year" ? "year" : "month");
+  const limit = (n: number | null) => (n === null ? t("billing.noLimit") : formatCount(n));
 
   // pay opens Razorpay's pop-up (or the hosted page for older replies); false means no payment was needed.
   const pay = async (res: CheckoutReply): Promise<boolean> => {
@@ -630,14 +635,17 @@ function Billing() {
     }
     return false;
   };
-  const choose = async (code: string) => {
+  const choose = async (code: string, freePlan: boolean, name: string) => {
+    if (freePlan && !window.confirm(t("billing.confirmFree", { plan: name }))) return;
     setBusy(code);
     setError("");
     setNote("");
     try {
-      const res = await api<CheckoutReply & { scheduled?: boolean }>("POST", "/internal/billing/subscribe", { plan: code });
+      const res = await api<CheckoutReply & { scheduled?: boolean }>("POST", "/internal/billing/subscribe", {
+        plan: code, interval: freePlan ? "month" : shown,
+      });
       if (await pay(res)) return;
-      setNote(t("billing.changeScheduled"));
+      if (!freePlan) setNote(t("billing.changeScheduled"));
       await qc.invalidateQueries({ queryKey: ["billing"] });
     } catch (err) {
       setError(message(err, t("common.error")));
@@ -672,7 +680,8 @@ function Billing() {
     }
   };
   const cancel = async () => {
-    if (!window.confirm(sub.status === "trialing" ? t("billing.confirmDropPlan") : t("billing.confirmCancel", { date: end }))) return;
+    const ask = free ? `${t("billing.dropPlan")}?` : sub.status === "trialing" ? t("billing.confirmDropPlan") : t("billing.confirmCancel", { date: end });
+    if (!window.confirm(ask)) return;
     setError("");
     try {
       await api("POST", "/internal/billing/cancel");
@@ -687,6 +696,7 @@ function Billing() {
   else if (sub.status === "trialing") status = t("billing.trial", { count: daysLeft(sub.current_period_end), date: end });
   else if (sub.status === "past_due") status = t("billing.pastDue", { date: graceEnd(sub).toLocaleDateString() });
   else if (sub.status === "cancelled" || sub.cancel_at_period_end) status = t("billing.endsOn", { date: end });
+  else if (free) status = t("billing.freeStatus");
   else status = t("billing.renews", { date: end });
 
   return (
@@ -702,8 +712,17 @@ function Billing() {
             seats: b.seats, includedSeats: b.plan ? b.plan.included_seats + sub.extra_seats : "—",
           })}
         </p>
-        {b.plan && sub.status !== "cancelled" && !sub.cancel_at_period_end && (
-          <button className="link danger" onClick={cancel}>{sub.status === "trialing" ? t("billing.dropPlan") : t("billing.cancel")}</button>
+        {b.plan && (b.plan.contacts_limit !== null || b.plan.messages_per_month !== null) && (
+          <p className="muted small">
+            {t("billing.usageLimits", {
+              contacts: formatCount(b.contacts), contactsLimit: limit(b.plan.contacts_limit),
+              messages: formatCount(b.messages_this_month), messagesLimit: limit(b.plan.messages_per_month),
+              date: new Date(b.month_end).toLocaleDateString(),
+            })}
+          </p>
+        )}
+        {b.plan && sub.status !== "cancelled" && !sub.cancel_at_period_end && (!free || sub.payment_pending) && (
+          <button className="link danger" onClick={cancel}>{sub.status === "trialing" || free ? t("billing.dropPlan") : t("billing.cancel")}</button>
         )}
       </div>
       {b.plan?.extra_seats_available && sub.status === "active" && !sub.cancel_at_period_end && (
@@ -724,28 +743,63 @@ function Billing() {
       {!b.payments_enabled && <div className="card notice">{t("billing.paymentsOff")}</div>}
       {error && <div className="error">{error}</div>}
       {note && <div className="muted">{note}</div>}
-      <h2>{t("billing.plans")}</h2>
+      <div className="plans-head">
+        <h2>{t("billing.plans")}</h2>
+        {anyYearly && (
+          <div className="segmented" role="group" aria-label={t("billing.plans")}>
+            {(["month", "year"] as const).map((v) => (
+              <button key={v} type="button" className={shown === v ? "active" : ""} aria-pressed={shown === v} onClick={() => setInterval(v)}>
+                {v === "month" ? t("billing.monthly") : t("billing.yearly")}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {sub.status === "trialing" && b.plans.length > 0 && <p className="muted small">{t("billing.verifyNote", { date: end })}</p>}
       {b.plans.length === 0 ? (
         <div className="card muted">{t("billing.noPlans")}</div>
       ) : (
         <div className="plans">
           {b.plans.map((p) => {
-            const current = b.plan?.code === p.code && sub.status !== "cancelled";
+            const yearly = shown === "year" && p.yearly_available && !p.free;
+            const current = b.plan?.code === p.code && sub.status !== "cancelled" &&
+              (p.free || (sub.billing_interval === "year") === yearly);
+            const canChoose = p.free || (b.payments_enabled && (shown === "month" || p.yearly_available));
             return (
-              <div key={p.code} className={`card plan ${current ? "current" : ""}`}>
-                <h3>{p.name}</h3>
-                <div className="price">{formatPaise(p.price_minor)}<span className="muted small"> {t("billing.perMonth")}</span></div>
+              <div key={p.code} className={`card plan ${current ? "current" : ""} ${p.is_popular ? "popular" : ""}`}>
+                <div className="plan-top">
+                  <h3>{p.name}</h3>
+                  {p.is_popular && <span className="pill accent">{t("billing.popular")}</span>}
+                </div>
+                {p.free ? (
+                  <div className="price">{formatPaise(0)}<span className="muted small"> {t("billing.noPayment")}</span></div>
+                ) : yearly ? (
+                  <div className="price">{formatPaise(p.yearly_price_minor!)}<span className="muted small"> {t("billing.perYear")}</span></div>
+                ) : (
+                  <div className="price">
+                    {formatPaise(p.price_minor)}<span className="muted small"> {t("billing.perMonth")}</span>
+                    {shown === "year" && !p.yearly_available && <span className="muted small">{t("billing.monthlyOnly")}</span>}
+                  </div>
+                )}
+                <p className="muted small meta-fees">{t("billing.plusMetaFees")}</p>
+                {p.tagline && <p className="muted small">{p.tagline}</p>}
+                <dl className="plan-limits">
+                  <div><dt>{formatCount(p.included_numbers)}</dt><dd>{t("billing.limitNumbers")}</dd></div>
+                  <div><dt>{formatCount(p.included_seats)}</dt><dd>{t("billing.limitSeats")}</dd></div>
+                  <div><dt>{limit(p.contacts_limit)}</dt><dd>{t("billing.limitContacts")}</dd></div>
+                  <div><dt>{limit(p.messages_per_month)}</dt><dd>{t("billing.limitMessages")}</dd></div>
+                </dl>
                 <ul className="small">
-                  <li>{t("billing.numbers", { count: p.included_numbers })}</li>
-                  <li>{t("billing.seats", { count: p.included_seats })}</li>
+                  {p.highlights.map((h) => <li key={h}>{h}</li>)}
                   {p.extra_seat_minor > 0 && <li>{t("billing.extraSeat", { price: formatPaise(p.extra_seat_minor) })}</li>}
                 </ul>
                 {current ? (
                   <span className="pill">{t("billing.current")}</span>
                 ) : (
-                  <button className="primary" disabled={!b.payments_enabled || busy !== ""} onClick={() => choose(p.code)}>
-                    {busy === p.code ? t("billing.opening") : b.plan && sub.status === "active" ? t("billing.switch") : t("billing.choose")}
+                  <button className="primary" disabled={!canChoose || busy !== ""} onClick={() => choose(p.code, p.free, p.name)}>
+                    {busy === p.code ? (p.free ? "…" : t("billing.opening"))
+                      : p.free ? t("billing.startFree")
+                      : b.plan && !free && sub.status === "active" ? t("billing.switch") : t("billing.choose")}
                   </button>
                 )}
               </div>

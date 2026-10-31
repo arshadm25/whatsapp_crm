@@ -863,7 +863,10 @@ function TenantPlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetai
   );
 }
 
-const blankPlan = { code: "", name: "", price: "", seat: "", numbers: "1", seats: "3", ai: "0", razorpay: "", seatPlan: "", order: "0", active: true };
+const blankPlan = {
+  code: "", name: "", price: "", seat: "", numbers: "1", seats: "3", ai: "0", razorpay: "", seatPlan: "", order: "0", active: true,
+  contacts: "", messages: "", yearly: "", yearlyPlan: "", tagline: "", highlights: "", popular: false,
+};
 
 // Plans are set here because prices are decided by Ecogo, not fixed in code. Each plan also
 // needs a Razorpay plan with the same monthly amount, created in the Razorpay dashboard.
@@ -881,13 +884,17 @@ function Plans() {
       code: p.code, name: p.name, price: String(p.price_minor / 100), seat: String(p.extra_seat_minor / 100),
       numbers: String(p.included_numbers), seats: String(p.included_seats), ai: String(p.ai_replies_per_month ?? 0), razorpay: p.razorpay_plan_id ?? "", seatPlan: p.extra_seat_razorpay_plan_id ?? "",
       order: String(p.sort_order), active: p.is_active,
+      contacts: p.contacts_limit === null ? "" : String(p.contacts_limit), messages: p.messages_per_month === null ? "" : String(p.messages_per_month),
+      yearly: p.yearly_price_minor === null ? "" : String(p.yearly_price_minor / 100), yearlyPlan: p.yearly_razorpay_plan_id ?? "",
+      tagline: p.tagline, highlights: p.highlights.join("\n"), popular: p.is_popular,
     });
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (!form) return;
     setError("");
     const price = rupeesToPaise(form.price), seat = rupeesToPaise(form.seat || "0");
-    if (price === null || seat === null) {
+    const yearly = form.yearly.trim() === "" ? null : rupeesToPaise(form.yearly);
+    if (price === null || seat === null || (form.yearly.trim() !== "" && yearly === null)) {
       setError(t("admin.badPrice"));
       return;
     }
@@ -897,6 +904,10 @@ function Plans() {
         included_seats: Number(form.seats), ai_replies_per_month: Number(form.ai), razorpay_plan_id: form.razorpay.trim() || null,
         extra_seat_razorpay_plan_id: form.seatPlan.trim() || null, sort_order: Number(form.order),
         is_active: form.active,
+        contacts_limit: form.contacts.trim() === "" ? null : Number(form.contacts),
+        messages_per_month: form.messages.trim() === "" ? null : Number(form.messages),
+        yearly_price_minor: yearly, yearly_razorpay_plan_id: form.yearlyPlan.trim() || null,
+        tagline: form.tagline, highlights: form.highlights.split("\n"), is_popular: form.popular,
       });
       setForm(null);
       await qc.invalidateQueries({ queryKey: ["admin", "plans"] });
@@ -904,8 +915,8 @@ function Plans() {
       setError(message(err, t("common.error")));
     }
   };
-  const set = (k: keyof typeof blankPlan) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm({ ...form!, [k]: k === "active" ? e.target.checked : e.target.value });
+  const set = (k: keyof typeof blankPlan) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm({ ...form!, [k]: k === "active" || k === "popular" ? (e.target as HTMLInputElement).checked : e.target.value });
 
   return (
     <>
@@ -928,9 +939,21 @@ function Plans() {
             {plans.data?.map((p) => (
               <tr key={p.code}>
                 <td>{p.name} <span className="muted small">{p.code}</span> {!p.is_active && <span className="pill">{t("admin.hidden")}</span>}</td>
-                <td>{formatPaise(p.price_minor)}<div className="muted small">{t("admin.extraSeat", { price: formatPaise(p.extra_seat_minor) })}</div></td>
-                <td className="small">{t("admin.includesValue", { numbers: p.included_numbers, seats: p.included_seats })} · {t("admin.aiRepliesValue", { count: p.ai_replies_per_month ?? 0 })}</td>
-                <td className="small">{p.razorpay_plan_id ?? <span className="danger-text">{t("admin.notPayable")}</span>}</td>
+                <td>
+                  {formatPaise(p.price_minor)}
+                  {p.yearly_price_minor !== null && <div className="muted small">{t("admin.yearlyValue", { price: formatPaise(p.yearly_price_minor) })}</div>}
+                  <div className="muted small">{t("admin.extraSeat", { price: formatPaise(p.extra_seat_minor) })}</div>
+                </td>
+                <td className="small">
+                  {t("admin.includesValue", { numbers: p.included_numbers, seats: p.included_seats })} · {t("admin.aiRepliesValue", { count: p.ai_replies_per_month ?? 0 })}
+                  {(p.contacts_limit !== null || p.messages_per_month !== null) && (
+                    <div className="muted">{t("admin.limitsValue", { contacts: p.contacts_limit ?? "∞", messages: p.messages_per_month ?? "∞" })}</div>
+                  )}
+                </td>
+                <td className="small">
+                  {p.free ? "—" : p.razorpay_plan_id ?? <span className="danger-text">{t("admin.notPayable")}</span>}
+                  {p.yearly_razorpay_plan_id && <div className="muted">{p.yearly_razorpay_plan_id}</div>}
+                </td>
                 <td><button className="link" onClick={() => edit(p)}>{t("admin.edit")}</button></td>
               </tr>
             ))}
@@ -950,9 +973,16 @@ function Plans() {
             <label className="field">{t("admin.aiReplies")}<input type="number" min={0} value={form.ai} onChange={set("ai")} required /></label>
             <label className="field">{t("admin.razorpayPlan")}<input value={form.razorpay} onChange={set("razorpay")} placeholder="plan_…" /></label>
             <label className="field">{t("admin.seatRazorpayPlan")}<input value={form.seatPlan} onChange={set("seatPlan")} placeholder="plan_…" /></label>
+            <label className="field">{t("admin.contactsLimit")}<input type="number" min={0} value={form.contacts} onChange={set("contacts")} placeholder={t("admin.emptyNoLimit")} /></label>
+            <label className="field">{t("admin.messagesLimit")}<input type="number" min={0} value={form.messages} onChange={set("messages")} placeholder={t("admin.emptyNoLimit")} /></label>
+            <label className="field">{t("admin.yearlyPrice")}<input inputMode="decimal" value={form.yearly} onChange={set("yearly")} /></label>
+            <label className="field">{t("admin.yearlyRazorpayPlan")}<input value={form.yearlyPlan} onChange={set("yearlyPlan")} placeholder="plan_…" /></label>
             <label className="field">{t("admin.sortOrder")}<input type="number" value={form.order} onChange={set("order")} /></label>
             <label className="field check"><input type="checkbox" checked={form.active} onChange={set("active")} /> {t("admin.showToCustomers")}</label>
+            <label className="field check"><input type="checkbox" checked={form.popular} onChange={set("popular")} /> {t("admin.popular")}</label>
           </div>
+          <label className="field">{t("admin.tagline")}<input value={form.tagline} onChange={set("tagline")} maxLength={200} /></label>
+          <label className="field">{t("admin.highlights")}<textarea rows={5} value={form.highlights} onChange={set("highlights")} /></label>
           {error && <div className="error">{error}</div>}
           <div className="actions">
             <button type="button" onClick={() => setForm(null)}>{t("common.cancel")}</button>

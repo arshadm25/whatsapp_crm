@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -167,7 +168,7 @@ func (s *Service) importCSV(w http.ResponseWriter, r *http.Request) error {
 			return nil
 		}
 		err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
-			return s.importBatch(r.Context(), q, p, batch, attested, evidence, &res)
+			return s.importBatch(r.Context(), q, p, batch, attested, evidence, &res, skip)
 		})
 		batch = batch[:0]
 		return err
@@ -255,14 +256,29 @@ func (s *Service) importCSV(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (s *Service) importBatch(ctx context.Context, q *dbq.Queries, p auth.Principal, rows []importRow, attested bool, evidence string, res *ImportResult) error {
+func (s *Service) importBatch(ctx context.Context, q *dbq.Queries, p auth.Principal, rows []importRow, attested bool, evidence string, res *ImportResult, skip func(int, string)) error {
 	now := time.Now().UTC()
+	room, err := billing.ContactRoom(ctx, q)
+	if err != nil {
+		return err
+	}
 	for _, row := range rows {
 		c, err := q.UpsertContact(ctx, dbq.UpsertContactParams{
 			ID: db.NewID(), TenantID: p.TenantID, WaID: row.waID, Name: row.name, Language: row.lang, CustomFields: row.fields,
 		})
 		if err != nil {
 			return err
+		}
+		// Existing contacts are still updated once the plan's contacts are used up; new ones are not added.
+		if c.Inserted && room == 0 {
+			if err := q.DeleteNewContact(ctx, c.ID); err != nil {
+				return err
+			}
+			skip(row.line, "Your plan's contact limit is reached, so this new contact was not added.")
+			continue
+		}
+		if c.Inserted && room > 0 {
+			room--
 		}
 		if c.Inserted {
 			res.Created++

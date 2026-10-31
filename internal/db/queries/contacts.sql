@@ -116,3 +116,7 @@ SELECT count(*)::int FROM (
     FROM messages WHERE contact_id = $1 AND direction = 'inbound'
 ) m
 WHERE prev IS NULL OR created_at > prev + interval '24 hours';
+
+-- name: DeleteNewContact :exec
+-- Undoes a contact just created by an import that went over the plan's contact limit.
+DELETE FROM contacts WHERE id = $1;

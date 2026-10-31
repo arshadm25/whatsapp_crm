@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
@@ -148,6 +149,21 @@ func (w *Worker) batch(ctx context.Context, q *dbq.Queries, tx pgx.Tx, ins jobs.
 			log.Info("campaign waiting for the messaging limit", "limit", limit)
 			return w.now().Add(limitWait), nil
 		}
+	}
+
+	// The plan's messages for the month: the campaign pauses when they run out, and the owner
+	// resumes it after choosing a larger plan or when the next month starts.
+	room, err := billing.MessageRoom(ctx, q, w.now())
+	if err != nil {
+		return time.Time{}, err
+	}
+	if room != billing.Unlimited && room < size {
+		size = room
+	}
+	if size <= 0 {
+		log.Info("campaign paused: plan's monthly messages used up")
+		_, err := q.SetCampaignStatus(ctx, dbq.SetCampaignStatusParams{ID: c.ID, Status: dbq.CampaignStatusPaused})
+		return time.Time{}, err
 	}
 
 	rows, err := q.NextCampaignRecipients(ctx, dbq.NextCampaignRecipientsParams{CampaignID: c.ID, Lim: size})

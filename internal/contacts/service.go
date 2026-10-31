@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/arshadm25/whatsapp_crm/internal/auth"
+	"github.com/arshadm25/whatsapp_crm/internal/billing"
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/httpx"
@@ -299,6 +300,10 @@ func (s *Service) upsert(w http.ResponseWriter, r *http.Request) error {
 		created bool
 	)
 	err = s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		room, err := billing.ContactRoom(r.Context(), q)
+		if err != nil {
+			return err
+		}
 		row, err := q.UpsertContact(r.Context(), dbq.UpsertContactParams{
 			ID: db.NewID(), TenantID: p.TenantID, WaID: in.WaID, Name: nonEmpty(in.Name), Language: nonEmpty(in.Language), CustomFields: fields,
 		})
@@ -306,6 +311,10 @@ func (s *Service) upsert(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		created = row.Inserted
+		// Checked after the upsert so that updating an existing contact is never refused.
+		if created && room == 0 {
+			return billing.ErrContactLimit
+		}
 		if err := addTags(r.Context(), q, p.TenantID, row.ID, tags); err != nil {
 			return err
 		}
