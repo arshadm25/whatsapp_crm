@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInboxCounts, useLiveEvents, useMe, usePhoneNumbers } from "../api/hooks";
 import type { BillingOverview, Me } from "../api/types";
-import { daysLeft } from "../lib/billing";
+import { canUpgrade, daysLeft, formatCount, nearLimit } from "../lib/billing";
 import LanguagePicker from "./LanguagePicker";
 import Icon, { type IconName } from "./Icon";
 import NotificationBell from "./NotificationBell";
@@ -65,6 +65,8 @@ export default function Layout() {
   const numbers = usePhoneNumbers();
   const [resent, setResent] = useState(false);
   useLiveEvents();
+  const isOwner = me.tenant?.role === "owner";
+  const billing = useBilling(isOwner);
 
   const connected = numbers.data?.find((n) => n.status === "connected");
   const unread = useInboxCounts().data?.unread_conversations ?? 0;
@@ -135,6 +137,12 @@ export default function Layout() {
             ? `${connected.display_phone_number} · ${t("numbers.quality")} ${t(`numbers.quality_${connected.quality_rating}`)}`
             : t("nav.connectHint")}
         </Link>
+        {billing.data && canUpgrade(billing.data) && (
+          <Link className="upgrade" to="/settings?tab=billing">
+            <Icon name="chart" size="s" />
+            {t("billing.upgradeLink")}
+          </Link>
+        )}
         <LanguagePicker />
         <div className="me">
           <span className="av">{initials(me.user.name || me.user.email)}</span>
@@ -181,7 +189,7 @@ export default function Layout() {
               )}
             </div>
           )}
-          {me.tenant?.role === "owner" && <PlanBanner />}
+          {isOwner && <PlanBanner />}
           <ErrorBoundary resetKey={location.pathname}>
             <Outlet />
           </ErrorBoundary>
@@ -191,25 +199,42 @@ export default function Layout() {
   );
 }
 
-// PlanBanner warns the owner when sending has stopped or the trial is about to end.
-function PlanBanner() {
-  const { t } = useTranslation();
-  const billing = useQuery({
+// useBilling is the owner's billing overview, shared with the Billing settings tab.
+function useBilling(enabled: boolean) {
+  return useQuery({
     queryKey: ["billing"],
     queryFn: () => api<BillingOverview>("GET", "/internal/billing"),
     staleTime: 5 * 60_000,
+    enabled,
   });
-  const sub = billing.data?.subscription;
-  if (!sub) return null;
+}
+
+// PlanBanner warns the owner when sending has stopped, the trial is about to end, or the
+// month's messages or the contacts are nearly used up.
+function PlanBanner() {
+  const { t } = useTranslation();
+  const billing = useBilling(true);
+  const b = billing.data;
+  const sub = b?.subscription;
+  if (!b || !sub) return null;
   const days = daysLeft(sub.current_period_end);
   let text = "";
+  let action = t("billing.bannerAction");
+  const near = nearLimit(b);
   if (!sub.usable) text = t("billing.bannerEnded");
   else if (sub.status === "past_due") text = t("billing.bannerPastDue");
-  else if (sub.status === "trialing" && !billing.data?.plan && days <= 3) text = t("billing.bannerTrial", { count: days });
+  else if (sub.status === "trialing" && !b.plan && days <= 3) text = t("billing.bannerTrial", { count: days });
+  else if (near) {
+    const args = { used: formatCount(near.used), limit: formatCount(near.limit), date: new Date(b.month_end).toLocaleDateString() };
+    text = near.kind === "messages"
+      ? (near.used >= near.limit ? t("billing.bannerMessagesOut", args) : t("billing.bannerMessagesNear", args))
+      : (near.used >= near.limit ? t("billing.bannerContactsOut", args) : t("billing.bannerContactsNear", args));
+    if (canUpgrade(b)) action = t("billing.upgradeLink");
+  }
   if (!text) return null;
   return (
     <div className="banner">
-      {text} <Link to="/settings?tab=billing">{t("billing.bannerAction")}</Link>
+      {text} <Link to="/settings?tab=billing">{action}</Link>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { api, ApiError } from "../api/client";
 import { useMe } from "../api/hooks";
 import MetaFees from "../components/MetaFees";
 import type { BillingOverview, BillingProfile, Invite, Invoice, Me, NotificationSetting, Role, TeamMember, Workspace } from "../api/types";
-import { daysLeft, formatCount, formatPaise, graceEnd } from "../lib/billing";
+import { daysLeft, formatCount, formatPaise, graceEnd, monthlyPrice, paysRazorpay } from "../lib/billing";
 import { gstStates } from "../lib/gst";
 import { assignable } from "../lib/team";
 import Icon, { type IconName } from "../components/Icon";
@@ -635,17 +635,22 @@ function Billing() {
     }
     return false;
   };
-  const choose = async (code: string, freePlan: boolean, name: string) => {
+  const choose = async (code: string, freePlan: boolean, name: string, upgradeNow: boolean) => {
     if (freePlan && !window.confirm(t("billing.confirmFree", { plan: name }))) return;
+    if (upgradeNow && !window.confirm(t("billing.confirmUpgrade", { plan: name }))) return;
     setBusy(code);
     setError("");
     setNote("");
     try {
-      const res = await api<CheckoutReply & { scheduled?: boolean }>("POST", "/internal/billing/subscribe", {
+      const res = await api<CheckoutReply & { scheduled?: boolean; upgraded?: boolean }>("POST", "/internal/billing/subscribe", {
         plan: code, interval: freePlan ? "month" : shown,
       });
       if (await pay(res)) return;
-      if (!freePlan) setNote(t("billing.changeScheduled"));
+      if (res.upgraded) {
+        setNote(t("billing.upgraded", { plan: name }));
+        // The plan switches when Razorpay confirms the change, usually within a minute.
+        for (const ms of [4000, 15000, 45000]) setTimeout(() => void qc.invalidateQueries({ queryKey: ["billing"] }), ms);
+      } else if (!freePlan) setNote(t("billing.changeScheduled"));
       await qc.invalidateQueries({ queryKey: ["billing"] });
     } catch (err) {
       setError(message(err, t("common.error")));
@@ -695,6 +700,7 @@ function Billing() {
   if (!sub.usable) status = t("billing.ended");
   else if (sub.status === "trialing") status = t("billing.trial", { count: daysLeft(sub.current_period_end), date: end });
   else if (sub.status === "past_due") status = t("billing.pastDue", { date: graceEnd(sub).toLocaleDateString() });
+  else if (sub.admin_granted) status = sub.cancel_at_period_end ? t("billing.grantedUntil", { date: end }) : t("billing.granted");
   else if (sub.status === "cancelled" || sub.cancel_at_period_end) status = t("billing.endsOn", { date: end });
   else if (free) status = t("billing.freeStatus");
   else status = t("billing.renews", { date: end });
@@ -765,6 +771,12 @@ function Billing() {
             const current = b.plan?.code === p.code && sub.status !== "cancelled" &&
               (p.free || (sub.billing_interval === "year") === yearly);
             const canChoose = p.free || (b.payments_enabled && (shown === "month" || p.yearly_available));
+            // On a plan paid through Razorpay, a dearer plan billed the same way starts now;
+            // anything else waits for the next billing date.
+            const paying = paysRazorpay(b);
+            const dearer = !p.free && (!b.plan || b.plan.free ||
+              monthlyPrice(p, yearly ? "year" : "month") > monthlyPrice(b.plan, sub.billing_interval));
+            const upgradeNow = paying && dearer && (sub.billing_interval === "year") === yearly;
             return (
               <div key={p.code} className={`card plan ${current ? "current" : ""} ${p.is_popular ? "popular" : ""}`}>
                 <div className="plan-top">
@@ -796,10 +808,13 @@ function Billing() {
                 {current ? (
                   <span className="pill">{t("billing.current")}</span>
                 ) : (
-                  <button className="primary" disabled={!canChoose || busy !== ""} onClick={() => choose(p.code, p.free, p.name)}>
-                    {busy === p.code ? (p.free ? "…" : t("billing.opening"))
+                  <button className={dearer || !paying ? "primary" : ""} disabled={!canChoose || busy !== ""}
+                    onClick={() => choose(p.code, p.free, p.name, upgradeNow)}>
+                    {busy === p.code ? (p.free || paying ? "…" : t("billing.opening"))
                       : p.free ? t("billing.startFree")
-                      : b.plan && !free && sub.status === "active" ? t("billing.switch") : t("billing.choose")}
+                      : upgradeNow ? t("billing.upgradeNow")
+                      : paying ? t("billing.switchOn", { date: end })
+                      : b.plan && dearer ? t("billing.upgrade") : t("billing.choose")}
                   </button>
                 )}
               </div>

@@ -193,12 +193,23 @@ func TestBilling(t *testing.T) {
 	h.razorpayEvent("evt_4", "subscription.charged", charged, "whsec")
 	h.razorpayEvent("evt_x", "subscription.charged", map[string]any{"id": "sub_unknown"}, "whsec")
 
-	// Plan changes apply from the next cycle.
+	// An upgrade applies now; a move to a cheaper plan waits for the next cycle.
 	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "growth"}, http.StatusConflict, nil)
-	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "pro"}, http.StatusOK, nil)
+	var changed struct{ Scheduled, Upgraded bool }
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "pro"}, http.StatusOK, &changed)
 	call, body = h.razorpay.last()
-	if call != "PATCH /v1/subscriptions/sub_2" || body["plan_id"] != "plan_P1" || body["schedule_change_at"] != "cycle_end" {
-		t.Fatalf("change plan = %s %v", call, body)
+	if call != "PATCH /v1/subscriptions/sub_2" || body["plan_id"] != "plan_P1" || body["schedule_change_at"] != "now" || !changed.Upgraded || changed.Scheduled {
+		t.Fatalf("upgrade = %s %v %+v", call, body, changed)
+	}
+	h.razorpayEvent("evt_up", "subscription.updated", map[string]any{"id": "sub_2", "plan_id": "plan_P1", "status": "active"}, "whsec")
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan == nil || ov.Plan.Code != "pro" {
+		t.Fatalf("after upgrade = %+v", ov.Plan)
+	}
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "growth"}, http.StatusOK, &changed)
+	call, body = h.razorpay.last()
+	if body["plan_id"] != "plan_G1" || body["schedule_change_at"] != "cycle_end" || !changed.Scheduled || changed.Upgraded {
+		t.Fatalf("downgrade = %s %v %+v", call, body, changed)
 	}
 
 	// Cancelling keeps the paid month; once Razorpay ends it, sending stops.

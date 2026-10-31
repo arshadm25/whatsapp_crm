@@ -50,6 +50,8 @@ SET status = @status,
     current_period_end = coalesce(sqlc.narg(period_end), current_period_end),
     cancel_at_period_end = @cancel_at_period_end,
     billing_interval = coalesce(sqlc.narg(billing_interval), billing_interval),
+    -- A plan Razorpay reports replaces one granted from the admin console.
+    admin_granted = admin_granted AND sqlc.narg(plan_code)::text IS NULL,
     updated_at = now()
 WHERE tenant_id = @tenant_id
 RETURNING *;
@@ -111,8 +113,18 @@ FROM subscriptions s JOIN plans p ON p.code = s.plan_code;
 -- The free plan needs no payment: it starts now and runs until the owner chooses another plan.
 UPDATE subscriptions
 SET status = 'active', plan_code = @plan_code, billing_interval = 'month', provider_subscription_id = NULL,
-    cancel_at_period_end = false, current_period_start = @period_start, current_period_end = @period_end,
+    cancel_at_period_end = false, admin_granted = false, current_period_start = @period_start, current_period_end = @period_end,
     updated_at = now()
+WHERE tenant_id = @tenant_id
+RETURNING *;
+
+-- name: GrantPlan :one
+-- Staff put the workspace on a plan without Razorpay. With an end date (cancel_at_period_end)
+-- it stops at period_end; without one it runs until the owner pays for a plan.
+UPDATE subscriptions
+SET status = 'active', plan_code = @plan_code, billing_interval = 'month', provider_subscription_id = NULL,
+    admin_granted = true, cancel_at_period_end = @has_end, current_period_start = @period_start,
+    current_period_end = @period_end, updated_at = now()
 WHERE tenant_id = @tenant_id
 RETURNING *;
 

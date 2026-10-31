@@ -1132,7 +1132,15 @@
     "highlights": "Highlights, one per line",
     "popular": "Mark as most popular",
     "limitsValue": "{{contacts}} contacts · {{messages}} messages a month",
-    "yearlyValue": "{{price}} a year"
+    "yearlyValue": "{{price}} a year",
+    "grantedPlan": "plan set by Ecogo staff",
+    "planPaidRazorpay": "This workspace pays for its plan through Razorpay, so only its owner can change it.",
+    "changePlanTo": "Change plan to",
+    "planUntil": "Until (optional)",
+    "changePlan": "Change plan",
+    "changePlanHelp": "No payment is taken. Without an end date the plan runs until the owner pays for one. Workspaces paying through Razorpay are refused.",
+    "planChanged": "Plan changed.",
+    "hiddenPlan": "hidden"
   },
   "billing": {
     "onPlan": "{{plan}} plan",
@@ -1181,7 +1189,6 @@
     "extraSeatsDone": "Done. New seats appear once Razorpay confirms the charge.",
     "current": "Current plan",
     "choose": "Choose",
-    "switch": "Switch from next month",
     "opening": "Opening Razorpay…",
     "paymentReceived": "Payment received. Your plan will show as active in a moment.",
     "changeScheduled": "Done. The new plan starts with your next billing cycle.",
@@ -1226,7 +1233,19 @@
     "freeStatus": "No payment and no renewal date. Upgrade any time.",
     "usageLimits": "{{contacts}} of {{contactsLimit}} contacts, and {{messages}} of {{messagesLimit}} messages this month (resets {{date}}).",
     "confirmFree": "Move to the {{plan}} plan? Its limits apply from now.",
-    "plusMetaFees": "+ Meta's WhatsApp message fees, billed by Meta"
+    "plusMetaFees": "+ Meta's WhatsApp message fees, billed by Meta",
+    "upgrade": "Upgrade",
+    "upgradeNow": "Upgrade now",
+    "switchOn": "Switch on {{date}}",
+    "confirmUpgrade": "Upgrade to {{plan}} now? Its limits apply straight away, and Razorpay charges your saved payment method for the change.",
+    "upgraded": "Upgrading to {{plan}}. It shows here as soon as Razorpay confirms, usually within a minute.",
+    "granted": "Provided by Ecogo. No payment and no end date.",
+    "grantedUntil": "Provided by Ecogo until {{date}}. Choose a plan to keep sending after that.",
+    "upgradeLink": "Upgrade plan",
+    "bannerMessagesNear": "You have used {{used}} of your {{limit}} messages this month (resets {{date}}).",
+    "bannerMessagesOut": "This month's {{limit}} messages are used up, so sending is paused until {{date}}.",
+    "bannerContactsNear": "You have {{used}} of your plan's {{limit}} contacts.",
+    "bannerContactsOut": "Your plan's {{limit}} contacts are used up, so new contacts cannot be added."
   },
   "bots": {
     "title": "Chatbots",

@@ -582,6 +582,8 @@ export interface Subscription {
   cancel_at_period_end: boolean;
   usable: boolean;
   payment_pending: boolean;
+  // Set when Ecogo staff put the workspace on its plan without payment.
+  admin_granted: boolean;
   extra_seats: number;
   billing_interval: "month" | "year";
 }
