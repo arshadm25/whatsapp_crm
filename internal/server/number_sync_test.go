@@ -10,7 +10,7 @@ import (
 
 func TestNumberSyncQualityAndUsage(t *testing.T) {
 	h := newHarness(t)
-	c, _, phone := h.connected()
+	c, me, phone := h.connected()
 	if phone.RegisteredAt == nil || phone.QualityRating != "green" || phone.QualityDropped ||
 		deref32(phone.DailyLimit) != 250 || phone.LimitUsedToday == nil || *phone.LimitUsedToday != 0 {
 		t.Fatalf("connected number = %+v", phone)
@@ -27,6 +27,16 @@ func TestNumberSyncQualityAndUsage(t *testing.T) {
 	if phone.QualityRating != "yellow" || deref(phone.PreviousQualityRating) != "green" || !phone.QualityDropped ||
 		phone.QualityChangedAt == nil || deref32(phone.DailyLimit) != 1000 {
 		t.Fatalf("after sync = %+v", phone)
+	}
+
+	// Once every number of the account is disconnected Meta refuses reads of it ("Unsupported
+	// get request"), so sync no longer asks for its numbers.
+	var changed int
+	h.scalar(me.Tenant.ID, "WITH u AS (UPDATE phone_numbers SET status = 'disconnected' RETURNING 1) SELECT count(*) FROM u", &changed)
+	listed := h.meta.called("GET /")
+	c.do("POST", "/internal/numbers/sync", nil, http.StatusOK, &res)
+	if res.Synced != 0 || h.meta.called("GET /") != listed {
+		t.Fatalf("sync of a disconnected account: synced = %d, calls = %v", res.Synced, h.meta.calls)
 	}
 
 	// An onboarding session records when it reached each step.
