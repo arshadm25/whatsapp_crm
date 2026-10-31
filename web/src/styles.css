@@ -572,6 +572,20 @@ tr.warn td { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .plan-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .plan-top .pill { margin: 0; }
 .plan.popular { border-color: var(--accent); }
+.current-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; }
+.current-head h2 { margin: 0; }
+.current-price { font-size: 20px; font-weight: 700; white-space: nowrap; }
+.plan-actions { justify-content: flex-start; align-items: center; gap: 16px; margin-top: 8px; }
+.usage h3 { margin: 0 0 12px; }
+.meters { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 16px 32px; }
+.meter-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 6px; }
+.meter-count { font-weight: 600; white-space: nowrap; }
+.meter-count.near { color: #b45309; }
+.meter-count.full { color: var(--danger, #c0392b); }
+.meter { height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.meter.near span { background: #d97706; }
+.meter.full span { background: var(--danger, #c0392b); }
 .pill.accent { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); border-color: transparent; }
 .plan .price span + span { margin-top: 2px; }
 .plan-limits { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--border-soft); }

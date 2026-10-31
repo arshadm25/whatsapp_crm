@@ -106,7 +106,7 @@ func TestFreePlanLimits(t *testing.T) {
 		t.Fatalf("over messages = %+v", e)
 	}
 	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
-	if ov.MessagesThisMonth != 2 || ov.Contacts != 3 {
+	if ov.MessagesThisMonth != 2 || ov.Contacts != 3 || ov.AIReplies.Limit != 0 || ov.AIReplies.Used != 0 {
 		t.Fatalf("usage = %+v", ov)
 	}
 

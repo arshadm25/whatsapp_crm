@@ -232,7 +232,15 @@ type Overview struct {
 	MessagesThisMonth int32     `json:"messages_this_month"`
 	MonthStart        time.Time `json:"month_start"`
 	MonthEnd          time.Time `json:"month_end"`
-	PaymentsEnabled   bool      `json:"payments_enabled"`
+	// AIReplies are the AI answers used this month and the plan's monthly allowance.
+	AIReplies       AIUsage `json:"ai_replies"`
+	PaymentsEnabled bool    `json:"payments_enabled"`
+}
+
+// AIUsage is AI replies used against the allowance, over the period they count for.
+type AIUsage struct {
+	Used  int64 `json:"used"`
+	Limit int32 `json:"limit"`
 }
 
 func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
@@ -274,7 +282,15 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		out.MonthStart, out.MonthEnd = UsageMonth(sub, s.now())
-		out.MessagesThisMonth, err = q.OutboundMessagesSince(r.Context(), out.MonthStart)
+		if out.MessagesThisMonth, err = q.OutboundMessagesSince(r.Context(), out.MonthStart); err != nil {
+			return err
+		}
+		allow, err := AIAllowanceFor(r.Context(), q)
+		if err != nil {
+			return err
+		}
+		out.AIReplies.Limit = allow.Limit
+		out.AIReplies.Used, err = q.CountAIReplies(r.Context(), allow.PeriodStart)
 		return err
 	})
 	if err != nil {

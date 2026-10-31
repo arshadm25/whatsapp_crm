@@ -138,7 +138,7 @@ export default function Layout() {
             : t("nav.connectHint")}
         </Link>
         {billing.data && canUpgrade(billing.data) && (
-          <Link className="upgrade" to="/settings?tab=billing">
+          <Link className="upgrade" to="/settings?tab=billing&plans=1">
             <Icon name="chart" size="s" />
             {t("billing.upgradeLink")}
           </Link>
@@ -234,7 +234,7 @@ function PlanBanner() {
   if (!text) return null;
   return (
     <div className="banner">
-      {text} <Link to="/settings?tab=billing">{action}</Link>
+      {text} <Link to="/settings?tab=billing&plans=1">{action}</Link>
     </div>
   );
 }

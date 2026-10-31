@@ -584,6 +584,52 @@ export function TwoFactor() {
   );
 }
 
+// UsageCard shows what the workspace uses against each of its plan's limits.
+function UsageCard({ b }: { b: BillingOverview }) {
+  const { t } = useTranslation();
+  const p = b.plan;
+  const resets = new Date(b.month_end).toLocaleDateString();
+  const rows: { key: string; used: number; limit: number | null; note?: string }[] = [
+    { key: "messages", used: b.messages_this_month, limit: p?.messages_per_month ?? null, note: t("billing.resetsOn", { date: resets }) },
+    { key: "contacts", used: b.contacts, limit: p?.contacts_limit ?? null },
+    { key: "numbers", used: b.connected_numbers, limit: p ? p.included_numbers : null },
+    { key: "seats", used: b.seats, limit: p ? p.included_seats + b.subscription.extra_seats : null },
+    { key: "ai", used: b.ai_replies.used, limit: b.ai_replies.limit, note: t("billing.resetsOn", { date: resets }) },
+  ];
+  return (
+    <div className="card usage">
+      <h3>{t("billing.usageTitle")}</h3>
+      <ul className="meters">
+        {rows.map((r) => {
+          const pct = r.limit === null ? 0 : r.limit === 0 ? (r.used > 0 ? 100 : 0) : Math.min(100, (r.used / r.limit) * 100);
+          const level = r.limit !== null && r.used >= r.limit && (r.limit > 0 || r.used > 0) ? "full" : pct >= 80 ? "near" : "";
+          return (
+            <li key={r.key}>
+              <div className="meter-head">
+                <span>{t(`billing.usage_${r.key}`)}</span>
+                <span className={`meter-count ${level}`}>
+                  {r.limit === 0 && r.used === 0
+                    ? t("billing.notIncluded")
+                    : r.limit === null
+                    ? t("billing.usedNoLimit", { used: formatCount(r.used) })
+                    : t("billing.usedOf", { used: formatCount(r.used), limit: formatCount(r.limit) })}
+                </span>
+              </div>
+              {r.limit !== null && (r.limit > 0 || r.used > 0) && (
+                <div className={`meter ${level}`} role="progressbar" aria-label={t(`billing.usage_${r.key}`)}
+                  aria-valuemin={0} aria-valuemax={r.limit} aria-valuenow={Math.min(r.used, r.limit)}>
+                  <span style={{ width: `${pct}%` }} />
+                </div>
+              )}
+              {r.note && r.limit !== 0 && <div className="muted small">{r.note}</div>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 // Billing is the owner's view of the Ecogo plan: trial, current plan, usage against it, and
 // the plans to choose from. Payment happens on Razorpay's page.
 function Billing() {
@@ -592,6 +638,9 @@ function Billing() {
   const billing = useQuery({ queryKey: ["billing"], queryFn: () => api<BillingOverview>("GET", "/internal/billing") });
   const [busy, setBusy] = useState("");
   const [interval, setInterval] = useState<"month" | "year" | null>(null);
+  // The other plans stay out of the way until the owner asks for them (or arrives from an
+  // Upgrade link).
+  const [showPlans, setShowPlans] = useState(() => new URLSearchParams(window.location.search).get("plans") === "1");
   const [extra, setExtra] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -708,29 +757,31 @@ function Billing() {
   return (
     <>
       <div className={`card ${sub.usable && sub.status !== "past_due" ? "" : "notice warn"}`}>
-        <h2>{b.plan ? t("billing.onPlan", { plan: b.plan.name }) : t("billing.noPlan")}</h2>
+        <div className="current-head">
+          <h2>{b.plan ? t("billing.onPlan", { plan: b.plan.name }) : t("billing.noPlan")}</h2>
+          {b.plan && (
+            <span className="current-price">
+              {b.plan.free ? formatPaise(0)
+                : sub.billing_interval === "year" && b.plan.yearly_price_minor !== null
+                  ? <>{formatPaise(b.plan.yearly_price_minor)}<span className="muted small"> {t("billing.perYear")}</span></>
+                  : <>{formatPaise(b.plan.price_minor)}<span className="muted small"> {t("billing.perMonth")}</span></>}
+            </span>
+          )}
+        </div>
         <p>{status}</p>
         {sub.status === "trialing" && b.plan && <p className="muted small">{t("billing.chosenDuringTrial", { plan: b.plan.name, date: end })}</p>}
         {sub.payment_pending && <p className="muted small">{t("billing.paymentPending")}</p>}
-        <p className="muted small">
-          {t("billing.usage", {
-            numbers: b.connected_numbers, includedNumbers: b.plan?.included_numbers ?? "—",
-            seats: b.seats, includedSeats: b.plan ? b.plan.included_seats + sub.extra_seats : "—",
-          })}
-        </p>
-        {b.plan && (b.plan.contacts_limit !== null || b.plan.messages_per_month !== null) && (
-          <p className="muted small">
-            {t("billing.usageLimits", {
-              contacts: formatCount(b.contacts), contactsLimit: limit(b.plan.contacts_limit),
-              messages: formatCount(b.messages_this_month), messagesLimit: limit(b.plan.messages_per_month),
-              date: new Date(b.month_end).toLocaleDateString(),
-            })}
-          </p>
-        )}
-        {b.plan && sub.status !== "cancelled" && !sub.cancel_at_period_end && (!free || sub.payment_pending) && (
-          <button className="link danger" onClick={cancel}>{sub.status === "trialing" || free ? t("billing.dropPlan") : t("billing.cancel")}</button>
-        )}
+        {b.plan?.tagline && <p className="muted small">{b.plan.tagline}</p>}
+        <div className="actions plan-actions">
+          <button className={showPlans ? "" : "primary"} onClick={() => setShowPlans(!showPlans)} aria-expanded={showPlans}>
+            {showPlans ? t("billing.hidePlans") : b.plan ? t("billing.changePlan") : t("billing.choosePlan")}
+          </button>
+          {b.plan && sub.status !== "cancelled" && !sub.cancel_at_period_end && (!free || sub.payment_pending) && (
+            <button className="link danger" onClick={cancel}>{sub.status === "trialing" || free ? t("billing.dropPlan") : t("billing.cancel")}</button>
+          )}
+        </div>
       </div>
+      <UsageCard b={b} />
       {b.plan?.extra_seats_available && sub.status === "active" && !sub.cancel_at_period_end && (
         <form className="card form" onSubmit={saveSeats}>
           <h3>{t("billing.extraSeatsTitle")}</h3>
@@ -749,6 +800,7 @@ function Billing() {
       {!b.payments_enabled && <div className="card notice">{t("billing.paymentsOff")}</div>}
       {error && <div className="error">{error}</div>}
       {note && <div className="muted">{note}</div>}
+      {showPlans && (<>
       <div className="plans-head">
         <h2>{t("billing.plans")}</h2>
         {anyYearly && (
@@ -822,6 +874,7 @@ function Billing() {
           })}
         </div>
       )}
+      </>)}
       <form className="card form" onSubmit={saveDetails}>
         <h3>{t("billing.details")}</h3>
         <p className="muted small">{t("billing.detailsLead")}</p>

@@ -632,6 +632,8 @@ export interface BillingOverview {
   messages_this_month: number;
   month_start: string;
   month_end: string;
+  // AI answers used this month against the plan's monthly allowance.
+  ai_replies: { used: number; limit: number };
   payments_enabled: boolean;
 }
 
