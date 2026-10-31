@@ -465,7 +465,12 @@
     "templateTag": "Template",
     "optInSource": "Opt-in source",
     "optedIn": "Opted in",
-    "firstSeen": "First seen"
+    "firstSeen": "First seen",
+    "filter_unread": "Unread",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "typeMessage": "Type a message",
+    "pickHint": "Choose a chat on the left to read and reply."
   },
   "developers": {
     "apiCalls": "API calls, last 24 hours",

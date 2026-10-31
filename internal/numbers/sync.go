@@ -2,6 +2,7 @@ package numbers
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -67,7 +68,9 @@ func nonEmpty(s string) *string {
 }
 
 // sync refreshes every connected number of the workspace from Meta: name and its review,
-// quality rating and messaging limit.
+// quality rating and messaging limit. It reads only WhatsApp accounts that still have a number
+// in use: when all of an account's numbers are disconnected Meta refuses reads of it (error
+// 100/33, "Unsupported get request"), as template sync and the billing jobs already account for.
 func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	ctx := metaclient.WithTenant(r.Context(), p.TenantID.String())
@@ -76,7 +79,7 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 	}
 	var accts []account
 	err := s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
-		rows, err := q.ListWhatsAppAccounts(ctx)
+		rows, err := q.ListLiveWhatsAppAccounts(ctx)
 		if err != nil {
 			return err
 		}
@@ -95,11 +98,18 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	synced := 0
+	synced, failed := 0, 0
+	var firstErr error
 	for _, a := range accts {
 		nums, err := s.meta.ListPhoneNumbers(ctx, a.token, a.waba)
 		if err != nil {
-			return metaError(err)
+			// One account Meta refuses (access removed, account deleted) must not stop the others.
+			slog.WarnContext(ctx, "numbers: sync failed for account", "waba_id", a.waba, "err", err)
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 			for _, n := range nums {
@@ -125,6 +135,9 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
+	}
+	if failed > 0 && failed == len(accts) {
+		return metaError(firstErr)
 	}
 	httpx.JSON(w, http.StatusOK, map[string]int{"synced": synced})
 	return nil

@@ -465,7 +465,12 @@
     "templateTag": "टेम्पलेट",
     "optInSource": "सहमति का स्रोत",
     "optedIn": "सहमति दी",
-    "firstSeen": "पहली बार देखा गया"
+    "firstSeen": "पहली बार देखा गया",
+    "filter_unread": "अपठित",
+    "today": "आज",
+    "yesterday": "कल",
+    "typeMessage": "संदेश लिखें",
+    "pickHint": "पढ़ने और जवाब देने के लिए बाईं ओर से कोई चैट चुनें।"
   },
   "developers": {
     "apiCalls": "API कॉल, पिछले 24 घंटे",
