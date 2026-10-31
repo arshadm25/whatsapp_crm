@@ -1670,6 +1670,7 @@
     "previewAskAdmin": "The preview link has expired. Ask an owner or admin to open this Flow to renew it.",
     "errors": "Problems found by Meta",
     "noErrors": "No problems found.",
+    "healthTitle": "Meta health check",
     "lockedHelp": "Published Flows cannot be edited. Create a new Flow to change one.",
     "close": "Close",
     "submissions": "Submissions",

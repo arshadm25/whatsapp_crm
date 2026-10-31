@@ -753,11 +753,23 @@ func deref(s *string) string {
 // throttled) to our copy of the Flow.
 func (p *Processor) flowStatus(ctx context.Context, entry Entry, raw json.RawMessage) error {
 	var v struct {
-		Event     string `json:"event"`
-		FlowID    string `json:"flow_id"`
-		NewStatus string `json:"new_status"`
+		Event      string `json:"event"`
+		FlowID     string `json:"flow_id"`
+		NewStatus  string `json:"new_status"`
+		Message    string `json:"message"`
+		Warning    string `json:"warning"`
+		AlertState string `json:"alert_state"`
 	}
-	if json.Unmarshal(raw, &v) != nil || v.FlowID == "" || v.NewStatus == "" {
+	if json.Unmarshal(raw, &v) != nil || v.FlowID == "" {
+		return nil
+	}
+	if v.Warning != "" || (v.Event != "" && v.Event != "FLOW_STATUS_CHANGE") {
+		// Alerts (CLIENT_ERROR_RATE, ENDPOINT_*, FLOW_VERSION_EXPIRY_WARNING) and version
+		// warnings carry no status we store; log them so they are not lost.
+		p.log.Warn("meta event: flow alert", "event", v.Event, "flow_id", v.FlowID, "waba_id", entry.ID,
+			"alert_state", v.AlertState, "message", v.Message, "warning", v.Warning)
+	}
+	if v.NewStatus == "" {
 		return nil
 	}
 	return p.inTenant(ctx, "", entry.ID, func(q *dbq.Queries, _ pgx.Tx, _ uuid.UUID) error {

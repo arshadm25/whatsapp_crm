@@ -663,6 +663,21 @@ export interface WhatsAppFlow {
   created_at: string;
   updated_at: string;
   published_at: string | null;
+  // Meta's health_status, returned by Refresh from Meta only.
+  health?: FlowHealth;
+}
+
+export type FlowSendability = "AVAILABLE" | "LIMITED" | "BLOCKED";
+
+export interface FlowHealth {
+  can_send_message: FlowSendability;
+  entities?: {
+    entity_type: string;
+    id: string;
+    can_send_message: FlowSendability;
+    errors?: { error_code: number; error_description: string; possible_solution?: string }[];
+    additional_info?: string[];
+  }[];
 }
 
 export interface FlowSubmission {
