@@ -9,6 +9,8 @@ import VerifyEmail from "./pages/VerifyEmail";
 import GetStarted from "./pages/GetStarted";
 import Numbers from "./pages/Numbers";
 import ConnectWhatsApp from "./pages/ConnectWhatsApp";
+import NumbersProfile from "./pages/numbers/Profile";
+import NumbersLimits from "./pages/numbers/Limits";
 import Templates from "./pages/Templates";
 import NewTemplate from "./pages/NewTemplate";
 import SendMessage from "./pages/SendMessage";
@@ -65,6 +67,8 @@ export default function App() {
         <Route index element={<GetStarted />} />
         <Route path="numbers" element={<Numbers />} />
         <Route path="numbers/connect" element={<ConnectWhatsApp />} />
+        <Route path="numbers/profile" element={<NumbersProfile />} />
+        <Route path="numbers/limits" element={<NumbersLimits />} />
         <Route path="templates" element={<Templates />} />
         <Route path="templates/new" element={<NewTemplate />} />
         <Route path="send" element={<SendMessage />} />

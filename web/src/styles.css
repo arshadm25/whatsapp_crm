@@ -891,3 +891,20 @@ button.ql.on { background: var(--accent-soft); }
 .pager-size { display: inline-flex; align-items: center; gap: 8px; }
 .pager-size select { font: inherit; min-height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; }
 .pager-nav { display: inline-flex; align-items: center; gap: 8px; margin-inline-start: auto; }
+
+/* Numbers pages */
+.numbers-table { position: relative; } /* keeps the sr-only header inside the scroll box on phones */
+.numbers-table td { vertical-align: middle; }
+.numbers-table .num-cell small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 2px; }
+.numbers-table .num-cell small .pill { font-size: 11px; line-height: 16px; padding: 0 8px; }
+.numbers-table td.r { white-space: nowrap; }
+.numbers-table .usage-cell { display: flex; flex-direction: column; gap: 6px; min-width: 110px; }
+.numbers-table .usage-cell .meter { height: 6px; }
+.numbers-legend { margin: 0; padding: 12px 20px; border-top: 1px solid var(--border-soft); display: grid; gap: 6px; font-size: 12px; line-height: 18px; color: var(--muted); }
+.numbers-legend > div { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 12px; }
+.numbers-legend dt { font-weight: 600; color: var(--text-2); }
+.numbers-legend dd { margin: 0; }
+@media (max-width: 600px) { .numbers-legend > div { grid-template-columns: 1fr; gap: 0; } }
+.profile-pick { max-width: 360px; margin-bottom: 16px; }
+.plain-list { margin: 0 0 12px; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-2); }
+.meters .hint { margin: 6px 0 0; }
