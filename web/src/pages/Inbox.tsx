@@ -164,7 +164,10 @@ function Thread({ id }: { id: string }) {
   const c = conv.data;
   useEffect(() => {
     if (!c || c.unread_count === 0) return;
-    const lastIn = [...messages].reverse().find((m) => m.direction === "inbound" && m.wamid);
+    // Meta refuses read receipts for unsupported messages, and marking a later message read
+    // marks the earlier ones too, so prefer the newest message Meta understands.
+    const inbound = [...messages].reverse().filter((m) => m.direction === "inbound" && m.wamid);
+    const lastIn = inbound.find((m) => m.type !== "unsupported") ?? inbound[0];
     if (lastIn) api("POST", `/v1/messages/${lastIn.id}/read`).catch(() => undefined);
   }, [c, messages]);
 

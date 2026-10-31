@@ -202,6 +202,33 @@ func TestSendTextRoundTrip(t *testing.T) {
 	c.do("POST", "/v1/messages/"+inID.String()+"/read", nil, http.StatusNoContent, nil)
 	c.do("POST", "/v1/messages/"+msg.ID.String()+"/read", nil, http.StatusUnprocessableEntity, nil)
 
+	// Meta refuses read receipts for unsupported messages, so those are marked read here only.
+	err = h.webhook("messages", fmt.Sprintf(`{"messaging_product":"whatsapp",
+		"metadata":{"display_phone_number":"919876543210","phone_number_id":"555001"},
+		"contacts":[{"wa_id":%q,"profile":{"name":"Ravi"}}],
+		"messages":[{"from":%q,"id":"wamid.UNSUP1","timestamp":"%d","type":"unsupported","errors":[{"code":131051,"title":"Message type unknown"}]}]}`,
+		customer, customer, time.Now().Unix()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unsupID uuid.UUID
+	var unsupType string
+	err = h.db.InTenant(context.Background(), me.Tenant.ID, func(_ *dbq.Queries, tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), "SELECT id, type FROM messages WHERE wamid = 'wamid.UNSUP1'").Scan(&unsupID, &unsupType)
+	})
+	if err != nil || unsupType != "unsupported" {
+		t.Fatalf("unsupported inbound: type %q, err %v", unsupType, err)
+	}
+	h.meta.mu.Lock()
+	before := len(h.meta.calls)
+	h.meta.mu.Unlock()
+	c.do("POST", "/v1/messages/"+unsupID.String()+"/read", nil, http.StatusNoContent, nil)
+	h.meta.mu.Lock()
+	if len(h.meta.calls) != before {
+		t.Errorf("marking an unsupported message read called Meta: %v", h.meta.calls[before:])
+	}
+	h.meta.mu.Unlock()
+
 	// Another workspace cannot see the message.
 	other := h.newClient()
 	other.signup("other@example.com", "Other Shop")

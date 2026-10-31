@@ -500,7 +500,9 @@ func (s *Service) markRead(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := s.meta.MarkRead(metaclient.WithTenant(ctx, p.TenantID.String()), token, num.PhoneNumber.PhoneNumberID, *msg.Wamid, req.TypingIndicator); err != nil {
+	// Meta answers "(#100) Invalid parameter" when asked to mark a message type it does not
+	// support (seen in production on 2026-10-30), so only the unread count is cleared for those.
+	if err := s.markReadAtMeta(ctx, p.TenantID, token, num.PhoneNumber.PhoneNumberID, msg, req.TypingIndicator); err != nil {
 		var me *metaclient.Error
 		if errors.As(err, &me) {
 			v := errorView(ptr(int32(me.Code)), ptr(me.Friendly()))
@@ -516,6 +518,13 @@ func (s *Service) markRead(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+func (s *Service) markReadAtMeta(ctx context.Context, tenantID uuid.UUID, token, phoneNumberID string, msg dbq.Message, typing bool) error {
+	if msg.Type == dbq.MessageTypeUnsupported {
+		return nil
+	}
+	return s.meta.MarkRead(metaclient.WithTenant(ctx, tenantID.String()), token, phoneNumberID, *msg.Wamid, typing)
 }
 
 // buildContent validates the request shape and returns the Cloud API message object (without
