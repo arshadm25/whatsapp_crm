@@ -118,7 +118,7 @@ func (r *Reconciler) reconcile(ctx context.Context, acct dbq.WhatsappAccount) (i
 	now := r.now().In(loc)
 	to := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc) // today is not finished
 	from := to.AddDate(0, 0, -reconcileDays)
-	points, err := r.meta.PricingAnalytics(ctx, token, acct.WabaID, from, to)
+	points, err := r.meta.PricingAnalytics(metaclient.WithTenant(ctx, acct.TenantID.String()), token, acct.WabaID, from, to)
 	if err != nil {
 		return 0, err
 	}
