@@ -35,6 +35,9 @@ func NewService(d *db.DB, seller config.Seller, markupBP int, log *slog.Logger) 
 	return &Service{db: d, seller: seller, markupBP: markupBP, log: log, now: time.Now}
 }
 
+// SetClock replaces the clock used for the month-to-date estimate; tests use it.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
 // Routes mounts /internal/billing/meta-fees for the dashboard. Only owners see billing.
 func (s *Service) Routes(r chi.Router) {
 	r.Use(auth.RequireRole(dbq.MemberRoleOwner))

@@ -54,6 +54,7 @@ func TestMetaFeeStatements(t *testing.T) {
 	h.usage(tenant, phoneID, "2026-10-02", "marketing", "IN", 40) // this month, not finished
 
 	now := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
+	h.feesSvc.SetClock(func() time.Time { return now }) // "this month" is October, whatever today is
 	var fees metafees.Overview
 	owner.do("GET", "/internal/billing/meta-fees", nil, http.StatusOK, &fees)
 	if fees.Mode != "direct" || fees.MonthToDate != nil || len(fees.Statements) != 0 || !fees.Invoicing {

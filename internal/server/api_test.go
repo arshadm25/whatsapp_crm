@@ -294,6 +294,7 @@ type harness struct {
 	bots       *bots.Worker
 	ingest     *ai.IngestWorker
 	metaFees   *metafees.Worker
+	feesSvc    *metafees.Service
 	reconciler *metafees.Reconciler
 	creditLine *metafees.CreditLineWorker
 	ai         *fakeAI
@@ -350,6 +351,7 @@ func newSeededHarness(t *testing.T) *harness {
 	fai := &fakeAI{}
 	mail := &captureMail{}
 	agent := ai.NewAgent(fai, log)
+	feesSvc := metafees.NewService(d, sellerCfg, 500, log)
 	h := server.NewAPI(server.APIDeps{
 		Config: cfg, DB: d, Log: log,
 		Auth:          auth.NewService(d, keys, cfg, mail, log),
@@ -366,7 +368,7 @@ func newSeededHarness(t *testing.T) *harness {
 		Campaigns:     campaigns.NewService(d, rc, log),
 		Bots:          bots.NewService(d, rc, log),
 		Flows:         flows.NewService(d, keys, meta, log),
-		MetaFees:      metafees.NewService(d, sellerCfg, 500, log),
+		MetaFees:      feesSvc,
 		AI:            ai.NewService(d, agent, rc, log).AllowPrivateURLs(),
 		Analytics:     analytics.NewService(d, log),
 		Notifications: notifications.NewService(d, log),
@@ -399,6 +401,7 @@ func newSeededHarness(t *testing.T) *harness {
 		bots:       botRunner,
 		ingest:     ai.NewIngestWorker(d, ai.Fetcher{AllowPrivate: true}, log),
 		metaFees:   metafees.NewWorker(d, sellerCfg, 500, log),
+		feesSvc:    feesSvc,
 		reconciler: metafees.NewReconciler(d, keys, meta, log),
 		creditLine: metafees.NewCreditLineWorker(d, meta, config.CreditLine{Enabled: true, ID: "cl_1", Token: "partner-token"}, log),
 		ai:         fai,
