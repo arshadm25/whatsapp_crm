@@ -889,7 +889,8 @@
     "notifyHint_number_quality": "Meta ஒரு எண்ணின் தர மதிப்பீட்டைக் குறைக்கும்போது உரிமையாளர்களுக்கும் நிர்வாகிகளுக்கும் அனுப்பப்படும்.",
     "notify_campaign_finished": "என் கேம்பைன் முடியும்போது",
     "notifyHint_campaign_finished": "நீங்கள் உருவாக்கிய கேம்பைன் முடியும்போது அல்லது பிழையுடன் நிற்கும்போது.",
-    "tab_notifications": "அறிவிப்புகள்"
+    "tab_notifications": "அறிவிப்புகள்",
+    "tab_invoices": "விலைப்பட்டியல்கள்"
   },
   "invite": {
     "title": "{{tenant}}-இல் சேருங்கள்",

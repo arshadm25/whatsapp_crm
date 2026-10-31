@@ -889,7 +889,8 @@
     "notifyHint_number_quality": "Meta কোনো নম্বরের মানের রেটিং কমালে মালিক ও অ্যাডমিনদের পাঠানো হয়।",
     "notify_campaign_finished": "আমার ক্যাম্পেইন শেষ হয়",
     "notifyHint_campaign_finished": "আপনার তৈরি করা ক্যাম্পেইন সম্পন্ন হয় বা ত্রুটির কারণে থেমে যায়।",
-    "tab_notifications": "নোটিফিকেশন"
+    "tab_notifications": "নোটিফিকেশন",
+    "tab_invoices": "ইনভয়েস"
   },
   "invite": {
     "title": "{{tenant}}-এ যোগ দিন",

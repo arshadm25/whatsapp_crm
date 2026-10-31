@@ -889,7 +889,8 @@
     "notifyHint_number_quality": "Meta ಸಂಖ್ಯೆಯ ಗುಣಮಟ್ಟ ರೇಟಿಂಗ್ ಇಳಿಸಿದಾಗ ಮಾಲೀಕರು ಮತ್ತು ಅಡ್ಮಿನ್‌ಗಳಿಗೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.",
     "notify_campaign_finished": "ನನ್ನ ಕ್ಯಾಂಪೇನ್ ಮುಗಿದಾಗ",
     "notifyHint_campaign_finished": "ನೀವು ರಚಿಸಿದ ಕ್ಯಾಂಪೇನ್ ಪೂರ್ಣಗೊಂಡಾಗ ಅಥವಾ ದೋಷದಿಂದ ನಿಂತಾಗ.",
-    "tab_notifications": "ಅಧಿಸೂಚನೆಗಳು"
+    "tab_notifications": "ಅಧಿಸೂಚನೆಗಳು",
+    "tab_invoices": "ಇನ್‌ವಾಯ್ಸ್‌ಗಳು"
   },
   "invite": {
     "title": "{{tenant}} ಗೆ ಸೇರಿ",

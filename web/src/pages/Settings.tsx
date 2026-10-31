@@ -17,7 +17,7 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-type Tab = "workspace" | "team" | "billing" | "security" | "notifications" | "account";
+type Tab = "workspace" | "team" | "billing" | "invoices" | "security" | "notifications" | "account";
 
 function message(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
@@ -29,11 +29,11 @@ export default function Settings() {
   const manager = role === "owner" || role === "admin";
   const asked = new URLSearchParams(window.location.search).get("tab");
   const [tab, setTab] = useState<Tab>(
-    asked === "billing" && role === "owner" ? "billing" : asked === "notifications" ? "notifications" : manager ? "team" : "account",
+    (asked === "billing" || asked === "invoices") && role === "owner" ? asked : asked === "notifications" ? "notifications" : manager ? "team" : "account",
   );
   const tabs: Tab[] = [
     ...(manager ? (["workspace", "team"] as Tab[]) : []),
-    ...(role === "owner" ? (["billing"] as Tab[]) : []),
+    ...(role === "owner" ? (["billing", "invoices"] as Tab[]) : []),
     "security",
     "notifications",
     "account",
@@ -59,6 +59,7 @@ export default function Settings() {
           {tab === "team" && manager && <Team onBilling={() => setTab("billing")} />}
           {tab === "workspace" && manager && <WorkspaceForm canEdit={role === "owner"} />}
           {tab === "billing" && role === "owner" && <Billing />}
+          {tab === "invoices" && role === "owner" && <Invoices />}
           {tab === "security" && <Account part="security" />}
           {tab === "notifications" && <Notifications />}
           {tab === "account" && <Account part="profile" />}
@@ -584,6 +585,81 @@ export function TwoFactor() {
   );
 }
 
+// Invoices is the owner's billing details (what appears on GST invoices), the invoices Ecogo
+// has issued, and Meta fee statements.
+function Invoices() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const details = useQuery({
+    queryKey: ["billing", "profile"],
+    queryFn: () => api<{ profile: BillingProfile | null; invoicing: boolean }>("GET", "/internal/billing/profile"),
+  });
+  const invoices = useQuery({
+    queryKey: ["billing", "invoices"],
+    queryFn: async () => (await api<{ data: Invoice[] }>("GET", "/internal/billing/invoices")).data,
+  });
+  const [draft, setDraft] = useState<BillingProfile | null>(null);
+  // Shown beside the Save button: the page-level message is out of sight at the bottom of a long form.
+  const [detailsMsg, setDetailsMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const form: BillingProfile = draft ?? details.data?.profile ?? { legal_name: "", gstin: "", state_code: "", address: "" };
+  const setField = (k: keyof BillingProfile) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setDraft({ ...form, [k]: e.target.value });
+  const saveDetails = async (e: FormEvent) => {
+    e.preventDefault();
+    setDetailsMsg(null);
+    try {
+      await api("PUT", "/internal/billing/profile", form);
+      setDraft(null);
+      setDetailsMsg({ ok: true, text: t("billing.detailsSaved") });
+      await qc.invalidateQueries({ queryKey: ["billing", "profile"] });
+    } catch (err) {
+      setDetailsMsg({ ok: false, text: message(err, t("common.error")) });
+    }
+  };
+
+  return (
+    <>
+      <form className="card form" onSubmit={saveDetails}>
+        <h3>{t("billing.details")}</h3>
+        <p className="muted small">{t("billing.detailsLead")}</p>
+        <label className="field">{t("billing.legalName")}<input value={form.legal_name} onChange={setField("legal_name")} required maxLength={200} /></label>
+        <label className="field">{t("billing.gstin")}<input value={form.gstin} onChange={setField("gstin")} maxLength={15} placeholder="27AAPFU0939F1ZV" /></label>
+        <label className="field">
+          {t("billing.state")}
+          <select value={form.gstin ? form.gstin.slice(0, 2) : form.state_code} onChange={setField("state_code")} required disabled={form.gstin.length === 15}>
+            <option value="">{t("billing.chooseState")}</option>
+            {gstStates.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          </select>
+        </label>
+        <label className="field">{t("billing.address")}<textarea value={form.address} onChange={setField("address")} required maxLength={500} rows={3} /></label>
+        {detailsMsg && <div className={detailsMsg.ok ? "muted" : "field-error"}>{detailsMsg.text}</div>}
+        <div className="actions"><button className="primary">{t("billing.saveDetails")}</button></div>
+      </form>
+      <h2>{t("billing.invoices")}</h2>
+      {details.data && !details.data.invoicing && <div className="card muted small">{t("billing.invoicingOff")}</div>}
+      {invoices.data?.length === 0 ? (
+        <div className="card muted">{t("billing.noInvoices")}</div>
+      ) : (
+        <div className="card">
+          <table>
+            <tbody>
+              {invoices.data?.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.number}<div className="muted small">{i.description}</div></td>
+                  <td>{new Date(i.issued_at).toLocaleDateString()}</td>
+                  <td>{formatPaise(i.total_minor)}</td>
+                  <td><a href={`/internal/billing/invoices/${i.id}/view`} target="_blank" rel="noreferrer">{t("billing.viewInvoice")}</a></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <MetaFees />
+    </>
+  );
+}
+
 // UsageCard shows what the workspace uses against each of its plan's limits.
 function UsageCard({ b }: { b: BillingOverview }) {
   const { t } = useTranslation();
@@ -644,20 +720,6 @@ function Billing() {
   const [extra, setExtra] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
-  const details = useQuery({
-    queryKey: ["billing", "profile"],
-    queryFn: () => api<{ profile: BillingProfile | null; invoicing: boolean }>("GET", "/internal/billing/profile"),
-  });
-  const invoices = useQuery({
-    queryKey: ["billing", "invoices"],
-    queryFn: async () => (await api<{ data: Invoice[] }>("GET", "/internal/billing/invoices")).data,
-  });
-  const [draft, setDraft] = useState<BillingProfile | null>(null);
-  // Shown beside the Save button: the page-level message is out of sight at the bottom of a long form.
-  const [detailsMsg, setDetailsMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const form: BillingProfile = draft ?? details.data?.profile ?? { legal_name: "", gstin: "", state_code: "", address: "" };
-  const setField = (k: keyof BillingProfile) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setDraft({ ...form, [k]: e.target.value });
   const b = billing.data;
   if (!b) return <div className="card muted">{t("common.loading")}</div>;
   const sub = b.subscription;
@@ -705,18 +767,6 @@ function Billing() {
       setError(message(err, t("common.error")));
     } finally {
       setBusy("");
-    }
-  };
-  const saveDetails = async (e: FormEvent) => {
-    e.preventDefault();
-    setDetailsMsg(null);
-    try {
-      await api("PUT", "/internal/billing/profile", form);
-      setDraft(null);
-      setDetailsMsg({ ok: true, text: t("billing.detailsSaved") });
-      await qc.invalidateQueries({ queryKey: ["billing", "profile"] });
-    } catch (err) {
-      setDetailsMsg({ ok: false, text: message(err, t("common.error")) });
     }
   };
   const saveSeats = async (e: FormEvent) => {
@@ -875,43 +925,6 @@ function Billing() {
         </div>
       )}
       </>)}
-      <form className="card form" onSubmit={saveDetails}>
-        <h3>{t("billing.details")}</h3>
-        <p className="muted small">{t("billing.detailsLead")}</p>
-        <label className="field">{t("billing.legalName")}<input value={form.legal_name} onChange={setField("legal_name")} required maxLength={200} /></label>
-        <label className="field">{t("billing.gstin")}<input value={form.gstin} onChange={setField("gstin")} maxLength={15} placeholder="27AAPFU0939F1ZV" /></label>
-        <label className="field">
-          {t("billing.state")}
-          <select value={form.gstin ? form.gstin.slice(0, 2) : form.state_code} onChange={setField("state_code")} required disabled={form.gstin.length === 15}>
-            <option value="">{t("billing.chooseState")}</option>
-            {gstStates.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-          </select>
-        </label>
-        <label className="field">{t("billing.address")}<textarea value={form.address} onChange={setField("address")} required maxLength={500} rows={3} /></label>
-        {detailsMsg && <div className={detailsMsg.ok ? "muted" : "field-error"}>{detailsMsg.text}</div>}
-        <div className="actions"><button className="primary">{t("billing.saveDetails")}</button></div>
-      </form>
-      <h2>{t("billing.invoices")}</h2>
-      {details.data && !details.data.invoicing && <div className="card muted small">{t("billing.invoicingOff")}</div>}
-      {invoices.data?.length === 0 ? (
-        <div className="card muted">{t("billing.noInvoices")}</div>
-      ) : (
-        <div className="card">
-          <table>
-            <tbody>
-              {invoices.data?.map((i) => (
-                <tr key={i.id}>
-                  <td>{i.number}<div className="muted small">{i.description}</div></td>
-                  <td>{new Date(i.issued_at).toLocaleDateString()}</td>
-                  <td>{formatPaise(i.total_minor)}</td>
-                  <td><a href={`/internal/billing/invoices/${i.id}/view`} target="_blank" rel="noreferrer">{t("billing.viewInvoice")}</a></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <MetaFees />
     </>
   );
 }
