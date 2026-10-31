@@ -889,7 +889,8 @@
     "notifyHint_number_quality": "Meta ഒരു നമ്പറിന്റെ ഗുണനിലവാര റേറ്റിംഗ് കുറയ്ക്കുമ്പോൾ ഓണർമാർക്കും അഡ്മിൻമാർക്കും അയയ്ക്കും.",
     "notify_campaign_finished": "എന്റെ ക്യാമ്പെയ്ൻ പൂർത്തിയാകുമ്പോൾ",
     "notifyHint_campaign_finished": "നിങ്ങൾ സൃഷ്ടിച്ച ക്യാമ്പെയ്ൻ പൂർത്തിയാകുകയോ പിശക് കാരണം നിലയ്ക്കുകയോ ചെയ്യുമ്പോൾ.",
-    "tab_notifications": "അറിയിപ്പുകൾ"
+    "tab_notifications": "അറിയിപ്പുകൾ",
+    "tab_invoices": "ഇൻവോയ്‌സുകൾ"
   },
   "invite": {
     "title": "{{tenant}}-ൽ ചേരുക",

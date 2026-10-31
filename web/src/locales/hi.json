@@ -889,7 +889,8 @@
     "notifyHint_number_quality": "जब Meta किसी नंबर की क्वालिटी रेटिंग घटाता है, तब ओनर और एडमिन को भेजा जाता है।",
     "notify_campaign_finished": "मेरा कैंपेन पूरा हो",
     "notifyHint_campaign_finished": "आपका बनाया कैंपेन पूरा होता है या किसी एरर से रुक जाता है।",
-    "tab_notifications": "नोटिफ़िकेशन"
+    "tab_notifications": "नोटिफ़िकेशन",
+    "tab_invoices": "इनवॉइस"
   },
   "invite": {
     "title": "{{tenant}} से जुड़ें",

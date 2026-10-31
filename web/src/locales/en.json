@@ -889,7 +889,8 @@
     "notifyHint_number_quality": "Sent to owners and admins when Meta lowers a number's quality rating.",
     "notify_campaign_finished": "My campaign finishes",
     "notifyHint_campaign_finished": "A campaign you created completes or stops with an error.",
-    "tab_notifications": "Notifications"
+    "tab_notifications": "Notifications",
+    "tab_invoices": "Invoices"
   },
   "invite": {
     "title": "Join {{tenant}}",

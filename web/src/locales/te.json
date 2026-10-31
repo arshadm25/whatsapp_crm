@@ -889,7 +889,8 @@
     "notifyHint_number_quality": "Meta ఒక నంబర్ నాణ్యత రేటింగ్‌ను తగ్గించినప్పుడు ఓనర్లు మరియు అడ్మిన్‌లకు పంపబడుతుంది.",
     "notify_campaign_finished": "నా క్యాంపెయిన్ పూర్తయినప్పుడు",
     "notifyHint_campaign_finished": "మీరు సృష్టించిన క్యాంపెయిన్ పూర్తయినప్పుడు లేదా లోపంతో ఆగినప్పుడు.",
-    "tab_notifications": "నోటిఫికేషన్‌లు"
+    "tab_notifications": "నోటిఫికేషన్‌లు",
+    "tab_invoices": "ఇన్‌వాయిస్‌లు"
   },
   "invite": {
     "title": "{{tenant}} లో చేరండి",
