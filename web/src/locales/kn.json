@@ -465,7 +465,12 @@
     "templateTag": "ಟೆಂಪ್ಲೇಟ್",
     "optInSource": "ಒಪ್ಪಿಗೆಯ ಮೂಲ",
     "optedIn": "ಒಪ್ಪಿಗೆ ನೀಡಿದ್ದಾರೆ",
-    "firstSeen": "ಮೊದಲು ಕಂಡದ್ದು"
+    "firstSeen": "ಮೊದಲು ಕಂಡದ್ದು",
+    "filter_unread": "ಓದದವು",
+    "today": "ಇಂದು",
+    "yesterday": "ನಿನ್ನೆ",
+    "typeMessage": "ಸಂದೇಶವನ್ನು ಟೈಪ್ ಮಾಡಿ",
+    "pickHint": "ಓದಲು ಮತ್ತು ಉತ್ತರಿಸಲು ಎಡಭಾಗದಲ್ಲಿರುವ ಒಂದು ಚಾಟ್ ಆಯ್ಕೆಮಾಡಿ."
   },
   "developers": {
     "apiCalls": "API ಕರೆಗಳು, ಕಳೆದ 24 ಗಂಟೆಗಳು",
