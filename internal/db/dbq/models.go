@@ -1793,6 +1793,13 @@ type Plan struct {
 	UpdatedAt               time.Time
 	ExtraSeatRazorpayPlanID *string
 	AiRepliesPerMonth       int32
+	ContactsLimit           *int32
+	MessagesPerMonth        *int32
+	YearlyPriceMinor        *int64
+	YearlyRazorpayPlanID    *string
+	Tagline                 string
+	Highlights              []string
+	IsPopular               bool
 }
 
 type QuickReply struct {
@@ -1840,6 +1847,7 @@ type Subscription struct {
 	CancelAtPeriodEnd          bool
 	ExtraSeats                 int32
 	SeatProviderSubscriptionID *string
+	BillingInterval            string
 }
 
 type Tag struct {

@@ -303,7 +303,17 @@ type harness struct {
 	log        *slog.Logger
 }
 
+// newHarness starts the api with no plans: tests set up the plans they need. The standard
+// plans the migrations add are removed; newSeededHarness keeps them.
 func newHarness(t *testing.T) *harness {
+	h := newSeededHarness(t)
+	if _, err := h.db.Pool.Exec(context.Background(), "DELETE FROM plans"); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func newSeededHarness(t *testing.T) *harness {
 	d := testdb.New(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	fm := &fakeMeta{numbers: map[string]string{}, inbound: map[string][]byte{}}

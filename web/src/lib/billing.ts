@@ -7,6 +7,13 @@ export function formatPaise(paise: number): string {
   return inr.format(paise / 100);
 }
 
+const count = new Intl.NumberFormat("en-IN");
+
+// formatCount writes a plan limit such as 15000 as "15,000".
+export function formatCount(n: number): string {
+  return count.format(n);
+}
+
 // Whole days left until end, rounded up; 0 once it has passed.
 export function daysLeft(end: string, now: Date = new Date()): number {
   const ms = new Date(end).getTime() - now.getTime();

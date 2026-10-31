@@ -19,9 +19,10 @@ SET status = $1,
     current_period_start = coalesce($3, current_period_start),
     current_period_end = coalesce($4, current_period_end),
     cancel_at_period_end = $5,
+    billing_interval = coalesce($6, billing_interval),
     updated_at = now()
-WHERE tenant_id = $6
-RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id
+WHERE tenant_id = $7
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval
 `
 
 type ApplySubscriptionStateParams struct {
@@ -30,6 +31,7 @@ type ApplySubscriptionStateParams struct {
 	PeriodStart       *time.Time
 	PeriodEnd         *time.Time
 	CancelAtPeriodEnd bool
+	BillingInterval   *string
 	TenantID          uuid.UUID
 }
 
@@ -40,6 +42,7 @@ func (q *Queries) ApplySubscriptionState(ctx context.Context, arg ApplySubscript
 		arg.PeriodStart,
 		arg.PeriodEnd,
 		arg.CancelAtPeriodEnd,
+		arg.BillingInterval,
 		arg.TenantID,
 	)
 	var i Subscription
@@ -59,6 +62,7 @@ func (q *Queries) ApplySubscriptionState(ctx context.Context, arg ApplySubscript
 		&i.CancelAtPeriodEnd,
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
+		&i.BillingInterval,
 	)
 	return i, err
 }
@@ -81,8 +85,20 @@ func (q *Queries) BillingUsage(ctx context.Context) (BillingUsageRow, error) {
 	return i, err
 }
 
+const contactsInUse = `-- name: ContactsInUse :one
+SELECT count(*)::int FROM contacts
+`
+
+// Run inside the tenant: contacts that count against the plan's contact limit.
+func (q *Queries) ContactsInUse(ctx context.Context) (int32, error) {
+	row := q.db.QueryRow(ctx, contactsInUse)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const currentPlan = `-- name: CurrentPlan :one
-SELECT p.code, p.name, p.price_minor, p.currency, p.included_numbers, p.included_seats, p.extra_seat_minor, p.features, p.is_active, p.razorpay_plan_id, p.sort_order, p.created_at, p.updated_at, p.extra_seat_razorpay_plan_id, p.ai_replies_per_month FROM plans p JOIN subscriptions s ON s.plan_code = p.code
+SELECT p.code, p.name, p.price_minor, p.currency, p.included_numbers, p.included_seats, p.extra_seat_minor, p.features, p.is_active, p.razorpay_plan_id, p.sort_order, p.created_at, p.updated_at, p.extra_seat_razorpay_plan_id, p.ai_replies_per_month, p.contacts_limit, p.messages_per_month, p.yearly_price_minor, p.yearly_razorpay_plan_id, p.tagline, p.highlights, p.is_popular FROM plans p JOIN subscriptions s ON s.plan_code = p.code
 `
 
 // Run inside the tenant. No row while the workspace is on a trial with no plan chosen.
@@ -105,8 +121,31 @@ func (q *Queries) CurrentPlan(ctx context.Context) (Plan, error) {
 		&i.UpdatedAt,
 		&i.ExtraSeatRazorpayPlanID,
 		&i.AiRepliesPerMonth,
+		&i.ContactsLimit,
+		&i.MessagesPerMonth,
+		&i.YearlyPriceMinor,
+		&i.YearlyRazorpayPlanID,
+		&i.Tagline,
+		&i.Highlights,
+		&i.IsPopular,
 	)
 	return i, err
+}
+
+const dropProviderSubscription = `-- name: DropProviderSubscription :exec
+UPDATE subscriptions SET provider_subscription_id = NULL, updated_at = now()
+WHERE tenant_id = $1 AND provider_subscription_id = $2
+`
+
+type DropProviderSubscriptionParams struct {
+	TenantID               uuid.UUID
+	ProviderSubscriptionID *string
+}
+
+// A checkout started from the free plan ended unpaid; the workspace stays on the free plan.
+func (q *Queries) DropProviderSubscription(ctx context.Context, arg DropProviderSubscriptionParams) error {
+	_, err := q.db.Exec(ctx, dropProviderSubscription, arg.TenantID, arg.ProviderSubscriptionID)
+	return err
 }
 
 const dropTrialPlan = `-- name: DropTrialPlan :exec
@@ -123,7 +162,7 @@ func (q *Queries) DropTrialPlan(ctx context.Context, tenantID uuid.UUID) error {
 const extendTrial = `-- name: ExtendTrial :one
 UPDATE subscriptions SET current_period_end = $1, updated_at = now()
 WHERE tenant_id = $2 AND status = 'trialing'
-RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval
 `
 
 type ExtendTrialParams struct {
@@ -150,12 +189,13 @@ func (q *Queries) ExtendTrial(ctx context.Context, arg ExtendTrialParams) (Subsc
 		&i.CancelAtPeriodEnd,
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
+		&i.BillingInterval,
 	)
 	return i, err
 }
 
 const getPlan = `-- name: GetPlan :one
-SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month FROM plans WHERE code = $1
+SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month, contacts_limit, messages_per_month, yearly_price_minor, yearly_razorpay_plan_id, tagline, highlights, is_popular FROM plans WHERE code = $1
 `
 
 func (q *Queries) GetPlan(ctx context.Context, code string) (Plan, error) {
@@ -177,15 +217,23 @@ func (q *Queries) GetPlan(ctx context.Context, code string) (Plan, error) {
 		&i.UpdatedAt,
 		&i.ExtraSeatRazorpayPlanID,
 		&i.AiRepliesPerMonth,
+		&i.ContactsLimit,
+		&i.MessagesPerMonth,
+		&i.YearlyPriceMinor,
+		&i.YearlyRazorpayPlanID,
+		&i.Tagline,
+		&i.Highlights,
+		&i.IsPopular,
 	)
 	return i, err
 }
 
 const getPlanByRazorpayID = `-- name: GetPlanByRazorpayID :one
-SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month FROM plans WHERE razorpay_plan_id = $1
+SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month, contacts_limit, messages_per_month, yearly_price_minor, yearly_razorpay_plan_id, tagline, highlights, is_popular FROM plans WHERE razorpay_plan_id = $1::text OR yearly_razorpay_plan_id = $1::text
 `
 
-func (q *Queries) GetPlanByRazorpayID(ctx context.Context, razorpayPlanID *string) (Plan, error) {
+// The Razorpay plan may be the plan's monthly or yearly one.
+func (q *Queries) GetPlanByRazorpayID(ctx context.Context, razorpayPlanID string) (Plan, error) {
 	row := q.db.QueryRow(ctx, getPlanByRazorpayID, razorpayPlanID)
 	var i Plan
 	err := row.Scan(
@@ -204,12 +252,19 @@ func (q *Queries) GetPlanByRazorpayID(ctx context.Context, razorpayPlanID *strin
 		&i.UpdatedAt,
 		&i.ExtraSeatRazorpayPlanID,
 		&i.AiRepliesPerMonth,
+		&i.ContactsLimit,
+		&i.MessagesPerMonth,
+		&i.YearlyPriceMinor,
+		&i.YearlyRazorpayPlanID,
+		&i.Tagline,
+		&i.Highlights,
+		&i.IsPopular,
 	)
 	return i, err
 }
 
 const getSubscription = `-- name: GetSubscription :one
-SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id FROM subscriptions LIMIT 1
+SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval FROM subscriptions LIMIT 1
 `
 
 // Run inside the tenant.
@@ -232,12 +287,13 @@ func (q *Queries) GetSubscription(ctx context.Context) (Subscription, error) {
 		&i.CancelAtPeriodEnd,
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
+		&i.BillingInterval,
 	)
 	return i, err
 }
 
 const getSubscriptionForUpdate = `-- name: GetSubscriptionForUpdate :one
-SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id FROM subscriptions LIMIT 1 FOR UPDATE
+SELECT id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval FROM subscriptions LIMIT 1 FOR UPDATE
 `
 
 func (q *Queries) GetSubscriptionForUpdate(ctx context.Context) (Subscription, error) {
@@ -259,12 +315,13 @@ func (q *Queries) GetSubscriptionForUpdate(ctx context.Context) (Subscription, e
 		&i.CancelAtPeriodEnd,
 		&i.ExtraSeats,
 		&i.SeatProviderSubscriptionID,
+		&i.BillingInterval,
 	)
 	return i, err
 }
 
 const listPlans = `-- name: ListPlans :many
-SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month FROM plans
+SELECT code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month, contacts_limit, messages_per_month, yearly_price_minor, yearly_razorpay_plan_id, tagline, highlights, is_popular FROM plans
 WHERE (NOT $1::boolean OR is_active)
 ORDER BY sort_order, price_minor, code
 `
@@ -294,6 +351,13 @@ func (q *Queries) ListPlans(ctx context.Context, activeOnly bool) ([]Plan, error
 			&i.UpdatedAt,
 			&i.ExtraSeatRazorpayPlanID,
 			&i.AiRepliesPerMonth,
+			&i.ContactsLimit,
+			&i.MessagesPerMonth,
+			&i.YearlyPriceMinor,
+			&i.YearlyRazorpayPlanID,
+			&i.Tagline,
+			&i.Highlights,
+			&i.IsPopular,
 		); err != nil {
 			return nil, err
 		}
@@ -313,6 +377,20 @@ WHERE status IN ('pending', 'connected') AND phone_number_id <> $1::text
 // Numbers that count against the plan: connected or being connected, other than the one named.
 func (q *Queries) NumbersInUse(ctx context.Context, otherID string) (int32, error) {
 	row := q.db.QueryRow(ctx, numbersInUse, otherID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const outboundMessagesSince = `-- name: OutboundMessagesSince :one
+SELECT count(*)::int FROM messages
+WHERE direction = 'outbound' AND status <> 'failed' AND created_at >= $1
+`
+
+// Run inside the tenant: messages the workspace has sent (or is sending) since a time, for the
+// plan's monthly message limit. Failed sends do not count.
+func (q *Queries) OutboundMessagesSince(ctx context.Context, since time.Time) (int32, error) {
+	row := q.db.QueryRow(ctx, outboundMessagesSince, since)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -422,6 +500,52 @@ func (q *Queries) SetSeatSubscription(ctx context.Context, arg SetSeatSubscripti
 	return err
 }
 
+const startFreePlan = `-- name: StartFreePlan :one
+UPDATE subscriptions
+SET status = 'active', plan_code = $1, billing_interval = 'month', provider_subscription_id = NULL,
+    cancel_at_period_end = false, current_period_start = $2, current_period_end = $3,
+    updated_at = now()
+WHERE tenant_id = $4
+RETURNING id, tenant_id, plan_code, status, seats, current_period_start, current_period_end, payment_provider, provider_customer_id, provider_subscription_id, created_at, updated_at, cancel_at_period_end, extra_seats, seat_provider_subscription_id, billing_interval
+`
+
+type StartFreePlanParams struct {
+	PlanCode    *string
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+	TenantID    uuid.UUID
+}
+
+// The free plan needs no payment: it starts now and runs until the owner chooses another plan.
+func (q *Queries) StartFreePlan(ctx context.Context, arg StartFreePlanParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, startFreePlan,
+		arg.PlanCode,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.TenantID,
+	)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.PlanCode,
+		&i.Status,
+		&i.Seats,
+		&i.CurrentPeriodStart,
+		&i.CurrentPeriodEnd,
+		&i.PaymentProvider,
+		&i.ProviderCustomerID,
+		&i.ProviderSubscriptionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelAtPeriodEnd,
+		&i.ExtraSeats,
+		&i.SeatProviderSubscriptionID,
+		&i.BillingInterval,
+	)
+	return i, err
+}
+
 const subscriptionTenant = `-- name: SubscriptionTenant :one
 SELECT t.tenant_id::uuid FROM (SELECT subscription_tenant($1::text) AS tenant_id) t
 WHERE t.tenant_id IS NOT NULL
@@ -436,16 +560,23 @@ func (q *Queries) SubscriptionTenant(ctx context.Context, providerSubscriptionID
 
 const upsertPlan = `-- name: UpsertPlan :one
 INSERT INTO plans (code, name, price_minor, included_numbers, included_seats, extra_seat_minor,
-                   razorpay_plan_id, extra_seat_razorpay_plan_id, sort_order, is_active, ai_replies_per_month)
+                   razorpay_plan_id, extra_seat_razorpay_plan_id, sort_order, is_active, ai_replies_per_month,
+                   contacts_limit, messages_per_month, yearly_price_minor, yearly_razorpay_plan_id,
+                   tagline, highlights, is_popular)
 VALUES ($1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11)
+        $7, $8, $9, $10, $11,
+        $12, $13, $14, $15,
+        $16, $17::text[], $18)
 ON CONFLICT (code) DO UPDATE
 SET name = EXCLUDED.name, price_minor = EXCLUDED.price_minor, included_numbers = EXCLUDED.included_numbers,
     included_seats = EXCLUDED.included_seats, extra_seat_minor = EXCLUDED.extra_seat_minor,
     razorpay_plan_id = EXCLUDED.razorpay_plan_id, extra_seat_razorpay_plan_id = EXCLUDED.extra_seat_razorpay_plan_id,
     sort_order = EXCLUDED.sort_order,
-    is_active = EXCLUDED.is_active, ai_replies_per_month = EXCLUDED.ai_replies_per_month, updated_at = now()
-RETURNING code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month
+    is_active = EXCLUDED.is_active, ai_replies_per_month = EXCLUDED.ai_replies_per_month,
+    contacts_limit = EXCLUDED.contacts_limit, messages_per_month = EXCLUDED.messages_per_month,
+    yearly_price_minor = EXCLUDED.yearly_price_minor, yearly_razorpay_plan_id = EXCLUDED.yearly_razorpay_plan_id,
+    tagline = EXCLUDED.tagline, highlights = EXCLUDED.highlights, is_popular = EXCLUDED.is_popular, updated_at = now()
+RETURNING code, name, price_minor, currency, included_numbers, included_seats, extra_seat_minor, features, is_active, razorpay_plan_id, sort_order, created_at, updated_at, extra_seat_razorpay_plan_id, ai_replies_per_month, contacts_limit, messages_per_month, yearly_price_minor, yearly_razorpay_plan_id, tagline, highlights, is_popular
 `
 
 type UpsertPlanParams struct {
@@ -460,6 +591,13 @@ type UpsertPlanParams struct {
 	SortOrder               int32
 	IsActive                bool
 	AiRepliesPerMonth       int32
+	ContactsLimit           *int32
+	MessagesPerMonth        *int32
+	YearlyPriceMinor        *int64
+	YearlyRazorpayPlanID    *string
+	Tagline                 string
+	Highlights              []string
+	IsPopular               bool
 }
 
 func (q *Queries) UpsertPlan(ctx context.Context, arg UpsertPlanParams) (Plan, error) {
@@ -475,6 +613,13 @@ func (q *Queries) UpsertPlan(ctx context.Context, arg UpsertPlanParams) (Plan, e
 		arg.SortOrder,
 		arg.IsActive,
 		arg.AiRepliesPerMonth,
+		arg.ContactsLimit,
+		arg.MessagesPerMonth,
+		arg.YearlyPriceMinor,
+		arg.YearlyRazorpayPlanID,
+		arg.Tagline,
+		arg.Highlights,
+		arg.IsPopular,
 	)
 	var i Plan
 	err := row.Scan(
@@ -493,6 +638,13 @@ func (q *Queries) UpsertPlan(ctx context.Context, arg UpsertPlanParams) (Plan, e
 		&i.UpdatedAt,
 		&i.ExtraSeatRazorpayPlanID,
 		&i.AiRepliesPerMonth,
+		&i.ContactsLimit,
+		&i.MessagesPerMonth,
+		&i.YearlyPriceMinor,
+		&i.YearlyRazorpayPlanID,
+		&i.Tagline,
+		&i.Highlights,
+		&i.IsPopular,
 	)
 	return i, err
 }

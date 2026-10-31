@@ -674,6 +674,30 @@ func (s *Service) savePlan(w http.ResponseWriter, r *http.Request) error {
 	case req.AIRepliesPerMonth < 0 || req.AIRepliesPerMonth > 10_000_000:
 		return httpx.BadRequest("ai_replies_per_month", "AI replies per month must be between 0 and 10,000,000.")
 	}
+	if (req.ContactsLimit != nil && *req.ContactsLimit < 0) || (req.MessagesPerMonth != nil && *req.MessagesPerMonth < 0) {
+		return httpx.BadRequest("contacts_limit", "Limits cannot be negative. Leave a limit empty for none.")
+	}
+	if req.YearlyPriceMinor != nil && *req.YearlyPriceMinor < 0 {
+		return httpx.BadRequest("yearly_price_minor", "Prices cannot be negative.")
+	}
+	req.Tagline = strings.TrimSpace(req.Tagline)
+	if len([]rune(req.Tagline)) > 200 {
+		return httpx.BadRequest("tagline", "Keep the tagline to 200 characters.")
+	}
+	highlights := []string{}
+	for _, h := range req.Highlights {
+		if h = strings.TrimSpace(h); h != "" {
+			highlights = append(highlights, h)
+		}
+	}
+	if len(highlights) > 12 {
+		return httpx.BadRequest("highlights", "List up to 12 highlights.")
+	}
+	for _, h := range highlights {
+		if len([]rune(h)) > 100 {
+			return httpx.BadRequest("highlights", "Keep each highlight to 100 characters.")
+		}
+	}
 	if req.RazorpayPlanID != nil {
 		v := strings.TrimSpace(*req.RazorpayPlanID)
 		if v == "" {
@@ -694,6 +718,16 @@ func (s *Service) savePlan(w http.ResponseWriter, r *http.Request) error {
 			req.ExtraSeatRazorpayPlanID = &v
 		}
 	}
+	if req.YearlyRazorpayPlanID != nil {
+		v := strings.TrimSpace(*req.YearlyRazorpayPlanID)
+		if v == "" {
+			req.YearlyRazorpayPlanID = nil
+		} else if !strings.HasPrefix(v, "plan_") {
+			return httpx.BadRequest("yearly_razorpay_plan_id", "Razorpay plan IDs start with plan_.")
+		} else {
+			req.YearlyRazorpayPlanID = &v
+		}
+	}
 	var out dbq.Plan
 	err := s.db.Global(r.Context(), func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
@@ -701,10 +735,15 @@ func (s *Service) savePlan(w http.ResponseWriter, r *http.Request) error {
 			Code: code, Name: req.Name, PriceMinor: req.PriceMinor, IncludedNumbers: req.IncludedNumbers,
 			IncludedSeats: req.IncludedSeats, ExtraSeatMinor: req.ExtraSeatMinor, RazorpayPlanID: req.RazorpayPlanID,
 			ExtraSeatRazorpayPlanID: req.ExtraSeatRazorpayPlanID, SortOrder: req.SortOrder, IsActive: req.Active,
-			AiRepliesPerMonth: req.AIRepliesPerMonth,
+			AiRepliesPerMonth: req.AIRepliesPerMonth, ContactsLimit: req.ContactsLimit, MessagesPerMonth: req.MessagesPerMonth,
+			YearlyPriceMinor: req.YearlyPriceMinor, YearlyRazorpayPlanID: req.YearlyRazorpayPlanID,
+			Tagline: req.Tagline, Highlights: highlights, IsPopular: req.Popular,
 		})
 		if db.IsUniqueViolation(err, "plans_razorpay_plan_id_key") {
 			return httpx.BadRequest("razorpay_plan_id", "Another plan already uses this Razorpay plan.")
+		}
+		if db.IsUniqueViolation(err, "plans_yearly_razorpay_plan_id_key") {
+			return httpx.BadRequest("yearly_razorpay_plan_id", "Another plan already uses this Razorpay plan.")
 		}
 		if err != nil {
 			return err

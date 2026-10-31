@@ -33,8 +33,11 @@ import (
 const Grace = 7 * 24 * time.Hour
 
 // cycles is how many monthly charges a Razorpay subscription may make (Razorpay requires a
-// limit); ten years.
-const cycles = 120
+// limit); ten years. yearlyCycles is the same for a yearly plan.
+const (
+	cycles       = 120
+	yearlyCycles = 10
+)
 
 type Service struct {
 	db            *db.DB
@@ -78,7 +81,8 @@ func Usable(sub dbq.Subscription, now time.Time) bool {
 var ErrPaymentRequired = httpx.NewError(http.StatusPaymentRequired, "payment_required",
 	"Your Ecogo plan has ended. The workspace owner can choose a plan under Settings, Billing.")
 
-// Check refuses new sends when the workspace's plan has ended. Run it inside the tenant.
+// Check refuses new sends when the workspace's plan has ended or its messages for the month
+// are used up. Run it inside the tenant.
 func Check(ctx context.Context, q *dbq.Queries, now time.Time) error {
 	sub, err := q.GetSubscription(ctx)
 	if db.IsNotFound(err) {
@@ -89,6 +93,13 @@ func Check(ctx context.Context, q *dbq.Queries, now time.Time) error {
 	}
 	if !Usable(sub, now) {
 		return ErrPaymentRequired
+	}
+	room, err := MessageRoom(ctx, q, now)
+	if err != nil {
+		return err
+	}
+	if room == 0 {
+		return ErrMessageLimit(ctx, q, now)
 	}
 	return nil
 }
@@ -146,13 +157,37 @@ type Plan struct {
 	Active              bool  `json:"is_active"`
 	// AIRepliesPerMonth is how many chatbot AI answers the plan includes each billing month; 0 for none.
 	AIRepliesPerMonth int32 `json:"ai_replies_per_month"`
+	// ContactsLimit and MessagesPerMonth are the plan's limits; null for none.
+	ContactsLimit    *int32 `json:"contacts_limit"`
+	MessagesPerMonth *int32 `json:"messages_per_month"`
+	// YearlyPriceMinor is the price for a year paid at once; null when the plan is monthly only.
+	YearlyPriceMinor *int64 `json:"yearly_price_minor"`
+	// YearlyRazorpayPlanID is the Razorpay plan that charges the yearly price (admins only).
+	YearlyRazorpayPlanID *string `json:"yearly_razorpay_plan_id,omitempty"`
+	// YearlyAvailable tells customers the plan can be paid yearly.
+	YearlyAvailable bool `json:"yearly_available"`
+	// Free plans start without a payment.
+	Free bool `json:"free"`
+	// Tagline and Highlights are the plan card's text; Popular marks the plan to recommend.
+	Tagline    string   `json:"tagline"`
+	Highlights []string `json:"highlights"`
+	Popular    bool     `json:"is_popular"`
 }
 
 func PlanView(p dbq.Plan) Plan {
 	return Plan{Code: p.Code, Name: p.Name, PriceMinor: p.PriceMinor, Currency: p.Currency,
 		IncludedNumbers: p.IncludedNumbers, IncludedSeats: p.IncludedSeats, ExtraSeatMinor: p.ExtraSeatMinor,
 		RazorpayPlanID: p.RazorpayPlanID, ExtraSeatRazorpayPlanID: p.ExtraSeatRazorpayPlanID,
-		ExtraSeatsAvailable: p.RazorpayPlanID != nil && p.ExtraSeatRazorpayPlanID != nil, SortOrder: p.SortOrder, Active: p.IsActive, AIRepliesPerMonth: p.AiRepliesPerMonth}
+		ExtraSeatsAvailable: p.RazorpayPlanID != nil && p.ExtraSeatRazorpayPlanID != nil, SortOrder: p.SortOrder, Active: p.IsActive, AIRepliesPerMonth: p.AiRepliesPerMonth,
+		ContactsLimit: p.ContactsLimit, MessagesPerMonth: p.MessagesPerMonth, YearlyPriceMinor: p.YearlyPriceMinor,
+		YearlyRazorpayPlanID: p.YearlyRazorpayPlanID, YearlyAvailable: p.YearlyPriceMinor != nil && p.YearlyRazorpayPlanID != nil,
+		Free: IsFree(p), Tagline: p.Tagline, Highlights: append([]string{}, p.Highlights...), Popular: p.IsPopular}
+}
+
+// Offered reports whether customers can choose the plan: an active plan that is free or that
+// Razorpay can charge.
+func Offered(p dbq.Plan) bool {
+	return p.IsActive && (IsFree(p) || p.RazorpayPlanID != nil)
 }
 
 // Subscription is the workspace's billing state.
@@ -167,12 +202,15 @@ type Subscription struct {
 	PaymentPending bool `json:"payment_pending"`
 	// ExtraSeats is how many seats beyond the plan's included ones are paid for.
 	ExtraSeats int32 `json:"extra_seats"`
+	// Interval is month or year: which of the plan's prices is paid.
+	Interval string `json:"billing_interval"`
 }
 
 func SubscriptionView(sub dbq.Subscription, now time.Time) Subscription {
 	return Subscription{Status: string(sub.Status), PlanCode: sub.PlanCode, PeriodStart: sub.CurrentPeriodStart,
 		PeriodEnd: sub.CurrentPeriodEnd, CancelAtPeriodEnd: sub.CancelAtPeriodEnd, Usable: Usable(sub, now),
-		PaymentPending: sub.ProviderSubscriptionID != nil && sub.PlanCode == nil, ExtraSeats: sub.ExtraSeats}
+		PaymentPending: sub.ProviderSubscriptionID != nil && sub.PlanCode == nil, ExtraSeats: sub.ExtraSeats,
+		Interval: sub.BillingInterval}
 }
 
 type Overview struct {
@@ -181,7 +219,12 @@ type Overview struct {
 	Plans           []Plan       `json:"plans"`
 	ConnectedNumber int32        `json:"connected_numbers"`
 	Seats           int32        `json:"seats"`
-	PaymentsEnabled bool         `json:"payments_enabled"`
+	Contacts        int32        `json:"contacts"`
+	// MessagesThisMonth counts towards the plan's monthly messages, from MonthStart to MonthEnd.
+	MessagesThisMonth int32     `json:"messages_this_month"`
+	MonthStart        time.Time `json:"month_start"`
+	MonthEnd          time.Time `json:"month_end"`
+	PaymentsEnabled   bool      `json:"payments_enabled"`
 }
 
 func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
@@ -202,16 +245,28 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) error {
 			if sub.PlanCode != nil && pl.Code == *sub.PlanCode {
 				v := PlanView(pl)
 				out.Plan = &v
+				// A checkout started from the free plan waits for Razorpay like one from a trial.
+				if v.Free && sub.ProviderSubscriptionID != nil {
+					out.Subscription.PaymentPending = true
+				}
 			}
-			// Only plans Razorpay can charge are offered.
-			if pl.IsActive && pl.RazorpayPlanID != nil {
+			// Only free plans and plans Razorpay can charge are offered.
+			if Offered(pl) {
 				v := PlanView(pl)
-				v.RazorpayPlanID, v.ExtraSeatRazorpayPlanID = nil, nil
+				v.RazorpayPlanID, v.ExtraSeatRazorpayPlanID, v.YearlyRazorpayPlanID = nil, nil, nil
 				out.Plans = append(out.Plans, v)
 			}
 		}
 		u, err := q.BillingUsage(r.Context())
+		if err != nil {
+			return err
+		}
 		out.ConnectedNumber, out.Seats = u.ConnectedNumbers, u.Seats
+		if out.Contacts, err = q.ContactsInUse(r.Context()); err != nil {
+			return err
+		}
+		out.MonthStart, out.MonthEnd = UsageMonth(sub, s.now())
+		out.MessagesThisMonth, err = q.OutboundMessagesSince(r.Context(), out.MonthStart)
 		return err
 	})
 	if err != nil {
@@ -230,12 +285,18 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	var req struct {
 		Plan string `json:"plan"`
+		// Interval is month (the default) or year.
+		Interval string `json:"interval"`
 	}
 	if err := httpx.Decode(r, &req); err != nil {
 		return err
 	}
-	if !s.rp.Configured() {
-		return errPaymentsOff
+	switch req.Interval {
+	case "":
+		req.Interval = "month"
+	case "month", "year":
+	default:
+		return httpx.BadRequest("interval", "interval must be month or year.")
 	}
 	ctx := r.Context()
 	var (
@@ -247,11 +308,14 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 	err := s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
 		plan, err = q.GetPlan(ctx, req.Plan)
-		if db.IsNotFound(err) || (err == nil && (!plan.IsActive || plan.RazorpayPlanID == nil)) {
+		if db.IsNotFound(err) || (err == nil && !Offered(plan)) {
 			return httpx.BadRequest("plan", "Choose one of the plans shown.")
 		}
 		if err != nil {
 			return err
+		}
+		if req.Interval == "year" && !IsFree(plan) && (plan.YearlyPriceMinor == nil || plan.YearlyRazorpayPlanID == nil) {
+			return httpx.BadRequest("interval", plan.Name+" is not sold yearly yet. Choose monthly billing.")
 		}
 		if sub, err = q.GetSubscription(ctx); err != nil {
 			return err
@@ -280,17 +344,27 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-
 	now := s.now()
+	if IsFree(plan) {
+		return s.startFree(w, r, plan, sub, now)
+	}
+	if !s.rp.Configured() {
+		return errPaymentsOff
+	}
+	rpPlan, total := *plan.RazorpayPlanID, cycles
+	if req.Interval == "year" {
+		rpPlan, total = *plan.YearlyRazorpayPlanID, yearlyCycles
+	}
+
 	if sub.Status == dbq.SubscriptionStatusActive && sub.ProviderSubscriptionID != nil {
 		if sub.CancelAtPeriodEnd {
 			return httpx.NewError(http.StatusConflict, "conflict",
 				"Your plan is set to end on "+sub.CurrentPeriodEnd.Format("2 Jan 2006")+". Choose a plan again after that date.")
 		}
-		if sub.PlanCode != nil && *sub.PlanCode == plan.Code {
+		if sub.PlanCode != nil && *sub.PlanCode == plan.Code && sub.BillingInterval == req.Interval {
 			return httpx.NewError(http.StatusConflict, "conflict", "You are already on this plan.")
 		}
-		if _, err := s.rp.ChangePlan(ctx, *sub.ProviderSubscriptionID, *plan.RazorpayPlanID); err != nil {
+		if _, err := s.rp.ChangePlan(ctx, *sub.ProviderSubscriptionID, rpPlan); err != nil {
 			return s.providerError(err)
 		}
 		if err := s.audit(r, "subscription.change_plan", plan.Code); err != nil {
@@ -324,7 +398,7 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 		}
 		cust = c.ID
 	}
-	ns := razorpay.NewSubscription{PlanID: *plan.RazorpayPlanID, CustomerID: cust, TotalCount: cycles, Notes: notes}
+	ns := razorpay.NewSubscription{PlanID: rpPlan, CustomerID: cust, TotalCount: total, Notes: notes}
 	// The rest of a trial stays free: the first charge waits for its end.
 	if sub.Status == dbq.SubscriptionStatusTrialing && sub.CurrentPeriodEnd.After(now.Add(time.Hour)) {
 		ns.StartAt = &sub.CurrentPeriodEnd
@@ -365,6 +439,30 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) error {
 	if !s.rp.Configured() {
 		return errPaymentsOff
 	}
+	if free, err := s.onFreePlan(ctx, p.TenantID, sub); err != nil {
+		return err
+	} else if free {
+		// A checkout started from the free plan: stop it; the free plan carries on.
+		if _, err := s.rp.Cancel(ctx, *sub.ProviderSubscriptionID, false); err != nil {
+			return s.providerError(err)
+		}
+		err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+			if err := q.DropProviderSubscription(ctx, dbq.DropProviderSubscriptionParams{
+				TenantID: p.TenantID, ProviderSubscriptionID: sub.ProviderSubscriptionID}); err != nil {
+				return err
+			}
+			sub, err = q.GetSubscription(ctx)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if err := s.audit(r, "subscription.cancel", ""); err != nil {
+			return err
+		}
+		httpx.JSON(w, http.StatusOK, SubscriptionView(sub, s.now()))
+		return nil
+	}
 	// A paid cycle runs to its end; a plan chosen during the trial stops before its first charge.
 	if _, err := s.rp.Cancel(ctx, *sub.ProviderSubscriptionID, sub.Status != dbq.SubscriptionStatusTrialing); err != nil {
 		return s.providerError(err)
@@ -389,6 +487,68 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	httpx.JSON(w, http.StatusOK, SubscriptionView(sub, s.now()))
+	return nil
+}
+
+// onFreePlan reports whether the workspace's current plan is a free one.
+func (s *Service) onFreePlan(ctx context.Context, tenantID uuid.UUID, sub dbq.Subscription) (bool, error) {
+	if sub.PlanCode == nil {
+		return false, nil
+	}
+	free := false
+	err := s.db.InTenant(ctx, tenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		pl, err := q.GetPlan(ctx, *sub.PlanCode)
+		free = err == nil && IsFree(pl)
+		return err
+	})
+	return free, err
+}
+
+// startFree moves the workspace onto a free plan. A paid plan has to be cancelled and run out
+// first, so no paid time is lost; a checkout not yet paid for is stopped.
+func (s *Service) startFree(w http.ResponseWriter, r *http.Request, plan dbq.Plan, sub dbq.Subscription, now time.Time) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	ctx := r.Context()
+	onFree, err := s.onFreePlan(ctx, p.TenantID, sub)
+	if err != nil {
+		return err
+	}
+	paid := sub.PlanCode != nil && !onFree &&
+		(sub.Status == dbq.SubscriptionStatusActive || sub.Status == dbq.SubscriptionStatusPastDue)
+	switch {
+	case onFree && sub.Status == dbq.SubscriptionStatusActive && *sub.PlanCode == plan.Code:
+		return httpx.NewError(http.StatusConflict, "conflict", "You are already on this plan.")
+	case paid && sub.CancelAtPeriodEnd:
+		return httpx.NewError(http.StatusConflict, "conflict",
+			"Your plan is set to end on "+sub.CurrentPeriodEnd.In(ist).Format("2 Jan 2006")+". Choose "+plan.Name+" after that date.")
+	case paid:
+		return httpx.NewError(http.StatusConflict, "conflict",
+			"Cancel your current plan first. You can choose "+plan.Name+" once it ends.")
+	}
+	// An unpaid checkout (from the trial or from the free plan) must not charge later.
+	if sub.ProviderSubscriptionID != nil && sub.Status != dbq.SubscriptionStatusCancelled && s.rp.Configured() {
+		if _, err := s.rp.Cancel(ctx, *sub.ProviderSubscriptionID, false); err != nil {
+			var re *razorpay.Error
+			if !errors.As(err, &re) || re.HTTPStatus != http.StatusBadRequest {
+				return s.providerError(err)
+			}
+			s.log.Info("earlier razorpay subscription not cancelled", "subscription", *sub.ProviderSubscriptionID, "description", re.Description)
+		}
+	}
+	var out dbq.Subscription
+	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		var err error
+		out, err = q.StartFreePlan(ctx, dbq.StartFreePlanParams{
+			PlanCode: &plan.Code, PeriodStart: now, PeriodEnd: now.AddDate(0, 1, 0), TenantID: p.TenantID})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.audit(r, "subscription.free", plan.Code); err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"subscription": SubscriptionView(out, now)})
 	return nil
 }
 
@@ -485,16 +645,32 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 				TargetType: &target, TargetID: &rs.ID, Metadata: meta,
 			})
 		}
+		// A checkout started from the free plan that ends unpaid leaves the workspace on it.
+		if endings[ev.Event] && sub.PlanCode != nil {
+			if cur, err := q.GetPlan(ctx, *sub.PlanCode); err != nil {
+				return err
+			} else if IsFree(cur) {
+				return q.DropProviderSubscription(ctx, dbq.DropProviderSubscriptionParams{TenantID: tenantID, ProviderSubscriptionID: &rs.ID})
+			}
+		}
 		next := Transition(sub, ev.Event, rs)
 		if next == nil {
 			return nil
 		}
 		planName := "Ecogo Connect plan"
 		if rs.PlanID != "" {
-			pl, err := q.GetPlanByRazorpayID(ctx, &rs.PlanID)
+			pl, err := q.GetPlanByRazorpayID(ctx, rs.PlanID)
 			if err == nil {
 				next.PlanCode = &pl.Code
+				interval := "month"
+				if pl.YearlyRazorpayPlanID != nil && *pl.YearlyRazorpayPlanID == rs.PlanID {
+					interval = "year"
+				}
+				next.BillingInterval = &interval
 				planName = pl.Name + " plan"
+				if interval == "year" {
+					planName += " (yearly)"
+				}
 			} else if !db.IsNotFound(err) {
 				return err
 			}
@@ -517,6 +693,9 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 		})
 	})
 }
+
+// endings are the Razorpay events that end a subscription.
+var endings = map[string]bool{"subscription.cancelled": true, "subscription.completed": true, "subscription.expired": true}
 
 // syncEvents maps the Razorpay subscription states that start or keep a paid plan onto the
 // webhook event that reports them. Endings are left to the webhooks.
@@ -544,9 +723,20 @@ func (s *Service) sync(ctx context.Context, tenantID uuid.UUID) {
 		}
 		return
 	}
-	if sub.ProviderSubscriptionID == nil || sub.Status == dbq.SubscriptionStatusCancelled ||
-		(sub.PlanCode != nil && Usable(sub, s.now())) {
+	if sub.ProviderSubscriptionID == nil || sub.Status == dbq.SubscriptionStatusCancelled {
 		return
+	}
+	if sub.PlanCode != nil && Usable(sub, s.now()) {
+		// A paid plan is confirmed; a free one may have a checkout waiting.
+		free := false
+		_ = s.db.Global(ctx, func(q *dbq.Queries, _ pgx.Tx) error {
+			pl, err := q.GetPlan(ctx, *sub.PlanCode)
+			free = err == nil && IsFree(pl)
+			return nil
+		})
+		if !free {
+			return
+		}
 	}
 	rs, err := s.rp.Subscription(ctx, *sub.ProviderSubscriptionID)
 	if err != nil {
@@ -644,6 +834,8 @@ func AIAllowanceFor(ctx context.Context, q *dbq.Queries) (AIAllowance, error) {
 			return AIAllowance{}, err
 		}
 		a.Limit = plan.AiRepliesPerMonth
+		// A yearly or free plan's AI replies are per month, not per period.
+		a.PeriodStart, a.PeriodEnd = UsageMonth(sub, time.Now())
 	}
 	return a, nil
 }

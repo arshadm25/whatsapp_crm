@@ -563,6 +563,15 @@ export interface Plan {
   extra_seats_available: boolean;
   sort_order: number;
   is_active: boolean;
+  contacts_limit: number | null;
+  messages_per_month: number | null;
+  yearly_price_minor: number | null;
+  yearly_razorpay_plan_id?: string | null;
+  yearly_available: boolean;
+  free: boolean;
+  tagline: string;
+  highlights: string[];
+  is_popular: boolean;
 }
 
 export interface Subscription {
@@ -574,6 +583,7 @@ export interface Subscription {
   usable: boolean;
   payment_pending: boolean;
   extra_seats: number;
+  billing_interval: "month" | "year";
 }
 
 export interface AdminInvoice {
@@ -616,6 +626,10 @@ export interface BillingOverview {
   plans: Plan[];
   connected_numbers: number;
   seats: number;
+  contacts: number;
+  messages_this_month: number;
+  month_start: string;
+  month_end: string;
   payments_enabled: boolean;
 }
 

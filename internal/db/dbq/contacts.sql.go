@@ -172,6 +172,16 @@ func (q *Queries) CountContacts(ctx context.Context, arg CountContactsParams) (i
 	return column_1, err
 }
 
+const deleteNewContact = `-- name: DeleteNewContact :exec
+DELETE FROM contacts WHERE id = $1
+`
+
+// Undoes a contact just created by an import that went over the plan's contact limit.
+func (q *Queries) DeleteNewContact(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteNewContact, id)
+	return err
+}
+
 const getContact = `-- name: GetContact :one
 SELECT id, tenant_id, wa_id, name, profile_name, language, custom_fields, opt_in_status, opted_in_at, opted_out_at, blocked, created_at, updated_at FROM contacts WHERE id = $1
 `
