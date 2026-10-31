@@ -19,6 +19,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import Icon, { type IconName } from "./Icon";
 import {
   NODE_TYPES,
   belowAll,
@@ -38,6 +39,31 @@ import {
 // flow the step list below it edits: a link drawn here sets that step's "Then go to".
 
 const DRAG_TYPE = "application/x-ecogo-bot-step";
+
+const STEP_ICON: Record<NodeType, IconName> = {
+  message: "message",
+  buttons: "list",
+  question: "help",
+  condition: "branch",
+  set: "variable",
+  tag: "tag",
+  template: "file",
+  flow: "flow",
+  ai: "sparkles",
+  handoff: "headset",
+  end: "stop",
+};
+
+type Side = "left" | "right";
+const SIDE_KEY = "ecogo.botToolboxSide";
+
+function savedSide(): Side {
+  try {
+    return localStorage.getItem(SIDE_KEY) === "right" ? "right" : "left";
+  } catch {
+    return "left";
+  }
+}
 
 type StepData = {
   id: string;
@@ -71,6 +97,16 @@ const nodeTypes = { step: memo(StepBox) };
 function Canvas({ flow, selected, problemNodes, onSelect, onChange, onAdd }: FlowCanvasProps) {
   const { t } = useTranslation();
   const rf = useReactFlow();
+  const [side, setSide] = useState<Side>(savedSide);
+  const flip = () => {
+    const next: Side = side === "left" ? "right" : "left";
+    setSide(next);
+    try {
+      localStorage.setItem(SIDE_KEY, next);
+    } catch {
+      // storage blocked: the choice lasts until the page closes
+    }
+  };
 
   const built = useMemo(() => {
     const at = positions(flow);
@@ -170,49 +206,55 @@ function Canvas({ flow, selected, problemNodes, onSelect, onChange, onAdd }: Flo
 
   return (
     <div className="flow-canvas">
-      <div className="canvas-palette" role="toolbar" aria-label={t("bots.canvasPalette")}>
-        <span className="muted small">{t("bots.canvasPalette")}</span>
-        {NODE_TYPES.map((type) => (
-          <button
-            key={type}
-            type="button"
-            className={`palette-item step-${type}`}
-            draggable
-            title={t("bots.canvasPaletteHint")}
-            onDragStart={(e) => {
-              e.dataTransfer.setData(DRAG_TYPE, type);
-              e.dataTransfer.effectAllowed = "move";
-            }}
-            onClick={() => onAdd(type, belowAll(flow))}
-          >
-            {t(`bots.node_${type}`)}
+      <div className={`canvas-row side-${side}`}>
+        <div className={`canvas-toolbox side-${side}`} role="toolbar" aria-orientation="vertical" aria-label={t("bots.canvasPalette")}>
+          <button type="button" className="toolbox-side" onClick={flip} title={t(side === "left" ? "bots.toolboxRight" : "bots.toolboxLeft")} aria-label={t(side === "left" ? "bots.toolboxRight" : "bots.toolboxLeft")}>
+            <Icon name={side === "left" ? "panelRight" : "panelLeft"} size="s" />
           </button>
-        ))}
-      </div>
-      <div className="canvas-area" onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }} onDrop={onDrop}>
-        <ReactFlow<StepNode, Edge>
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeDragStop={onNodeDragStop}
-          onConnect={onConnect}
-          onDelete={onDelete}
-          onNodeClick={(_, n) => onSelect(n.id)}
-          onPaneClick={() => onSelect(null)}
-          isValidConnection={(c) => c.source !== c.target}
-          fitView
-          fitViewOptions={{ maxZoom: 1, padding: 0.2 }}
-          minZoom={0.25}
-          maxZoom={1.5}
-          colorMode="system"
-          deleteKeyCode={["Backspace", "Delete"]}
-          defaultEdgeOptions={{ type: "smoothstep" }}
-        >
-          <Background gap={20} />
-          <Controls showInteractive={false} />
-        </ReactFlow>
+          {NODE_TYPES.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={`tool step-${type}`}
+              draggable
+              title={`${t(`bots.node_${type}`)}: ${t("bots.canvasPaletteHint")}`}
+              aria-label={t(`bots.node_${type}`)}
+              onDragStart={(e) => {
+                e.dataTransfer.setData(DRAG_TYPE, type);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onClick={() => onAdd(type, belowAll(flow))}
+            >
+              <Icon name={STEP_ICON[type]} />
+              <span className="tool-label">{t(`bots.node_${type}`)}</span>
+            </button>
+          ))}
+        </div>
+        <div className="canvas-area" onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }} onDrop={onDrop}>
+          <ReactFlow<StepNode, Edge>
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeDragStop={onNodeDragStop}
+            onConnect={onConnect}
+            onDelete={onDelete}
+            onNodeClick={(_, n) => onSelect(n.id)}
+            onPaneClick={() => onSelect(null)}
+            isValidConnection={(c) => c.source !== c.target}
+            fitView
+            fitViewOptions={{ maxZoom: 1, padding: 0.2 }}
+            minZoom={0.25}
+            maxZoom={1.5}
+            colorMode="system"
+            deleteKeyCode={["Backspace", "Delete"]}
+            defaultEdgeOptions={{ type: "smoothstep" }}
+          >
+            <Background gap={20} />
+            <Controls showInteractive={false} />
+          </ReactFlow>
+        </div>
       </div>
       <p className="muted small">
         {t("bots.canvasHelp")}
@@ -238,7 +280,8 @@ function StepBox({ data }: NodeProps<StepNode>) {
     <div className={`step-box step-${node.type} ${reachable ? "" : "lost"} ${hasProblems ? "has-problems" : ""}`}>
       <Handle type="target" position={Position.Left} />
       <div className="step-head">
-        <span className="pill">{t(`bots.node_${node.type}`)}</span>
+        <span className={`step-icon step-${node.type}`}><Icon name={STEP_ICON[node.type]} size="xs" /></span>
+        <span className="step-type">{t(`bots.node_${node.type}`)}</span>
         {isStart && <span className="pill t-approved">{t("bots.start")}</span>}
         {hasProblems && <span className="field-error" aria-label={t("bots.problems")}>!</span>}
       </div>
