@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import type { AdminTenant, MetaFeeStatement, MetaRate, MetaReconciliation } from "../api/types";
 import { formatPaise } from "../lib/billing";
+import Icon from "../components/Icon";
+import ReasonField from "../components/ReasonField";
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
@@ -26,20 +28,22 @@ export function PaymentMode({ id, mode }: { id: string; mode: AdminTenant["meta_
     }
   };
   return (
-    <form className="card inline-form" onSubmit={save}>
+    <form className="card form ws-action" onSubmit={save}>
+      <h3><Icon name="globe" size="s" />{t("admin.metaPaymentMode")}</h3>
+      <p className="muted small">{t("admin.modeHelp")}</p>
       <label className="field">
-        {t("admin.metaPaymentMode")}
+        {t("admin.modeWho")}
         <select value={to} onChange={(e) => setTo(e.target.value as typeof mode)}>
           <option value="direct">{t("admin.mode_direct")}</option>
           <option value="through_us">{t("admin.mode_through_us")}</option>
         </select>
       </label>
-      <label className="field grow">
-        {t("admin.modeReason")}
-        <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={500} />
-      </label>
-      <button className="primary" disabled={to === mode}>{t("admin.modeSave")}</button>
-      {error && <div className="error">{error}</div>}
+      <ReasonField value={reason} onChange={setReason} />
+      {error && <div className="field-error">{error}</div>}
+      <div className="actions">
+        {to === mode && <span className="hint">{t("admin.modeSame")}</span>}
+        <button className="primary" disabled={to === mode}>{t("admin.modeSave")}</button>
+      </div>
     </form>
   );
 }

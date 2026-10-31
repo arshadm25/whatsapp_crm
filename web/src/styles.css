@@ -395,6 +395,31 @@ fieldset.field legend { padding: 0 4px; font-weight: 600; }
 .kv dd { margin: 0; text-align: end; font-weight: 500; color: var(--text); }
 .kv.roles { padding: 16px 20px; align-items: center; }
 .kv.roles dd { text-align: start; font-weight: 400; color: var(--text-3); }
+
+/* Admin console: one workspace (header, tabs, staff action cards) */
+.ws-back { margin: 0 0 12px; }
+.ws-detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 20px; margin-bottom: 16px; }
+.ws-detail-title { flex: 1 1 260px; min-width: 0; }
+.ws-detail-title h2 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 20px; line-height: 28px; }
+.ws-detail-title p { margin: 2px 0 0; }
+.ws-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
+.ws-facts dt { font-size: 12px; color: var(--muted); }
+.ws-facts dd { margin: 2px 0 0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.ws-note { display: block; font-weight: 400; font-size: 12px; }
+.ws-waba { display: block; }
+.ws-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.ws-num-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ws-num-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
+.ws-num-list li:first-child { border-top: 0; padding-top: 0; }
+.ws-num-list b, .ws-num-list small { display: block; }
+.ws-actions { align-items: start; }
+.ws-action { gap: 14px; }
+.ws-action > h3 { display: flex; align-items: center; gap: 8px; }
+.ws-action > h3 .i { color: var(--accent); }
+.ws-action .actions .hint { margin-inline-end: auto; }
+.ws-danger { border-color: var(--danger); }
+.ws-danger > h3 .i { color: var(--danger); }
+.segmented.tabs button { display: inline-flex; align-items: center; gap: 6px; }
 .inline-note { align-self: center; max-width: 80%; font-size: 12px; color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 9999px; padding: 4px 12px; text-align: center; }
 .bubble-tag { font-size: 11px; font-weight: 600; color: var(--accent-ink); margin-bottom: 4px; }
 .reply-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
