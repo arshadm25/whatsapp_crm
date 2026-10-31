@@ -108,10 +108,21 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[DeliverArgs]) error {
 	err := w.db.InTenant(ctx, a.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
 		var err error
 		row, err = q.GetDeliveryForSend(ctx, a.DeliveryID)
-		if err == nil && (row.WebhookDelivery.Status == dbq.DeliveryStatusSucceeded || !row.WebhookEndpoint.IsEnabled) {
+		if err != nil {
+			return err
+		}
+		switch {
+		case row.WebhookDelivery.Status == dbq.DeliveryStatusSucceeded || row.WebhookDelivery.Status == dbq.DeliveryStatusDead:
+			// Already sent, or closed (for example when the endpoint was deactivated): a retry
+			// by hand moves it back to pending first.
+			return errSkip
+		case !row.WebhookEndpoint.IsEnabled:
+			if err := q.SkipDelivery(ctx, dbq.SkipDeliveryParams{ID: a.DeliveryID, Note: deactivatedNote}); err != nil {
+				return err
+			}
 			return errSkip
 		}
-		return err
+		return nil
 	})
 	switch {
 	case errors.Is(err, errSkip):

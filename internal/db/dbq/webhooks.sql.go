@@ -439,6 +439,37 @@ func (q *Queries) RequeueDelivery(ctx context.Context, arg RequeueDeliveryParams
 	return result.RowsAffected(), nil
 }
 
+const setWebhookEndpointEnabled = `-- name: SetWebhookEndpointEnabled :one
+UPDATE webhook_endpoints
+SET is_enabled = $1, disabled_reason = $2
+WHERE id = $3
+RETURNING id, tenant_id, url, description, secret_ciphertext, event_types, phone_number_id, is_enabled, disabled_reason, created_at
+`
+
+type SetWebhookEndpointEnabledParams struct {
+	IsEnabled      bool
+	DisabledReason *string
+	ID             uuid.UUID
+}
+
+func (q *Queries) SetWebhookEndpointEnabled(ctx context.Context, arg SetWebhookEndpointEnabledParams) (WebhookEndpoint, error) {
+	row := q.db.QueryRow(ctx, setWebhookEndpointEnabled, arg.IsEnabled, arg.DisabledReason, arg.ID)
+	var i WebhookEndpoint
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Url,
+		&i.Description,
+		&i.SecretCiphertext,
+		&i.EventTypes,
+		&i.PhoneNumberID,
+		&i.IsEnabled,
+		&i.DisabledReason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const setWebhookSecret = `-- name: SetWebhookSecret :exec
 UPDATE webhook_endpoints SET secret_ciphertext = $1 WHERE id = $2
 `
@@ -451,4 +482,43 @@ type SetWebhookSecretParams struct {
 func (q *Queries) SetWebhookSecret(ctx context.Context, arg SetWebhookSecretParams) error {
 	_, err := q.db.Exec(ctx, setWebhookSecret, arg.SecretCiphertext, arg.ID)
 	return err
+}
+
+const skipDelivery = `-- name: SkipDelivery :exec
+UPDATE webhook_deliveries
+SET status = 'dead', next_attempt_at = now(),
+    last_error = CASE WHEN last_error IS NULL THEN $1::text ELSE $1::text || ' Last error: ' || last_error END
+WHERE id = $2 AND status IN ('pending', 'retrying')
+`
+
+type SkipDeliveryParams struct {
+	Note string
+	ID   uuid.UUID
+}
+
+// Closes one delivery that will not be sent, without counting an attempt.
+func (q *Queries) SkipDelivery(ctx context.Context, arg SkipDeliveryParams) error {
+	_, err := q.db.Exec(ctx, skipDelivery, arg.Note, arg.ID)
+	return err
+}
+
+const skipOpenDeliveries = `-- name: SkipOpenDeliveries :execrows
+UPDATE webhook_deliveries
+SET status = 'dead', next_attempt_at = now(),
+    last_error = CASE WHEN last_error IS NULL THEN $1::text ELSE $1::text || ' Last error: ' || last_error END
+WHERE endpoint_id = $2 AND status IN ('pending', 'retrying')
+`
+
+type SkipOpenDeliveriesParams struct {
+	Note       string
+	EndpointID uuid.UUID
+}
+
+// Closes an endpoint's deliveries still waiting to be sent, without counting an attempt.
+func (q *Queries) SkipOpenDeliveries(ctx context.Context, arg SkipOpenDeliveriesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, skipOpenDeliveries, arg.Note, arg.EndpointID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

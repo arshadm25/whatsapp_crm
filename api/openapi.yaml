@@ -1357,6 +1357,34 @@ paths:
         '422': { $ref: '#/components/responses/Unprocessable' }
 
   /webhook-endpoints/{endpoint_id}:
+    patch:
+      tags: [Webhook endpoints]
+      operationId: updateWebhookEndpoint
+      summary: Activate or deactivate a webhook endpoint
+      description: |
+        Set `enabled` to false to pause an endpoint without deleting it. While it is off no
+        deliveries are made for it, and deliveries still waiting to be sent or retried are closed
+        as `dead` with `last_error` saying the endpoint was deactivated. Set it back to true to
+        receive new events again; closed deliveries can then be retried one by one.
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: The endpoint
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Webhook endpoints]
       operationId: deleteWebhookEndpoint
@@ -1471,6 +1499,7 @@ paths:
       responses:
         '202': { description: Retry queued }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
 webhooks:
   message.received:

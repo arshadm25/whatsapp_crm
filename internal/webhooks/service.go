@@ -40,6 +40,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Use(auth.RequireRole(dbq.MemberRoleOwner, dbq.MemberRoleAdmin, dbq.MemberRoleDeveloper))
 	r.Get("/", httpx.Handler(s.log, s.list))
 	r.Post("/", httpx.Handler(s.log, s.create))
+	r.Patch("/{id}", httpx.Handler(s.log, s.update))
 	r.Delete("/{id}", httpx.Handler(s.log, s.delete))
 	r.Get("/{id}/deliveries", httpx.Handler(s.log, s.deliveries))
 	r.Get("/{id}/deliveries/{delivery_id}", httpx.Handler(s.log, s.delivery))
@@ -210,6 +211,76 @@ func visible(p auth.Principal, e dbq.WebhookEndpoint) bool {
 	return p.KeyPhoneNumberID == nil || (e.PhoneNumberID != nil && *e.PhoneNumberID == *p.KeyPhoneNumberID)
 }
 
+// deactivatedNote is the error left on deliveries closed because their endpoint was turned off.
+const deactivatedNote = "Not sent: the endpoint was deactivated."
+
+// update turns an endpoint on or off. While it is off no deliveries are created for it, and
+// deliveries still waiting to be sent or retried are closed as dead without being sent, so
+// nothing reaches it until it is turned on again (dead ones can then be retried by hand).
+func (s *Service) update(w http.ResponseWriter, r *http.Request) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	if req.Enabled == nil {
+		return httpx.BadRequest("enabled", "enabled must be true or false.")
+	}
+	var out dbq.WebhookEndpoint
+	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		e, err := endpoint(r, q, p)
+		if err != nil {
+			return err
+		}
+		if e.IsEnabled == *req.Enabled {
+			out = e
+			return nil
+		}
+		var reason *string
+		var closed int64
+		if !*req.Enabled {
+			reason = ptr("Deactivated by the workspace.")
+			if closed, err = q.SkipOpenDeliveries(r.Context(), dbq.SkipOpenDeliveriesParams{
+				EndpointID: e.ID, Note: deactivatedNote}); err != nil {
+				return err
+			}
+		}
+		if out, err = q.SetWebhookEndpointEnabled(r.Context(), dbq.SetWebhookEndpointEnabledParams{
+			ID: e.ID, IsEnabled: *req.Enabled, DisabledReason: reason}); err != nil {
+			return err
+		}
+		action := "webhook_endpoint.activated"
+		meta := map[string]any{"url": e.Url}
+		if !*req.Enabled {
+			action = "webhook_endpoint.deactivated"
+			meta["deliveries_closed"] = closed
+		}
+		return audit(r, q, p, action, e.ID, meta)
+	})
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, endpointView(out))
+	return nil
+}
+
+// audit records a change to an endpoint, made by a user or an API key.
+func audit(r *http.Request, q *dbq.Queries, p auth.Principal, action string, endpointID uuid.UUID, meta map[string]any) error {
+	actorType, actorID := dbq.ActorTypeUser, p.UserID
+	if p.APIKeyID != uuid.Nil {
+		actorType, actorID = dbq.ActorTypeApiKey, p.APIKeyID
+	}
+	b, _ := json.Marshal(meta)
+	return q.InsertAuditLog(r.Context(), dbq.InsertAuditLogParams{
+		TenantID: &p.TenantID, ActorType: actorType, ActorID: &actorID, Action: action,
+		TargetType: ptr("webhook_endpoint"), TargetID: ptr(endpointID.String()), Ip: auth.ClientIP(r), Metadata: b,
+	})
+}
+
+func ptr[T any](v T) *T { return &v }
+
 func (s *Service) delete(w http.ResponseWriter, r *http.Request) error {
 	p, _ := auth.PrincipalFrom(r.Context())
 	err := s.db.InTenant(r.Context(), p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
@@ -289,6 +360,9 @@ func (s *Service) retry(w http.ResponseWriter, r *http.Request) error {
 		e, err := endpoint(r, q, p)
 		if err != nil {
 			return err
+		}
+		if !e.IsEnabled {
+			return httpx.NewError(http.StatusConflict, "endpoint_inactive", "This endpoint is deactivated. Activate it before retrying a delivery.")
 		}
 		n, err := q.RequeueDelivery(r.Context(), dbq.RequeueDeliveryParams{ID: deliveryID, EndpointID: e.ID})
 		if err != nil {
