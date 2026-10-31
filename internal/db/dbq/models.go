@@ -1832,23 +1832,25 @@ type Session struct {
 }
 
 type Subscription struct {
-	ID                         uuid.UUID
-	TenantID                   uuid.UUID
-	PlanCode                   *string
-	Status                     SubscriptionStatus
-	Seats                      int32
-	CurrentPeriodStart         time.Time
-	CurrentPeriodEnd           time.Time
-	PaymentProvider            string
-	ProviderCustomerID         *string
-	ProviderSubscriptionID     *string
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
-	CancelAtPeriodEnd          bool
-	ExtraSeats                 int32
-	SeatProviderSubscriptionID *string
-	BillingInterval            string
-	AdminGranted               bool
+	ID                            uuid.UUID
+	TenantID                      uuid.UUID
+	PlanCode                      *string
+	Status                        SubscriptionStatus
+	Seats                         int32
+	CurrentPeriodStart            time.Time
+	CurrentPeriodEnd              time.Time
+	PaymentProvider               string
+	ProviderCustomerID            *string
+	ProviderSubscriptionID        *string
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
+	CancelAtPeriodEnd             bool
+	ExtraSeats                    int32
+	SeatProviderSubscriptionID    *string
+	BillingInterval               string
+	AdminGranted                  bool
+	PendingProviderSubscriptionID *string
+	PendingReplaceNow             bool
 }
 
 type Tag struct {

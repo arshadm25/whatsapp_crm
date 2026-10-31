@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -216,7 +217,7 @@ type Subscription struct {
 func SubscriptionView(sub dbq.Subscription, now time.Time) Subscription {
 	return Subscription{Status: string(sub.Status), PlanCode: sub.PlanCode, PeriodStart: sub.CurrentPeriodStart,
 		PeriodEnd: sub.CurrentPeriodEnd, CancelAtPeriodEnd: sub.CancelAtPeriodEnd, Usable: Usable(sub, now),
-		PaymentPending: sub.ProviderSubscriptionID != nil && sub.PlanCode == nil, ExtraSeats: sub.ExtraSeats,
+		PaymentPending: (sub.ProviderSubscriptionID != nil && sub.PlanCode == nil) || sub.PendingProviderSubscriptionID != nil, ExtraSeats: sub.ExtraSeats,
 		Interval: sub.BillingInterval, AdminGranted: sub.AdminGranted}
 }
 
@@ -388,8 +389,15 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request) error {
 		// the end of the paid cycle.
 		upgrade := current != nil && sub.BillingInterval == req.Interval &&
 			MonthlyEquivalent(plan, req.Interval) > MonthlyEquivalent(*current, sub.BillingInterval)
+		// An earlier replacement checkout not yet paid must not charge alongside this change.
+		if err := s.dropPending(ctx, p.TenantID, sub); err != nil {
+			return err
+		}
 		if _, err := s.rp.ChangePlan(ctx, *sub.ProviderSubscriptionID, rpPlan, upgrade); err != nil {
-			return s.providerError(err)
+			if !inPlaceRefused(err) {
+				return s.providerError(err)
+			}
+			return s.replaceSubscription(w, r, sub, plan, rpPlan, req.Interval, upgrade, now)
 		}
 		action := "subscription.change_plan"
 		if upgrade {
@@ -490,6 +498,9 @@ func (s *Service) cancel(w http.ResponseWriter, r *http.Request) error {
 		}
 		httpx.JSON(w, http.StatusOK, SubscriptionView(sub, s.now()))
 		return nil
+	}
+	if err := s.dropPending(ctx, p.TenantID, sub); err != nil {
+		return err
 	}
 	// A paid cycle runs to its end; a plan chosen during the trial stops before its first charge.
 	if _, err := s.rp.Cancel(ctx, *sub.ProviderSubscriptionID, sub.Status != dbq.SubscriptionStatusTrialing); err != nil {
@@ -676,6 +687,38 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 				TenantID: &tenantID, ActorType: dbq.ActorTypeSystem, Action: "subscription.seats",
 				TargetType: &target, TargetID: &rs.ID, Metadata: meta,
 			})
+		}
+		// A replacement subscription (a plan change Razorpay could not make in place).
+		if sub.PendingProviderSubscriptionID != nil && *sub.PendingProviderSubscriptionID == rs.ID {
+			switch {
+			case endings[ev.Event]:
+				// Never paid: the current subscription carries on unchanged.
+				return q.ClearPendingSubscription(ctx, tenantID)
+			case ev.Event == "subscription.authenticated" && !sub.PendingReplaceNow && sub.ProviderSubscriptionID != nil:
+				// Approved to start when the paid period ends: the current one must not renew.
+				if err := s.cancelReplaced(ctx, *sub.ProviderSubscriptionID, true); err != nil {
+					return err
+				}
+				return q.SetCancelAtPeriodEnd(ctx, dbq.SetCancelAtPeriodEndParams{Cancel: true, TenantID: tenantID})
+			case ev.Event == "subscription.activated" || ev.Event == "subscription.charged":
+				// Paid: it takes over, and the one it replaces stops now (an upgrade) or has
+				// already been set to stop at its cycle end.
+				if sub.ProviderSubscriptionID != nil && sub.PendingReplaceNow {
+					if err := s.cancelReplaced(ctx, *sub.ProviderSubscriptionID, false); err != nil {
+						return err
+					}
+				}
+				if sub, err = q.PromotePendingSubscription(ctx, tenantID); err != nil {
+					return err
+				}
+			default:
+				return nil
+			}
+		} else if sub.ProviderSubscriptionID == nil || *sub.ProviderSubscriptionID != rs.ID {
+			// A subscription this workspace has moved on from, e.g. the one a replacement
+			// cancelled.
+			s.log.Info("razorpay event for a replaced subscription", "event", ev.Event, "subscription", rs.ID)
+			return nil
 		}
 		// A checkout started from the free plan (or a granted one) that ends unpaid leaves the
 		// workspace on it.
@@ -876,6 +919,89 @@ func AIAllowanceFor(ctx context.Context, q *dbq.Queries) (AIAllowance, error) {
 // checkout is the reply that starts a payment. The dashboard opens Razorpay's checkout pop-up
 // from the key and subscription id, which works without Razorpay's hosted page; payment_url
 // stays for API clients.
+// inPlaceRefused reports whether Razorpay refused to change a subscription's plan in place,
+// as it does for subscriptions paid by UPI Autopay ("subscriptions cannot be updated when
+// payment mode is upi").
+func inPlaceRefused(err error) bool {
+	var re *razorpay.Error
+	return errors.As(err, &re) && re.HTTPStatus == http.StatusBadRequest &&
+		strings.Contains(strings.ToLower(re.Description), "cannot be updated")
+}
+
+// replaceSubscription changes plan by a second Razorpay subscription, for subscriptions Razorpay
+// cannot change in place. An upgrade starts at once and the current subscription is cancelled
+// when the new one is paid; any other change starts when the paid period ends. The owner
+// approves the new subscription in Razorpay's checkout, as for a first payment.
+func (s *Service) replaceSubscription(w http.ResponseWriter, r *http.Request, sub dbq.Subscription, plan dbq.Plan,
+	rpPlan, interval string, upgrade bool, now time.Time) error {
+	p, _ := auth.PrincipalFrom(r.Context())
+	ctx := r.Context()
+	total := cycles
+	if interval == "year" {
+		total = yearlyCycles
+	}
+	ns := razorpay.NewSubscription{PlanID: rpPlan, TotalCount: total,
+		Notes: map[string]string{"tenant_id": p.TenantID.String(), "replaces": *sub.ProviderSubscriptionID}}
+	if sub.ProviderCustomerID != nil {
+		ns.CustomerID = *sub.ProviderCustomerID
+	}
+	if !upgrade && sub.CurrentPeriodEnd.After(now.Add(time.Hour)) {
+		ns.StartAt = &sub.CurrentPeriodEnd
+	}
+	rs, err := s.rp.CreateSubscription(ctx, ns)
+	if err != nil {
+		return s.providerError(err)
+	}
+	err = s.db.InTenant(ctx, p.TenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		return q.SetPendingSubscription(ctx, dbq.SetPendingSubscriptionParams{
+			PendingProviderSubscriptionID: &rs.ID, ReplaceNow: upgrade, TenantID: p.TenantID})
+	})
+	if err != nil {
+		return err
+	}
+	action := "subscription.replace"
+	if upgrade {
+		action = "subscription.upgrade"
+	}
+	if err := s.audit(r, action, plan.Code); err != nil {
+		return err
+	}
+	out := s.checkout(rs)
+	out["replacement"] = true
+	out["upgraded"] = upgrade
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
+}
+
+// cancelReplaced cancels the subscription a replacement takes over from. Razorpay answers 400
+// when it has already ended, which is fine.
+func (s *Service) cancelReplaced(ctx context.Context, id string, atCycleEnd bool) error {
+	if _, err := s.rp.Cancel(ctx, id, atCycleEnd); err != nil {
+		var re *razorpay.Error
+		if !errors.As(err, &re) || re.HTTPStatus != http.StatusBadRequest {
+			return err
+		}
+		s.log.Info("replaced razorpay subscription not cancelled", "subscription", id, "description", re.Description)
+	}
+	return nil
+}
+
+// dropPending cancels a replacement subscription that was never paid.
+func (s *Service) dropPending(ctx context.Context, tenantID uuid.UUID, sub dbq.Subscription) error {
+	if sub.PendingProviderSubscriptionID == nil {
+		return nil
+	}
+	if _, err := s.rp.Cancel(ctx, *sub.PendingProviderSubscriptionID, false); err != nil {
+		var re *razorpay.Error
+		if !errors.As(err, &re) || re.HTTPStatus != http.StatusBadRequest {
+			return s.providerError(err)
+		}
+	}
+	return s.db.InTenant(ctx, tenantID, func(q *dbq.Queries, _ pgx.Tx) error {
+		return q.ClearPendingSubscription(ctx, tenantID)
+	})
+}
+
 func (s *Service) checkout(rs razorpay.Subscription) map[string]any {
 	return map[string]any{"payment_url": rs.ShortURL, "razorpay_key_id": s.rp.KeyID(), "razorpay_subscription_id": rs.ID}
 }

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,8 @@ type fakeRazorpay struct {
 	n      int
 	// states answers GET /v1/subscriptions/{id}; a missing one is "created" (not paid yet).
 	states map[string]string
+	// upi marks subscriptions paid by UPI Autopay, whose plan Razorpay will not change.
+	upi map[string]bool
 }
 
 func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +60,9 @@ func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/v1/subscriptions":
 		f.n++
 		fmt.Fprintf(w, `{"id":"sub_%d","plan_id":%q,"status":"created","short_url":"https://rzp.io/i/sub%d"}`, f.n, body["plan_id"], f.n)
+	case r.Method == http.MethodPatch && f.upi[strings.Split(r.URL.Path, "/")[3]]:
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"code":"BAD_REQUEST_ERROR","description":"subscriptions cannot be updated when payment mode is upi"}}`)
 	case r.Method == http.MethodGet:
 		id := strings.Split(r.URL.Path, "/")[3]
 		st := f.states[id]
@@ -639,4 +645,95 @@ func (c *captureMail) last(to string) (mailer.Message, bool) {
 		}
 	}
 	return mailer.Message{}, false
+}
+
+// Razorpay will not change the plan of a subscription paid by UPI Autopay, so the change goes
+// through a second subscription that replaces the first once it is paid.
+func TestUPIPlanChange(t *testing.T) {
+	h := newHarness(t)
+	owner, _, _ := h.connected()
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	staff.do("PUT", "/internal/admin/plans/growth", map[string]any{"name": "Growth", "price_minor": 299900, "included_numbers": 1,
+		"included_seats": 5, "is_active": true, "razorpay_plan_id": "plan_G1"}, http.StatusOK, nil)
+	staff.do("PUT", "/internal/admin/plans/pro", map[string]any{"name": "Pro", "price_minor": 799900, "included_numbers": 3,
+		"included_seats": 15, "is_active": true, "razorpay_plan_id": "plan_P1"}, http.StatusOK, nil)
+	h.razorpay.mu.Lock()
+	h.razorpay.upi = map[string]bool{"sub_1": true}
+	h.razorpay.mu.Unlock()
+
+	// Paying for Growth by UPI.
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "growth"}, http.StatusOK, nil)
+	start, end := time.Now().Add(-time.Hour).Unix(), time.Now().Add(30*24*time.Hour).Unix()
+	h.razorpayEvent("evt_1", "subscription.charged", map[string]any{"id": "sub_1", "plan_id": "plan_G1", "status": "active",
+		"current_start": start, "current_end": end}, "whsec")
+
+	// Upgrading: a new subscription for Pro, starting now, to approve in Razorpay's checkout.
+	var reply struct {
+		PaymentURL  string `json:"payment_url"`
+		Replacement bool
+		Upgraded    bool
+	}
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "pro"}, http.StatusOK, &reply)
+	call, body := h.razorpay.last()
+	if call != "POST /v1/subscriptions" || body["plan_id"] != "plan_P1" || body["start_at"] != nil ||
+		!reply.Replacement || !reply.Upgraded || reply.PaymentURL != "https://rzp.io/i/sub2" {
+		t.Fatalf("upgrade = %s %v %+v", call, body, reply)
+	}
+	var ov billing.Overview
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan.Code != "growth" || !ov.Subscription.PaymentPending {
+		t.Fatalf("waiting = %+v", ov)
+	}
+	// Choosing again replaces the unpaid replacement.
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "pro"}, http.StatusOK, &reply)
+	h.razorpay.mu.Lock()
+	calls := append([]string{}, h.razorpay.calls...)
+	h.razorpay.mu.Unlock()
+	if !slices.Contains(calls, "POST /v1/subscriptions/sub_2/cancel") || reply.PaymentURL != "https://rzp.io/i/sub3" {
+		t.Fatalf("again = %v %+v", calls, reply)
+	}
+	// Events for the old replacement are ignored; paying the new one cancels Growth at once.
+	h.razorpayEvent("evt_2", "subscription.cancelled", map[string]any{"id": "sub_2", "plan_id": "plan_P1"}, "whsec")
+	h.razorpayEvent("evt_3", "subscription.charged", map[string]any{"id": "sub_3", "plan_id": "plan_P1", "status": "active",
+		"current_start": time.Now().Unix(), "current_end": time.Now().AddDate(0, 1, 0).Unix()}, "whsec")
+	call, body = h.razorpay.last()
+	if call != "POST /v1/subscriptions/sub_1/cancel" || body["cancel_at_cycle_end"] != float64(0) {
+		t.Fatalf("old not cancelled = %s %v", call, body)
+	}
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan.Code != "pro" || ov.Subscription.Status != "active" || ov.Subscription.PaymentPending || ov.Subscription.CancelAtPeriodEnd {
+		t.Fatalf("upgraded = %+v", ov)
+	}
+	// The cancelled Growth subscription's own event changes nothing.
+	h.razorpayEvent("evt_4", "subscription.cancelled", map[string]any{"id": "sub_1", "plan_id": "plan_G1"}, "whsec")
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan.Code != "pro" || ov.Subscription.Status != "active" {
+		t.Fatalf("after old cancelled = %+v", ov)
+	}
+
+	// Moving down: the new subscription starts when the paid period ends; once approved, the
+	// current one is set not to renew.
+	h.razorpay.mu.Lock()
+	h.razorpay.upi["sub_3"] = true
+	h.razorpay.mu.Unlock()
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "growth"}, http.StatusOK, &reply)
+	call, body = h.razorpay.last()
+	if call != "POST /v1/subscriptions" || body["start_at"] == nil || reply.Upgraded || !reply.Replacement {
+		t.Fatalf("downgrade = %s %v %+v", call, body, reply)
+	}
+	h.razorpayEvent("evt_5", "subscription.authenticated", map[string]any{"id": "sub_4", "plan_id": "plan_G1", "status": "authenticated"}, "whsec")
+	call, body = h.razorpay.last()
+	if call != "POST /v1/subscriptions/sub_3/cancel" || body["cancel_at_cycle_end"] != float64(1) {
+		t.Fatalf("old not set to end = %s %v", call, body)
+	}
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan.Code != "pro" || !ov.Subscription.CancelAtPeriodEnd {
+		t.Fatalf("scheduled = %+v", ov)
+	}
+	h.razorpayEvent("evt_6", "subscription.activated", map[string]any{"id": "sub_4", "plan_id": "plan_G1", "status": "active",
+		"current_start": time.Now().Unix(), "current_end": time.Now().AddDate(0, 1, 0).Unix()}, "whsec")
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan.Code != "growth" || ov.Subscription.Status != "active" || ov.Subscription.CancelAtPeriodEnd || ov.Subscription.PaymentPending {
+		t.Fatalf("moved down = %+v", ov)
+	}
 }

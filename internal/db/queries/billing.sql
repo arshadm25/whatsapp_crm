@@ -142,3 +142,21 @@ WHERE direction = 'outbound' AND status <> 'failed' AND created_at >= @since;
 -- name: ContactsInUse :one
 -- Run inside the tenant: contacts that count against the plan's contact limit.
 SELECT count(*)::int FROM contacts;
+
+-- name: SetPendingSubscription :exec
+-- A replacement subscription for a plan change Razorpay cannot make in place.
+UPDATE subscriptions
+SET pending_provider_subscription_id = @pending_provider_subscription_id, pending_replace_now = @replace_now, updated_at = now()
+WHERE tenant_id = @tenant_id;
+
+-- name: ClearPendingSubscription :exec
+UPDATE subscriptions SET pending_provider_subscription_id = NULL, pending_replace_now = false, updated_at = now()
+WHERE tenant_id = @tenant_id;
+
+-- name: PromotePendingSubscription :one
+-- The replacement is paid: it becomes the workspace's subscription.
+UPDATE subscriptions
+SET provider_subscription_id = pending_provider_subscription_id, pending_provider_subscription_id = NULL,
+    pending_replace_now = false, cancel_at_period_end = false, updated_at = now()
+WHERE tenant_id = @tenant_id AND pending_provider_subscription_id IS NOT NULL
+RETURNING *;
