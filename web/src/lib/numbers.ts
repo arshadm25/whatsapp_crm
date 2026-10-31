@@ -18,3 +18,29 @@ export function tierLabel(tier: string | null, unlimited: string) {
 export function highestTier(tiers: (string | null)[]) {
   return [...tiers].sort((a, b) => tierValue(b) - tierValue(a))[0] ?? null;
 }
+
+// How a number stands with WhatsApp Cloud API registration, for the Numbers table.
+// A number shared with the WhatsApp Business app (coexistence) stays registered to the app and is
+// never registered here, so for it a missing date is normal, not a problem.
+export type Registration = "registered" | "businessApp" | "notRegistered" | "none";
+
+export function registrationState(n: { status: string; is_coexistence: boolean; registered_at?: string | null }): Registration {
+  if (n.registered_at) return "registered";
+  if (n.is_coexistence) return "businessApp";
+  if (n.status === "connected" || n.status === "pending") return "notRegistered";
+  return "none";
+}
+
+// How full today's messaging limit is: "ok", "near" from 80% and "full" at the limit.
+// A negative limit means no limit.
+export function usageLevel(used: number, limit: number): "ok" | "near" | "full" {
+  if (limit < 0 || limit === 0) return "ok";
+  if (used >= limit) return "full";
+  return used / limit >= 0.8 ? "near" : "ok";
+}
+
+// Percentage of today's limit used, 0 to 100, for a meter.
+export function usagePct(used: number, limit: number) {
+  if (limit <= 0) return 0;
+  return Math.min(100, Math.round((used / limit) * 100));
+}
