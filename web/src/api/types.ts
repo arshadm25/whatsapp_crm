@@ -768,3 +768,61 @@ export interface MetaReconciliation {
   mismatches: number;
   credit_line_problems: { tenant_id: string; tenant_name: string; waba_id: string; error: string }[];
 }
+
+// Developers pages: chart buckets are hours for a one-day range, otherwise days in the
+// workspace's time zone.
+export interface SeriesMeta {
+  from: string;
+  hourly: boolean;
+  time_zone: string;
+  days: number;
+}
+
+export interface KeyUsageReport extends SeriesMeta {
+  calls: number;
+  errors: number;
+  by_key: { api_key_id: string; calls: number; errors: number }[];
+  points: { bucket: string; api_key_id: string; calls: number; errors: number }[];
+}
+
+export interface DeliveryCounts {
+  deliveries: number;
+  succeeded: number;
+  failed: number;
+  retrying: number;
+  pending: number;
+  retried: number;
+  attempts: number;
+}
+
+export interface WebhookReport extends SeriesMeta {
+  totals: DeliveryCounts;
+  points: (DeliveryCounts & { bucket: string })[];
+  by_endpoint: (DeliveryCounts & { endpoint_id: string })[];
+}
+
+export interface APILogEntry {
+  id: number;
+  api_key_id: string;
+  key_name: string;
+  key_prefix: string;
+  method: string;
+  path: string;
+  route: string;
+  status: number;
+  duration_ms: number;
+  request_id: string;
+  created_at: string;
+}
+
+export interface APILogSummary extends SeriesMeta {
+  calls: number;
+  errors: number;
+  p50_ms: number;
+  p95_ms: number;
+  max_ms: number;
+  by_status: { status: number; n: number }[];
+  points: { bucket: string; calls: number; errors: number; p95_ms: number }[];
+  by_route: { method: string; route: string; calls: number; errors: number; p95_ms: number }[];
+  retention_days: number;
+}

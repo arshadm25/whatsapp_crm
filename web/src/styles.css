@@ -872,3 +872,18 @@ button.ql.on { background: var(--accent-soft); }
 .form > :is(h2, h3) { margin: 0; font-size: 16px; line-height: 24px; }
 .form > p { margin: 0; }
 .form > :is(h2, h3) + p { margin-top: -10px; }
+
+/* Developers pages: tabs, charts, request log */
+.dev-tabs a { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; min-height: 32px; padding: 0 12px; font-size: 13px; font-weight: 500; color: var(--text-3); text-decoration: none; }
+.dev-tabs a:hover { color: var(--text); }
+.dev-tabs a.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.1); }
+.chart-empty { padding: 48px 0; text-align: center; }
+.cats-list { display: flex; flex-direction: column; gap: 12px; }
+.cats-list .cat { grid-template-columns: minmax(80px, 160px) 1fr 64px; }
+.log-row td { vertical-align: middle; }
+.log-row .k { overflow-wrap: anywhere; }
+.method { display: inline-block; min-width: 52px; font: 600 11px/18px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); }
+.log-detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+.log-detail dt { color: var(--muted); }
+.log-detail dd { margin: 0; overflow-wrap: anywhere; }
+.dev-tabs { width: fit-content; max-width: 100%; }
