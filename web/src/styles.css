@@ -1039,3 +1039,50 @@ button.ql.on { background: var(--accent-soft); }
 .seller-form .actions { justify-content: space-between; }
 .seller-form .end-group { display: inline-flex; align-items: center; gap: 12px; margin-inline-start: auto; }
 @media (max-width: 640px) { .seller-grid { grid-template-columns: 1fr; } }
+
+/* Campaigns: first-run setup, the compose form and its review step (all scoped to camp-) */
+.camp-first { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 40px 24px; }
+.camp-first h2 { margin: 0; font-size: 18px; line-height: 28px; }
+.camp-first > p { margin: 0; max-width: 520px; }
+.camp-first-ic { width: 48px; height: 48px; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent-ink); }
+.camp-setup { list-style: none; margin: 8px 0; padding: 0; width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 8px; text-align: start; }
+.camp-setup li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); }
+.camp-setup .dot { flex: none; width: 28px; height: 28px; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: var(--border-soft); color: var(--text-3); }
+.camp-setup li.done .dot { background: var(--accent); color: #fff; }
+.camp-setup .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.camp-setup .txt small { color: var(--muted); font-size: 12px; }
+.camp-setup li.done .txt b { color: var(--text-3); }
+.camp-compose .camp-fs { border: 0; margin: 0; padding: 0; min-width: 0; }
+.camp-compose .camp-fs:disabled { opacity: 0.65; }
+.camp-callout { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px; }
+.camp-callout > .i { color: var(--muted); flex: none; }
+.camp-callout > div { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+.camp-callout > div span { color: var(--muted); }
+.camp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.camp-tags .chip { margin: 0; }
+.camp-tags .chip .muted { font-weight: 400; }
+.camp-picked { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.camp-picked .chip { margin: 0; }
+.camp-reach { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 24px; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft); font-size: 13px; }
+.camp-reach-main { display: flex; align-items: baseline; gap: 6px; color: var(--accent-ink); }
+.camp-reach-main b { font-size: 20px; line-height: 24px; }
+.camp-reach-skip { color: var(--text-2); }
+.camp-reach-skip ul { margin: 2px 0 0; padding-inline-start: 18px; color: var(--muted); }
+.camp-reach > .hint { flex-basis: 100%; }
+.warn-t { color: var(--warn); }
+.camp-when { max-width: 260px; margin-top: 8px; }
+.camp-adv summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.camp-adv[open] summary { margin-bottom: 12px; }
+.camp-adv .field { max-width: 320px; }
+.camp-review { background: var(--surface-2); border-top: 1px solid var(--border-soft); }
+.camp-review dl { margin: 0; display: grid; gap: 8px; font-size: 13px; }
+.camp-review dl > div { display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: 12px; }
+.camp-review dt { color: var(--muted); }
+.camp-review dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.camp-review p { margin: 0; }
+.camp-error { margin: 0 20px; }
+.camp-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 20px; border-top: 1px solid var(--border-soft); }
+.camp-actions .end-group { display: inline-flex; align-items: center; gap: 12px; margin-inline-start: auto; }
+.camp-actions > .primary { margin-inline-start: auto; }
+@media (max-width: 600px) { .camp-review dl > div { grid-template-columns: 1fr; gap: 0; } .camp-setup li { flex-wrap: wrap; } }
+.camp-compose .segmented { align-self: flex-start; }

@@ -56,8 +56,27 @@ export function previewValue(v: string): string {
   );
 }
 
+// Text with each placeholder replaced by its value, for the preview. prefix is "header." for a
+// text header, whose values are keyed header.1, header.name and so on.
+export function previewText(text: string, vars: Record<string, string>, prefix = ""): string {
+  return text.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, p: string) => (vars[prefix + p]?.trim() ? previewValue(vars[prefix + p]) : m));
+}
+
 // The body text with each placeholder replaced by its value, for the preview.
 export function previewBody(components: TemplateComponent[], vars: Record<string, string>): string {
-  const body = components.find((c) => c.type.toUpperCase() === "BODY")?.text ?? "";
-  return body.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, p: string) => (vars[p]?.trim() ? previewValue(vars[p]) : m));
+  return previewText(components.find((c) => c.type.toUpperCase() === "BODY")?.text ?? "", vars);
+}
+
+// How long sending is likely to take, for the review step. The worker queues messages at the
+// campaign's rate and never past the number's 24-hour messaging limit (limit < 0: no limit), so
+// an audience larger than the limit is spread over days. Other business-started messages from
+// the number count against the same limit, which can make it slower than this.
+export type SendEstimate = { kind: "minutes"; value: number } | { kind: "days"; value: number };
+
+export function estimateSend(recipients: number, ratePerMin: number, dailyLimit: number): SendEstimate | null {
+  if (recipients <= 0 || ratePerMin <= 0) return null;
+  if (dailyLimit >= 0 && recipients > dailyLimit) {
+    return { kind: "days", value: dailyLimit > 0 ? Math.ceil(recipients / dailyLimit) : Infinity };
+  }
+  return { kind: "minutes", value: Math.max(1, Math.ceil(recipients / ratePerMin)) };
 }

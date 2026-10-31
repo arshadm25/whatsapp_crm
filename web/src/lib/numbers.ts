@@ -8,6 +8,15 @@ export function tierValue(tier: string | null) {
   return tier.endsWith("K") ? n * 1000 : n;
 }
 
+// The 24-hour messaging limit for a tier, the way the server counts it (numbers.DailyLimit):
+// a number with no tier reported yet gets the starting 250; -1 means no limit.
+export function dailyLimit(tier: string | null | undefined): number {
+  if (!tier) return 250;
+  const v = tierValue(tier);
+  if (v === Infinity) return -1;
+  return TIERS.includes(tier.toUpperCase()) ? v : 250;
+}
+
 // "2,000" or "Unlimited" for a tier name.
 export function tierLabel(tier: string | null, unlimited: string) {
   if (!tier) return "—";

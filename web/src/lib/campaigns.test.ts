@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { campaignSupported, fieldToken, previewBody, templateSlots } from "./campaigns";
+import { campaignSupported, estimateSend, fieldToken, previewBody, previewText, templateSlots } from "./campaigns";
+import { dailyLimit } from "./numbers";
 
 describe("campaign helpers", () => {
   const comps = [
@@ -30,5 +31,25 @@ describe("campaign helpers", () => {
       'Hi [first_name or "there"], 20% off. [first_name or "there"]!',
     );
     expect(previewBody(comps, { "1": "{{ contact.city }}" })).toBe("Hi [city], {{2}} off. [city]!");
+  });
+
+  it("previews a text header", () => {
+    expect(previewText("Order {{1}}", { "header.1": "A12" }, "header.")).toBe("Order A12");
+    expect(previewText("Order {{1}}", {}, "header.")).toBe("Order {{1}}");
+  });
+
+  it("estimates how long sending takes", () => {
+    expect(estimateSend(0, 1000, 250)).toBeNull();
+    expect(estimateSend(120, 1000, 250)).toEqual({ kind: "minutes", value: 1 });
+    expect(estimateSend(2500, 1000, -1)).toEqual({ kind: "minutes", value: 3 });
+    expect(estimateSend(600, 100, 250)).toEqual({ kind: "days", value: 3 });
+    expect(estimateSend(250, 10, 250)).toEqual({ kind: "minutes", value: 25 });
+  });
+
+  it("reads the daily limit like the server", () => {
+    expect(dailyLimit(null)).toBe(250);
+    expect(dailyLimit("TIER_1K")).toBe(1000);
+    expect(dailyLimit("TIER_UNLIMITED")).toBe(-1);
+    expect(dailyLimit("SOMETHING_NEW")).toBe(250);
   });
 });
