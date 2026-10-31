@@ -270,6 +270,22 @@ func TestMetaBillingReconciliation(t *testing.T) {
 	if len(rec.Data) != 1 {
 		t.Fatalf("mismatches after correction = %+v", rec.Data)
 	}
+
+	// Once every number of the account is disconnected Meta refuses reads of it, so the job
+	// stops asking.
+	var changed int
+	h.scalar(tenant, "WITH u AS (UPDATE phone_numbers SET status = 'disconnected' RETURNING 1) SELECT count(*) FROM u", &changed)
+	h.meta.mu.Lock()
+	h.meta.calls = nil
+	h.meta.mu.Unlock()
+	run()
+	h.meta.mu.Lock()
+	defer h.meta.mu.Unlock()
+	for _, c := range h.meta.calls {
+		if strings.HasPrefix(c, "GET /") {
+			t.Fatalf("reconciliation read a disconnected account: %v", h.meta.calls)
+		}
+	}
 }
 
 func TestCreditLineStep(t *testing.T) {

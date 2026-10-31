@@ -12,6 +12,7 @@ import (
 	"github.com/arshadm25/whatsapp_crm/internal/db"
 	"github.com/arshadm25/whatsapp_crm/internal/db/dbq"
 	"github.com/arshadm25/whatsapp_crm/internal/jobs"
+	"github.com/arshadm25/whatsapp_crm/internal/metaclient"
 )
 
 // CreditLineArgs is the job that shares Ecogo's credit line with the WABAs of workspaces that pay
@@ -65,7 +66,7 @@ func (w *CreditLineWorker) Work(ctx context.Context, _ *river.Job[CreditLineArgs
 		if a.Currency != nil && *a.Currency != "" {
 			currency = *a.Currency
 		}
-		id, attachErr := w.meta.AttachCreditLine(ctx, w.cfg.Token, w.cfg.ID, a.WabaID, currency)
+		id, attachErr := w.meta.AttachCreditLine(metaclient.WithTenant(ctx, a.TenantID.String()), w.cfg.Token, w.cfg.ID, a.WabaID, currency)
 		arg := dbq.SetCreditLineResultParams{ID: a.ID}
 		if attachErr != nil {
 			// Shown to platform admins; the next sweep tries again.
