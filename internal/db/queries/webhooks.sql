@@ -9,6 +9,26 @@ SELECT * FROM webhook_endpoints ORDER BY created_at DESC;
 -- name: GetWebhookEndpoint :one
 SELECT * FROM webhook_endpoints WHERE id = $1;
 
+-- name: SetWebhookEndpointEnabled :one
+UPDATE webhook_endpoints
+SET is_enabled = @is_enabled, disabled_reason = sqlc.narg(disabled_reason)
+WHERE id = @id
+RETURNING *;
+
+-- name: SkipOpenDeliveries :execrows
+-- Closes an endpoint's deliveries still waiting to be sent, without counting an attempt.
+UPDATE webhook_deliveries
+SET status = 'dead', next_attempt_at = now(),
+    last_error = CASE WHEN last_error IS NULL THEN @note::text ELSE @note::text || ' Last error: ' || last_error END
+WHERE endpoint_id = @endpoint_id AND status IN ('pending', 'retrying');
+
+-- name: SkipDelivery :exec
+-- Closes one delivery that will not be sent, without counting an attempt.
+UPDATE webhook_deliveries
+SET status = 'dead', next_attempt_at = now(),
+    last_error = CASE WHEN last_error IS NULL THEN @note::text ELSE @note::text || ' Last error: ' || last_error END
+WHERE id = @id AND status IN ('pending', 'retrying');
+
 -- name: DeleteWebhookEndpoint :execrows
 DELETE FROM webhook_endpoints WHERE id = $1;
 

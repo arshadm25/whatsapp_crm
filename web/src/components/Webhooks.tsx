@@ -81,6 +81,21 @@ export default function Webhooks() {
     }
   };
 
+  // Turns an endpoint off (nothing is sent to it) or back on.
+  const setEnabled = async (ep: WebhookEndpoint, enabled: boolean) => {
+    if (!enabled && !window.confirm(t("developers.confirmDeactivate", { url: ep.url }))) return;
+    setError("");
+    try {
+      await api("PATCH", `/v1/webhook-endpoints/${ep.id}`, { enabled });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["webhook-endpoints"] }),
+        qc.invalidateQueries({ queryKey: ["webhook-deliveries", ep.id] }),
+      ]);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : t("common.error"));
+    }
+  };
+
   const numberLabel = (id: string | null) =>
     id ? numbers.data?.find((n) => n.id === id)?.display_phone_number ?? id : t("developers.allNumbers");
 
@@ -141,6 +156,9 @@ export default function Webhooks() {
                 {shown?.id === ep.id ? t("developers.hideSecret") : t("developers.showSecret")}
               </button>
               <button className="link" onClick={() => secret(ep, true)}>{t("developers.rotateSecret")}</button>
+              <button className="link" onClick={() => setEnabled(ep, !ep.enabled)}>
+                {ep.enabled ? t("developers.deactivate") : t("developers.activate")}
+              </button>
               <button className="link danger" onClick={() => remove(ep)}>{t("developers.delete")}</button>
             </div>
             {ep.description && <div className="muted small">{ep.description}</div>}
@@ -230,6 +248,7 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
           ))}
         </div>
       </div>
+      {!endpoint.enabled && <div className="cb muted small">{t("developers.inactiveNote")}</div>}
       {!q.data && <div className="cb muted">{t("common.loading")}</div>}
       {q.data && !q.data.data.length && <div className="cb muted">{t("developers.noDeliveries")}</div>}
       {!!q.data?.data.length && (
@@ -262,7 +281,7 @@ function Deliveries({ endpoint }: { endpoint: WebhookEndpoint }) {
                       <button className="lnk" onClick={() => setPayloadOf(payloadOf === d.id ? null : d.id)}>
                         {payloadOf === d.id ? t("developers.hidePayload") : t("developers.payload")}
                       </button>
-                      {d.status !== "succeeded" && d.status !== "pending" && (
+                      {endpoint.enabled && d.status !== "succeeded" && d.status !== "pending" && (
                         <button className="sm" onClick={() => retry(d)}><Icon name="refresh" size="xs" />{t("developers.retryNow")}</button>
                       )}
                     </span>

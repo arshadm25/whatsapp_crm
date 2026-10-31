@@ -181,6 +181,68 @@ func TestClientWebhooks(t *testing.T) {
 		t.Fatalf("loopback delivery: %v", errs)
 	}
 
+	// Deactivating closes deliveries still waiting, sends nothing while off, and is audited.
+	rcv.status = http.StatusOK
+	h.inbound(customer, "wamid.IN4", "Queued before pause")
+	other0 := h.newClient()
+	other0.signup("pauser@example.com", "Pauser Shop")
+	other0.do("PATCH", "/v1/webhook-endpoints/"+ep.ID.String(), map[string]any{"enabled": false}, http.StatusNotFound, nil)
+	c.do("PATCH", "/v1/webhook-endpoints/"+ep.ID.String(), map[string]any{}, http.StatusBadRequest, nil)
+	var off webhooks.Endpoint
+	c.do("PATCH", "/v1/webhook-endpoints/"+ep.ID.String(), map[string]any{"enabled": false}, http.StatusOK, &off)
+	if off.Enabled {
+		t.Fatalf("endpoint still enabled: %+v", off)
+	}
+	sent := len(rcv.got)
+	if errs := h.deliverAll(me.Tenant.ID, worker, 1); len(errs) != 1 || errs[0] != nil {
+		t.Fatalf("queued delivery while off: %v", errs)
+	}
+	h.inbound(customer, "wamid.IN5", "While paused")
+	if errs := h.deliverAll(me.Tenant.ID, worker, 1); len(errs) != 0 {
+		t.Fatalf("delivery created while off: %v", errs)
+	}
+	if len(rcv.got) != sent {
+		t.Fatal("deactivated endpoint received an event")
+	}
+	c.do("GET", "/v1/webhook-endpoints/"+ep.ID.String()+"/deliveries?status=dead", nil, http.StatusOK, &page)
+	var closed *webhooks.Delivery
+	for i := range page.Data {
+		if page.Data[i].AttemptCount == 0 && page.Data[i].LastError != nil && strings.Contains(*page.Data[i].LastError, "deactivated") {
+			closed = &page.Data[i]
+		}
+	}
+	if closed == nil || closed.AttemptCount != 0 {
+		t.Fatalf("closed deliveries = %+v", page.Data)
+	}
+	c.do("POST", "/v1/webhook-endpoints/"+ep.ID.String()+"/deliveries/"+closed.ID.String()+"/retry", nil, http.StatusConflict, nil)
+	var actions []string
+	err := h.db.InTenant(context.Background(), me.Tenant.ID, func(_ *dbq.Queries, tx pgx.Tx) error {
+		rows, err := tx.Query(context.Background(), "SELECT action FROM audit_log WHERE target_id = $1 ORDER BY id", ep.ID.String())
+		if err != nil {
+			return err
+		}
+		actions, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		return err
+	})
+	if err != nil || len(actions) != 1 || actions[0] != "webhook_endpoint.deactivated" {
+		t.Fatalf("audit = %v %v", actions, err)
+	}
+
+	// Activating again delivers new events, and a closed delivery can be retried by hand.
+	var on webhooks.Endpoint
+	c.do("PATCH", "/v1/webhook-endpoints/"+ep.ID.String(), map[string]any{"enabled": true}, http.StatusOK, &on)
+	if !on.Enabled {
+		t.Fatalf("endpoint not enabled: %+v", on)
+	}
+	c.do("POST", "/v1/webhook-endpoints/"+ep.ID.String()+"/deliveries/"+closed.ID.String()+"/retry", nil, http.StatusAccepted, nil)
+	h.inbound(customer, "wamid.IN6", "Back on")
+	if errs := h.deliverAll(me.Tenant.ID, worker, 1); len(errs) != 2 || errs[0] != nil || errs[1] != nil {
+		t.Fatalf("deliveries after activating: %v", errs)
+	}
+	if len(rcv.got) != sent+2 {
+		t.Fatalf("got %d events after activating, want %d", len(rcv.got), sent+2)
+	}
+
 	// Other workspaces cannot see or delete the endpoint; deleting stops deliveries.
 	other := h.newClient()
 	other.signup("other@example.com", "Other Shop")
