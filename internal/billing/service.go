@@ -710,7 +710,7 @@ func (s *Service) apply(ctx context.Context, eventID string, ev razorpay.Event) 
 			case endings[ev.Event]:
 				// Never paid: the current subscription carries on unchanged.
 				return q.ClearPendingSubscription(ctx, tenantID)
-			case ev.Event == "subscription.authenticated" && !sub.PendingReplaceNow && sub.ProviderSubscriptionID != nil:
+			case ev.Event == "subscription.authenticated" && !sub.PendingReplaceNow && sub.ProviderSubscriptionID != nil && !sub.CancelAtPeriodEnd:
 				// Approved to start when the paid period ends: the current one must not renew.
 				if err := s.cancelReplaced(ctx, *sub.ProviderSubscriptionID, true); err != nil {
 					return err
@@ -818,6 +818,11 @@ func (s *Service) sync(ctx context.Context, tenantID uuid.UUID) {
 		}
 		return
 	}
+	// A replacement for a plan change Razorpay could not make in place.
+	if sub.PendingProviderSubscriptionID != nil {
+		s.syncPending(ctx, tenantID, *sub.PendingProviderSubscriptionID)
+		return
+	}
 	if sub.ProviderSubscriptionID == nil || sub.Status == dbq.SubscriptionStatusCancelled {
 		return
 	}
@@ -852,6 +857,39 @@ func (s *Service) sync(ctx context.Context, tenantID uuid.UUID) {
 		return
 	}
 	s.log.Info("billing synced from razorpay", "tenant_id", tenantID, "subscription", rs.ID, "status", rs.Status)
+}
+
+// pendingEvents maps a replacement subscription's Razorpay status to the event that would
+// have reported it.
+var pendingEvents = map[string]string{
+	"authenticated": "subscription.authenticated",
+	"active":        "subscription.activated",
+	"cancelled":     "subscription.cancelled",
+	"expired":       "subscription.expired",
+	"completed":     "subscription.completed",
+}
+
+// syncPending asks Razorpay about a replacement subscription whose webhooks have not arrived.
+func (s *Service) syncPending(ctx context.Context, tenantID uuid.UUID, id string) {
+	rs, err := s.rp.Subscription(ctx, id)
+	if err != nil {
+		s.log.Warn("billing sync: razorpay pending", "tenant_id", tenantID, "err", err)
+		return
+	}
+	event, ok := pendingEvents[rs.Status]
+	if !ok {
+		return
+	}
+	var ev razorpay.Event
+	ev.Event = event
+	ev.Payload.Subscription = &struct {
+		Entity razorpay.Subscription `json:"entity"`
+	}{Entity: rs}
+	if err := s.apply(ctx, "", ev); err != nil {
+		s.log.Warn("billing sync: apply pending", "tenant_id", tenantID, "err", err)
+		return
+	}
+	s.log.Info("replacement subscription synced from razorpay", "tenant_id", tenantID, "subscription", rs.ID, "status", rs.Status)
 }
 
 // payment is the charge a subscription.charged event reports, if it carries one.

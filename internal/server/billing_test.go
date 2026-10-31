@@ -40,6 +40,8 @@ type fakeRazorpay struct {
 	states map[string]string
 	// upi marks subscriptions paid by UPI Autopay, whose plan Razorpay will not change.
 	upi map[string]bool
+	// plans remembers each created subscription's plan for GET.
+	plans map[string]any
 }
 
 func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +61,10 @@ func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"id":"cust_1"}`)
 	case r.URL.Path == "/v1/subscriptions":
 		f.n++
+		if f.plans == nil {
+			f.plans = map[string]any{}
+		}
+		f.plans[fmt.Sprintf("sub_%d", f.n)] = body["plan_id"]
 		fmt.Fprintf(w, `{"id":"sub_%d","plan_id":%q,"status":"created","short_url":"https://rzp.io/i/sub%d"}`, f.n, body["plan_id"], f.n)
 	case r.Method == http.MethodPatch && f.upi[strings.Split(r.URL.Path, "/")[3]]:
 		w.WriteHeader(http.StatusBadRequest)
@@ -77,7 +83,11 @@ func (f *fakeRazorpay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			st = "created"
 		}
 		start, end := time.Now().Add(-time.Minute).Unix(), time.Now().Add(30*24*time.Hour).Unix()
-		fmt.Fprintf(w, `{"id":%q,"plan_id":"plan_G1","status":%q,"current_start":%d,"current_end":%d}`, id, st, start, end)
+		plan := "plan_G1"
+		if p, ok := f.plans[id].(string); ok {
+			plan = p
+		}
+		fmt.Fprintf(w, `{"id":%q,"plan_id":%q,"status":%q,"current_start":%d,"current_end":%d}`, id, plan, st, start, end)
 	default:
 		id := strings.Split(r.URL.Path, "/")[3]
 		fmt.Fprintf(w, `{"id":%q,"status":"active"}`, id)
@@ -842,5 +852,39 @@ func TestSellerFromConsole(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Fatalf("invoice lacks %q:\n%s", want, page)
 		}
+	}
+}
+
+// A replacement whose webhooks never arrive is picked up when the owner opens Billing.
+func TestUPIPlanChangeWithoutWebhook(t *testing.T) {
+	h := newHarness(t)
+	owner, _, _ := h.connected()
+	staff := h.platformAdmin("ops@ecogo.co.in")
+	staff.do("PUT", "/internal/admin/plans/growth", map[string]any{"name": "Growth", "price_minor": 299900, "included_numbers": 1,
+		"included_seats": 5, "is_active": true, "razorpay_plan_id": "plan_G1"}, http.StatusOK, nil)
+	staff.do("PUT", "/internal/admin/plans/pro", map[string]any{"name": "Pro", "price_minor": 799900, "included_numbers": 3,
+		"included_seats": 15, "is_active": true, "razorpay_plan_id": "plan_P1"}, http.StatusOK, nil)
+	h.razorpay.mu.Lock()
+	h.razorpay.upi = map[string]bool{"sub_1": true}
+	h.razorpay.mu.Unlock()
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "growth"}, http.StatusOK, nil)
+	start, end := time.Now().Add(-time.Hour).Unix(), time.Now().Add(30*24*time.Hour).Unix()
+	h.razorpayEvent("evt_1", "subscription.charged", map[string]any{"id": "sub_1", "plan_id": "plan_G1", "status": "active",
+		"current_start": start, "current_end": end}, "whsec")
+	owner.do("POST", "/internal/billing/subscribe", map[string]string{"plan": "pro"}, http.StatusOK, nil)
+
+	// Not paid yet: still waiting.
+	var ov billing.Overview
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan.Code != "growth" || !ov.Subscription.PaymentPending {
+		t.Fatalf("unpaid = %+v", ov)
+	}
+	// Paid in Razorpay, no webhook: opening Billing finds it.
+	h.razorpay.mu.Lock()
+	h.razorpay.states = map[string]string{"sub_2": "active"}
+	h.razorpay.mu.Unlock()
+	owner.do("GET", "/internal/billing", nil, http.StatusOK, &ov)
+	if ov.Plan.Code != "pro" || ov.Subscription.PaymentPending || ov.Subscription.Status != "active" {
+		t.Fatalf("after sync = %+v", ov)
 	}
 }
