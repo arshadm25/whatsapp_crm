@@ -1815,6 +1815,15 @@ type Plan struct {
 	IsPopular               bool
 }
 
+type PlatformSetting struct {
+	ID           bool
+	GstRateBp    *int32
+	MetaMarkupBp *int32
+	AiModel      *string
+	UpdatedBy    *uuid.UUID
+	UpdatedAt    time.Time
+}
+
 type QuickReply struct {
 	ID        uuid.UUID
 	TenantID  uuid.UUID
@@ -1918,6 +1927,7 @@ type Tenant struct {
 	MetaPaymentMode      string
 	MetaPaymentModeSince *time.Time
 	RequireTwoFactor     bool
+	MetaMarkupBp         *int32
 }
 
 type UsageDaily struct {

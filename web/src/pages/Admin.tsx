@@ -11,6 +11,7 @@ import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
 import { tierLabel } from "../lib/numbers";
 import MetaFeesAdmin, { PaymentMode } from "./AdminMetaFees";
+import AdminSettings, { MarkupCard } from "./AdminSettings";
 import Icon, { type IconName } from "../components/Icon";
 import ReasonField from "../components/ReasonField";
 import { Pager, type PageSize } from "../components/Pager";
@@ -80,6 +81,7 @@ export default function Admin() {
         <div>
           <h1>{tab === "overview" ? t("admin.title") : t(`admin.tab_${tab}`)}</h1>
           {tab === "overview" && <p className="sub">{t("admin.intro")}</p>}
+          {tab === "settings" && <p className="sub">{t("admin.settingsIntro")}</p>}
         </div>
       </div>
       {tab === "overview" && <Overview goTab={goTab} openTenant={(id) => navigate(`/admin/tenants?open=${encodeURIComponent(id)}`)} />}
@@ -92,6 +94,7 @@ export default function Admin() {
       {tab === "metaErrors" && <MetaErrors />}
       {tab === "deletions" && <Deletions />}
       {tab === "audit" && <Audit />}
+      {tab === "settings" && <AdminSettings />}
     </AdminShell>
   );
 }
@@ -396,6 +399,7 @@ function TenantPanel({ id, onBack }: { id: string; onBack: () => void }) {
           {sub?.status === "trialing" && <ExtendTrial key={`trial-${sub.current_period_end}`} id={id} sub={sub} />}
           {sub && <ChangePlan id={id} sub={sub} />}
           <PaymentMode key={d.meta_payment_mode} id={id} mode={d.meta_payment_mode} />
+          <MarkupCard key={`markup-${d.meta_markup_bp}`} id={id} own={d.meta_markup_bp} payingThroughUs={d.meta_payment_mode === "through_us"} />
         </div>
       )}
       {tab === "conversations" && <Conversations tenantId={id} />}
@@ -983,7 +987,7 @@ function SellerForm() {
         </label>
         <label className="field wide">{t("admin.sellerAddress")}<textarea rows={3} value={f.address} onChange={set("address")} maxLength={500} required={f.gstin.trim() !== ""} /></label>
       </div>
-      <p className="muted small">{t("admin.sellerGstRate", { rate: seller.data.gst_rate_bp / 100 })}</p>
+      <p className="muted small">{t("admin.sellerGstRateAdmin", { rate: seller.data.gst_rate_bp / 100 })} <Link to={adminPath("settings")}>{t("admin.tab_settings")}</Link></p>
       {error && <div className="error">{error}</div>}
       <div className="actions">
         <Link to={adminPath("invoices")}>{t("admin.sellerViewInvoices")}</Link>

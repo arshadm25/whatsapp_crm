@@ -29,6 +29,8 @@ type Request struct {
 	System    string
 	Messages  []Message
 	MaxTokens int
+	// Model replaces the configured model when set (Admin > Settings).
+	Model string
 }
 
 type Response struct {
@@ -80,8 +82,12 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 	if req.MaxTokens <= 0 {
 		req.MaxTokens = 600
 	}
+	model := a.model
+	if req.Model != "" {
+		model = req.Model
+	}
 	body, err := json.Marshal(map[string]any{
-		"model": a.model, "max_tokens": req.MaxTokens, "system": req.System, "messages": req.Messages,
+		"model": model, "max_tokens": req.MaxTokens, "system": req.System, "messages": req.Messages,
 	})
 	if err != nil {
 		return Response{}, err

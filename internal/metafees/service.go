@@ -136,7 +136,11 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		tot := Price(use.FeeMinor, s.markupBP, sl.GSTRateBP, true)
+		markup, err := Markup(r.Context(), q, t.MetaMarkupBp, s.markupBP)
+		if err != nil {
+			return err
+		}
+		tot := Price(use.FeeMinor, markup, sl.GSTRateBP, true)
 		out.MonthToDate = &MonthToDate{Month: month.Format("2006-01"), Lines: use.Lines, FeeMinor: use.FeeMinor,
 			MarkupMinor: tot.MarkupMinor, EstimateMinor: tot.TotalMinor, Unrated: use.Unrated}
 		return nil

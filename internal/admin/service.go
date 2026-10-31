@@ -30,8 +30,10 @@ import (
 type Service struct {
 	db     *db.DB
 	seller config.Seller // the ECOGO_SELLER_* settings, used until seller details are saved here
-	log    *slog.Logger
-	now    func() time.Time
+	// defaults are the deployment's values for Admin > Settings; see WithDefaults.
+	defaults Defaults
+	log      *slog.Logger
+	now      func() time.Time
 }
 
 func NewService(d *db.DB, seller config.Seller, log *slog.Logger) *Service {
@@ -58,6 +60,9 @@ func (s *Service) Routes(r chi.Router) {
 	r.Put("/plans/{code}", httpx.Handler(s.log, s.savePlan))
 	r.Get("/seller", httpx.Handler(s.log, s.getSeller))
 	r.Put("/seller", httpx.Handler(s.log, s.saveSeller))
+	r.Get("/settings", httpx.Handler(s.log, s.getSettings))
+	r.Put("/settings", httpx.Handler(s.log, s.saveSettings))
+	r.Post("/tenants/{id}/meta-markup", httpx.Handler(s.log, s.setTenantMarkup))
 	r.Get("/invoices", httpx.Handler(s.log, s.listInvoices))
 	r.Get("/invoices.csv", httpx.Handler(s.log, s.exportInvoices))
 	r.Get("/invoices/{id}/view", httpx.Handler(s.log, s.viewInvoice))
@@ -113,11 +118,14 @@ type Tenant struct {
 	CreatedAt       time.Time `json:"created_at"`
 	// MetaPaymentMode is who pays Meta for the workspace's messages: direct or through_us.
 	MetaPaymentMode string `json:"meta_payment_mode"`
+	// MetaMarkupBP is the workspace's own markup on Meta's fees, or null for the platform's.
+	MetaMarkupBP *int32 `json:"meta_markup_bp"`
 }
 
 func tenantView(t dbq.Tenant) Tenant {
 	return Tenant{ID: t.ID, Name: t.Name, Slug: t.Slug, LegalName: t.LegalName, Status: string(t.Status),
-		SuspendedReason: t.SuspendedReason, TimeZone: t.Timezone, CreatedAt: t.CreatedAt, MetaPaymentMode: t.MetaPaymentMode}
+		SuspendedReason: t.SuspendedReason, TimeZone: t.Timezone, CreatedAt: t.CreatedAt, MetaPaymentMode: t.MetaPaymentMode,
+		MetaMarkupBP: t.MetaMarkupBp}
 }
 
 func (s *Service) listTenants(w http.ResponseWriter, r *http.Request) error {

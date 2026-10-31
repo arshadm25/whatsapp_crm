@@ -2,10 +2,13 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/arshadm25/whatsapp_crm/internal/config"
 )
 
 func TestParseAnswer(t *testing.T) {
@@ -71,5 +74,28 @@ func TestCheckURLAndFetcherBlockInternalAddresses(t *testing.T) {
 	}
 	if _, text, err := (Fetcher{AllowPrivate: true}).Page(context.Background(), srv.URL); err != nil || text != "secret page text here" {
 		t.Errorf("allowed fetch = %q, %v", text, err)
+	}
+}
+
+// A model saved in Admin > Settings replaces the configured one for that request only.
+func TestRequestModelOverride(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		got = append(got, body.Model)
+		w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer srv.Close()
+	p := New(config.AI{Provider: "anthropic", APIKey: "k", Model: "base-model", BaseURL: srv.URL}, srv.Client())
+	for _, m := range []string{"", "claude-other"} {
+		if _, err := p.Complete(context.Background(), Request{Model: m}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(got) != 2 || got[0] != "base-model" || got[1] != "claude-other" {
+		t.Fatalf("models sent = %v", got)
 	}
 }

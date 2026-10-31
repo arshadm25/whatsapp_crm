@@ -8,10 +8,10 @@ import type { AdminOverview, WebhookHealth } from "../api/types";
 import { initials } from "../lib/time";
 import Icon, { type IconName } from "./Icon";
 
-export type AdminTab = "overview" | "tenants" | "plans" | "invoices" | "seller" | "metaFees" | "webhooks" | "metaErrors" | "deletions" | "audit";
+export type AdminTab = "overview" | "tenants" | "settings" | "plans" | "invoices" | "seller" | "metaFees" | "webhooks" | "metaErrors" | "deletions" | "audit";
 
 const NAV: { group: string; items: { tab: AdminTab; icon: IconName }[] }[] = [
-  { group: "platform", items: [{ tab: "overview", icon: "grid" }, { tab: "tenants", icon: "building" }] },
+  { group: "platform", items: [{ tab: "overview", icon: "grid" }, { tab: "tenants", icon: "building" }, { tab: "settings", icon: "settings" }] },
   { group: "billing", items: [{ tab: "plans", icon: "file" }, { tab: "invoices", icon: "download" }, { tab: "seller", icon: "settings" }, { tab: "metaFees", icon: "globe" }] },
   { group: "health", items: [{ tab: "webhooks", icon: "activity" }, { tab: "metaErrors", icon: "alert" }] },
   { group: "compliance", items: [{ tab: "deletions", icon: "x" }, { tab: "audit", icon: "clock" }] },
