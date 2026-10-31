@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
@@ -11,15 +11,15 @@ import {
   MAX_BUTTON_TITLE,
   NODE_TYPES,
   TRIGGER_TYPES,
-  edges,
+  belowAll,
   emptyFlow,
-  layout,
   newNode,
   nextId,
   problems,
   renameNode,
   summary,
   withoutNode,
+  type XY,
   type Bot,
   type BotFlow,
   type BotNode,
@@ -28,6 +28,9 @@ import {
   type BotTrigger,
   type NodeType,
 } from "../lib/bots";
+
+// The canvas library is large, so it loads only when a bot is opened.
+const FlowCanvas = lazy(() => import("../components/FlowCanvas"));
 
 const STATUS_PILL: Record<BotStatus, string> = { draft: "", active: "t-approved", paused: "t-pending" };
 
@@ -162,9 +165,18 @@ function BotEditor({ bot, onClose, onSaved }: { bot: Bot | null; onClose: () => 
   };
   const setNode = (id: string, n: BotNode) => change({ ...flow, nodes: { ...flow.nodes, [id]: n } });
 
-  const add = (type: NodeType) => {
+  const problemNodes = useMemo(() => new Set(issues.flatMap((p) => (p.node ? [p.node] : []))), [issues]);
+
+  // add puts a new step on the canvas at `at`, or under the others when added from the list.
+  const add = (type: NodeType, at?: XY) => {
     const id = nextId(flow, type);
-    change({ ...flow, nodes: { ...flow.nodes, [id]: newNode(type) }, start: flow.start in flow.nodes ? flow.start : id });
+    const place = at ?? belowAll(flow);
+    change({
+      ...flow,
+      nodes: { ...flow.nodes, [id]: newNode(type) },
+      start: flow.start in flow.nodes ? flow.start : id,
+      layout: flow.layout ? { ...flow.layout, [id]: place } : at ? { [id]: place } : undefined,
+    });
     setSelected(id);
   };
 
@@ -222,7 +234,16 @@ function BotEditor({ bot, onClose, onSaved }: { bot: Bot | null; onClose: () => 
       <Triggers triggers={flow.triggers} onChange={(triggers) => change({ ...flow, triggers })} />
 
       <h3>{t("bots.map")}</h3>
-      <FlowMap flow={flow} selected={selected} onSelect={setSelected} />
+      <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
+        <FlowCanvas
+          flow={flow}
+          selected={selected}
+          problemNodes={problemNodes}
+          onSelect={setSelected}
+          onChange={change}
+          onAdd={add}
+        />
+      </Suspense>
 
       <div className="page-head">
         <h3>{t("bots.nodes")}</h3>
@@ -317,74 +338,6 @@ function Triggers({ triggers, onChange }: { triggers: BotTrigger[]; onChange: (t
   );
 }
 
-const W = 168;
-const H = 56;
-const GX = 64;
-const GY = 22;
-
-// FlowMap draws the nodes in columns with an arrow for every link.
-function FlowMap({ flow, selected, onSelect }: { flow: BotFlow; selected: string | null; onSelect: (id: string) => void }) {
-  const { t } = useTranslation();
-  const placed = useMemo(() => layout(flow), [flow]);
-  const pos = new Map(placed.map((p) => [p.id, { x: p.col * (W + GX) + 8, y: p.row * (H + GY) + 8 }]));
-  const cols = Math.max(0, ...placed.map((p) => p.col)) + 1;
-  const rows = Math.max(0, ...placed.map((p) => p.row)) + 1;
-  const width = cols * (W + GX) + 8;
-  const height = rows * (H + GY) + 8;
-  return (
-    <div className="flow-map">
-      <svg width={width} height={height} role="img" aria-label={t("bots.map")}>
-        <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
-          </marker>
-        </defs>
-        {placed.flatMap((p) =>
-          edges(flow.nodes[p.id]).map((e, i) => {
-            const a = pos.get(p.id);
-            const b = pos.get(e.target);
-            if (!a || !b) return null;
-            const x1 = a.x + W;
-            const y1 = a.y + H / 2;
-            const x2 = b.x;
-            const y2 = b.y + H / 2;
-            const mx = (x1 + x2) / 2;
-            return (
-              <g key={`${p.id}-${i}`} className="edge">
-                <path d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke="currentColor" markerEnd="url(#arrow)" />
-                {(flow.nodes[p.id].type === "condition" || flow.nodes[p.id].type === "buttons") && (
-                  <text x={x1 + 4} y={y1 - 3 - i * 11} fontSize="10">{e.label.slice(0, 14)}</text>
-                )}
-              </g>
-            );
-          }),
-        )}
-        {placed.map((p) => {
-          const at = pos.get(p.id)!;
-          const n = flow.nodes[p.id];
-          return (
-            <g
-              key={p.id}
-              className={`map-node ${selected === p.id ? "selected" : ""} ${p.reachable ? "" : "lost"}`}
-              transform={`translate(${at.x},${at.y})`}
-              onClick={() => onSelect(p.id)}
-              tabIndex={0}
-              role="button"
-              aria-label={`${p.id}: ${t(`bots.node_${n.type}`)}`}
-              onKeyDown={(e) => e.key === "Enter" && onSelect(p.id)}
-            >
-              <rect width={W} height={H} rx="8" />
-              <text x="10" y="20" fontSize="12" fontWeight="600">{(flow.start === p.id ? "▶ " : "") + p.id.slice(0, 18)}</text>
-              <text x="10" y="40" fontSize="11" className="sub">{(t(`bots.node_${n.type}`) + (summary(n) ? ": " + summary(n) : "")).slice(0, 26)}</text>
-            </g>
-          );
-        })}
-      </svg>
-      {placed.some((p) => !p.reachable) && <div className="muted small">{t("bots.unreachable")}</div>}
-    </div>
-  );
-}
-
 function NextSelect({ label, value, ids, self, onChange, none }: { label: string; value?: string; ids: string[]; self: string; onChange: (v: string) => void; none: string }) {
   return (
     <label className="field">
@@ -414,12 +367,17 @@ function NodeCard(props: {
   const { t } = useTranslation();
   const { id, node: n, ids, onChange } = props;
   const [draftId, setDraftId] = useState(id);
+  const box = useRef<HTMLDivElement>(null);
+  // A step picked on the canvas opens here; bring it into view.
+  useEffect(() => {
+    if (props.open) box.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [props.open]);
   const set = (patch: Partial<BotNode>) => onChange({ ...n, ...patch });
   const endOfFlow = t("bots.endOfFlow");
   const next = <NextSelect label={t("bots.next")} value={n.next} ids={ids} self={id} none={endOfFlow} onChange={(v) => set({ next: v || undefined })} />;
 
   return (
-    <div className={`node-card ${props.open ? "open" : ""} ${props.problems.length ? "has-problems" : ""}`}>
+    <div ref={box} className={`node-card ${props.open ? "open" : ""} ${props.problems.length ? "has-problems" : ""}`}>
       <button type="button" className="node-head" onClick={props.onToggle} aria-expanded={props.open}>
         <span className="pill">{t(`bots.node_${n.type}`)}</span>
         <strong>{id}</strong>

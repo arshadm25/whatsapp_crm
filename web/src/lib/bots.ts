@@ -58,6 +58,13 @@ export interface BotFlow {
   start: string;
   triggers: BotTrigger[];
   nodes: Record<string, BotNode>;
+  /** Where each node sits on the canvas. Only the editor uses it. */
+  layout?: Record<string, XY>;
+}
+
+export interface XY {
+  x: number;
+  y: number;
 }
 
 export type BotStatus = "draft" | "active" | "paused";
@@ -174,7 +181,12 @@ export function withoutNode(flow: BotFlow, id: string): BotFlow {
     nodes[nid] = c;
   }
   const ids = Object.keys(nodes);
-  return { ...flow, nodes, start: flow.start === id ? (ids[0] ?? "") : flow.start };
+  const out: BotFlow = { ...flow, nodes, start: flow.start === id ? (ids[0] ?? "") : flow.start };
+  if (flow.layout) {
+    out.layout = { ...flow.layout };
+    delete out.layout[id];
+  }
+  return out;
 }
 
 // renameNode changes a node's id and every link to it.
@@ -189,7 +201,12 @@ export function renameNode(flow: BotFlow, from: string, to: string): BotFlow {
     if (c.buttons) c.buttons = c.buttons.map((b) => ({ ...b, next: swap(b.next) }));
     nodes[nid === from ? to : nid] = c;
   }
-  return { ...flow, nodes, start: flow.start === from ? to : flow.start };
+  const out: BotFlow = { ...flow, nodes, start: flow.start === from ? to : flow.start };
+  if (flow.layout && from in flow.layout) {
+    out.layout = { ...flow.layout, [to]: flow.layout[from] };
+    delete out.layout[from];
+  }
+  return out;
 }
 
 export interface Placed {
@@ -227,6 +244,68 @@ export function layout(flow: BotFlow): Placed[] {
     out.push({ id, col, row, reachable: depth.has(id) });
   }
   return out;
+}
+
+// Canvas sizes, shared by the canvas and the automatic layout.
+export const CANVAS_NODE_W = 200;
+export const CANVAS_GAP_X = 80;
+export const CANVAS_ROW_H = 150;
+
+// positions gives every node a place on the canvas: its saved place, or else the automatic
+// column layout. Flows saved before the canvas existed have no saved places.
+export function positions(flow: BotFlow): Record<string, XY> {
+  const out: Record<string, XY> = {};
+  for (const p of layout(flow)) {
+    out[p.id] = flow.layout?.[p.id] ?? { x: p.col * (CANVAS_NODE_W + CANVAS_GAP_X), y: p.row * CANVAS_ROW_H };
+  }
+  return out;
+}
+
+// belowAll is a free spot under every node, for a step added without dropping it somewhere.
+export function belowAll(flow: BotFlow): XY {
+  const all = Object.values(positions(flow));
+  if (all.length === 0) return { x: 0, y: 0 };
+  return { x: Math.min(...all.map((p) => p.x)), y: Math.max(...all.map((p) => p.y)) + CANVAS_ROW_H };
+}
+
+/** An outlet is one place a node can link from: "next", "then", "else" or "button:<index>". */
+export interface Outlet {
+  handle: string;
+  label: string;
+  target?: string;
+}
+
+// outlets lists every link a node can have, set or not, in the order the canvas draws them.
+export function outlets(n: BotNode): Outlet[] {
+  switch (n.type) {
+    case "condition":
+      return [{ handle: "then", label: "then", target: n.then || undefined }, { handle: "else", label: "else", target: n.else }];
+    case "ai":
+      return [{ handle: "next", label: "next", target: n.next }, { handle: "else", label: "else", target: n.else }];
+    case "buttons":
+      return (n.buttons ?? []).map((b, i) => ({ handle: `button:${i}`, label: b.title || b.id, target: b.next }));
+    case "handoff":
+    case "end":
+      return [];
+    default:
+      return [{ handle: "next", label: "next", target: n.next }];
+  }
+}
+
+// link points one outlet of a node at another node, or clears it when target is empty.
+export function link(n: BotNode, handle: string, target: string): BotNode {
+  const c: BotNode = { ...n };
+  if (handle.startsWith("button:")) {
+    const i = Number(handle.slice(7));
+    c.buttons = (n.buttons ?? []).map((b, j) => (j === i ? { ...b, next: target || undefined } : b));
+  } else if (handle === "then") {
+    c.then = target; // the api needs the key; an empty one shows as a problem
+  } else if (handle === "else") {
+    c.else = target || undefined;
+  } else {
+    c.next = target || undefined;
+  }
+  return c;
 }
 
 const VAR_RE = /^[A-Za-z0-9_]{1,40}$/;
