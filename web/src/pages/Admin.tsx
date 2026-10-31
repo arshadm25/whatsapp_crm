@@ -9,8 +9,10 @@ import type {
 } from "../api/types";
 import { formatPaise, rupeesToPaise } from "../lib/billing";
 import { messageText } from "../lib/messages";
+import { tierLabel } from "../lib/numbers";
 import MetaFeesAdmin, { PaymentMode } from "./AdminMetaFees";
-import Icon from "../components/Icon";
+import Icon, { type IconName } from "../components/Icon";
+import ReasonField from "../components/ReasonField";
 import AdminShell, { ADMIN_TABS, adminPath, type AdminTab } from "../components/AdminShell";
 import { ago, initials } from "../lib/time";
 
@@ -304,86 +306,356 @@ function Tenants({ initial = null, initialQuery = "" }: { initial?: string | nul
   );
 }
 
+type DetailTab = "overview" | "numbers" | "billing" | "conversations" | "account";
+const SUB_PILL: Record<NonNullable<AdminTenantDetail["subscription"]>["status"], string> = {
+  trialing: "wa", active: "ok", past_due: "er", cancelled: "",
+};
+
+// usePlans is the plan list shared by the workspace page's subscription card and plan form.
+function usePlans() {
+  return useQuery({
+    queryKey: ["admin", "plans"],
+    queryFn: async () => (await api<{ data: Plan[] }>("GET", "/internal/admin/plans")).data,
+  });
+}
+
+// TenantPanel is one workspace in the console: a header with its key facts, then tabs for
+// its numbers, subscription and staff actions, conversations and account status.
 function TenantPanel({ id, onBack }: { id: string; onBack: () => void }) {
   const { t } = useTranslation();
-  const qc = useQueryClient();
+  const [tab, setTab] = useState<DetailTab>("overview");
   const detail = useQuery({
     queryKey: ["admin", "tenant", id],
     queryFn: () => api<AdminTenantDetail>("GET", `/internal/admin/tenants/${id}`),
   });
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState("");
+  const plans = usePlans();
   const d = detail.data;
   if (!d) return <div className="card muted">{t("common.loading")}</div>;
 
+  const sub = d.subscription;
+  const planName = sub?.plan_code ? (plans.data?.find((p) => p.code === sub.plan_code)?.name ?? sub.plan_code) : null;
+  const live = d.numbers.filter((n) => n.status !== "disconnected").length;
+  const tabs: { key: DetailTab; label: string; icon: IconName; count?: number }[] = [
+    { key: "overview", label: t("admin.tab_overview"), icon: "grid" },
+    { key: "numbers", label: t("admin.numbers"), icon: "phone", count: d.numbers.length },
+    { key: "billing", label: t("admin.dtab_billing"), icon: "file" },
+    { key: "conversations", label: t("admin.conversations"), icon: "message" },
+    { key: "account", label: t("admin.dtab_account"), icon: "shield" },
+  ];
+
+  return (
+    <>
+      <p className="ws-back"><button className="link" onClick={onBack}>← {t("admin.allWorkspaces")}</button></p>
+      <div className="card ws-detail-head">
+        <span className="av lg">{initials(d.name)}</span>
+        <div className="ws-detail-title">
+          <h2>{d.name} <span className={`pill ${PILL[d.status]}`}>{t(`admin.status_${d.status}`)}</span></h2>
+          <p className="muted small">
+            <span className="k">{d.slug}</span> · {t("admin.createdOn", { date: new Date(d.created_at).toLocaleDateString() })} · {d.time_zone}
+          </p>
+        </div>
+        <dl className="ws-facts">
+          <div>
+            <dt>{t("admin.plan")}</dt>
+            <dd>{sub ? <>{planName} <span className={`pill ${SUB_PILL[sub.status]}`}>{t(`admin.sub_${sub.status}`)}</span></> : "—"}</dd>
+          </div>
+          <div>
+            <dt>{t("admin.numbers")}</dt>
+            <dd>{t("admin.numbersLive", { live, total: d.numbers.length })}</dd>
+          </div>
+          <div>
+            <dt>{t("admin.metaPaymentMode")}</dt>
+            <dd>{t(`admin.modeShort_${d.meta_payment_mode}`)}</dd>
+          </div>
+        </dl>
+      </div>
+
+      {d.suspended_reason && (
+        <div className="banner danger"><Icon name="alert" size="s" /><div><span>{t("admin.suspendedFor", { reason: d.suspended_reason })}</span></div></div>
+      )}
+      {sub && !sub.usable && (
+        <div className="banner danger"><Icon name="stop" size="s" /><div><b>{t("admin.sendingStoppedTitle")}</b><span>{t("admin.sendingStoppedHelp")}</span></div></div>
+      )}
+
+      <nav className="segmented tabs" aria-label={d.name}>
+        {tabs.map((x) => (
+          <button key={x.key} type="button" className={tab === x.key ? "on" : ""} aria-pressed={tab === x.key} onClick={() => setTab(x.key)}>
+            <Icon name={x.icon} size="s" />{x.label}
+            {x.count !== undefined && <span className="tab-count">{x.count}</span>}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "overview" && <TenantOverview d={d} planName={planName} goNumbers={() => setTab("numbers")} />}
+      {tab === "numbers" && <TenantNumbers numbers={d.numbers} />}
+      {tab === "billing" && (
+        <div className="grid g2 ws-actions">
+          {sub ? <SubscriptionCard sub={sub} planName={planName} /> : <div className="card muted">{t("admin.noSubscription")}</div>}
+          {sub?.status === "trialing" && <ExtendTrial key={`trial-${sub.current_period_end}`} id={id} sub={sub} />}
+          {sub && <ChangePlan id={id} sub={sub} />}
+          <PaymentMode key={d.meta_payment_mode} id={id} mode={d.meta_payment_mode} />
+        </div>
+      )}
+      {tab === "conversations" && <Conversations tenantId={id} />}
+      {tab === "account" && <AccountStatus key={d.status} id={id} status={d.status} />}
+    </>
+  );
+}
+
+function TenantOverview({ d, planName, goNumbers }: { d: AdminTenantDetail; planName: string | null; goNumbers: () => void }) {
+  const { t } = useTranslation();
+  const deliveries = Object.entries(d.webhook_deliveries_24h);
+  const wabas = [...new Set(d.numbers.map((n) => n.waba_id))];
+  return (
+    <div className="stack">
+      <dl className="stats">
+        <div><dt>{t("admin.members")}</dt><dd>{d.members}</dd></div>
+        <div><dt>{t("admin.sent30")}</dt><dd>{d.sent_30d.toLocaleString()}</dd></div>
+        <div><dt>{t("admin.received30")}</dt><dd>{d.received_30d.toLocaleString()}</dd></div>
+        <div><dt>{t("admin.lastMessage")}</dt><dd className="stat-text">{d.last_message_at ? <span title={when(d.last_message_at)}>{ago(d.last_message_at, t)}</span> : "—"}</dd></div>
+      </dl>
+      <div className="grid g2">
+        {d.subscription ? <SubscriptionCard sub={d.subscription} planName={planName} /> : <div className="card muted">{t("admin.noSubscription")}</div>}
+        <div className="card">
+          <h2>{t("admin.details")}</h2>
+          <dl className="kv">
+            <dt>{t("admin.slug")}</dt><dd><span className="k">{d.slug}</span></dd>
+            <dt>{t("admin.legalName")}</dt><dd>{d.legal_name || "—"}</dd>
+            <dt>{t("admin.created")}</dt><dd>{new Date(d.created_at).toLocaleDateString()}</dd>
+            <dt>{t("admin.timeZone")}</dt><dd>{d.time_zone}</dd>
+            <dt>{t("admin.metaPaymentMode")}</dt><dd>{t(`admin.mode_${d.meta_payment_mode}`)}</dd>
+            <dt>{t("admin.wabas")}</dt>
+            <dd>{wabas.length ? wabas.map((w) => <span key={w} className="k ws-waba">{w}</span>) : "—"}</dd>
+          </dl>
+        </div>
+      </div>
+      <div className="grid g2">
+        <div className="card">
+          <div className="page-head">
+            <h2>{t("admin.numbers")}</h2>
+            {d.numbers.length > 0 && <button className="link" onClick={goNumbers}>{t("admin.viewAll")}</button>}
+          </div>
+          {d.numbers.length === 0 ? <p className="muted small">{t("admin.noNumbers")}</p> : (
+            <ul className="ws-num-list">
+              {d.numbers.slice(0, 4).map((n) => (
+                <li key={n.id}>
+                  <span><b>{n.display_phone_number}</b><small className="muted">{n.verified_name ?? "—"}</small></span>
+                  <NumberStatus status={n.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="card">
+          <h2>{t("admin.deliveries24")}</h2>
+          {deliveries.length ? (
+            <div className="ws-pills">
+              {deliveries.map(([k, v]) => (
+                <span key={k} className={`pill ${k === "failed" ? "er" : k === "delivered" ? "ok" : ""}`}>{k} · {v.toLocaleString()}</span>
+              ))}
+            </div>
+          ) : <p className="muted small">{t("admin.noDeliveries")}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const NUMBER_PILL: Record<string, string> = { connected: "ok", pending: "wa", error: "er", revoked: "er", disconnected: "" };
+
+function NumberStatus({ status }: { status: string }) {
+  const { t } = useTranslation();
+  return <span className={`pill ${NUMBER_PILL[status] ?? ""}`}>{t(`numbers.status_${status}`, status)}</span>;
+}
+
+function TenantNumbers({ numbers }: { numbers: AdminTenantDetail["numbers"] }) {
+  const { t } = useTranslation();
+  const quality = (q: string) => {
+    const k = q.toLowerCase();
+    const cls = k === "green" ? "ok" : k === "yellow" ? "wa" : k === "red" ? "er" : "";
+    return <span className={`pill ${cls}`}>{t(`numbers.quality_${k}`, q)}</span>;
+  };
+  return (
+    <div className="card table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{t("admin.number")}</th>
+            <th>{t("admin.status")}</th>
+            <th>{t("admin.quality")}</th>
+            <th className="r">{t("admin.tier")}</th>
+            <th>{t("admin.waba")}</th>
+            <th>{t("admin.connection")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {numbers.map((n) => (
+            <tr key={n.id}>
+              <td><b>{n.display_phone_number}</b><div className="muted small">{n.verified_name ?? "—"}</div></td>
+              <td><NumberStatus status={n.status} /></td>
+              <td>{quality(n.quality_rating)}</td>
+              <td className="r num-t">{tierLabel(n.messaging_limit_tier, t("numbers.unlimited"))}</td>
+              <td><span className="k">{n.waba_id}</span></td>
+              <td className="small">{n.coexistence ? t("admin.coexistence") : t("admin.cloudApi")}</td>
+            </tr>
+          ))}
+          {numbers.length === 0 && <tr><td colSpan={6} className="muted">{t("admin.noNumbers")}</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SubscriptionCard({ sub, planName }: { sub: NonNullable<AdminTenantDetail["subscription"]>; planName: string | null }) {
+  const { t } = useTranslation();
+  const end = new Date(sub.current_period_end);
+  const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
+  const endLabel = sub.status === "trialing" ? t("admin.trialEnds") : sub.cancel_at_period_end ? t("admin.endsOn") : t("admin.periodEnds");
+  return (
+    <div className="card">
+      <div className="page-head">
+        <h2>{t("admin.subTitle")}</h2>
+        <span className={`pill ${SUB_PILL[sub.status]}`}>{t(`admin.sub_${sub.status}`)}</span>
+      </div>
+      <dl className="kv">
+        <dt>{t("admin.plan")}</dt>
+        <dd>{planName ?? t("admin.noPlan")}{sub.admin_granted && <small className="muted ws-note">{t("admin.grantedPlan")}</small>}</dd>
+        {sub.plan_code && <><dt>{t("admin.interval")}</dt><dd>{t(`admin.interval_${sub.billing_interval}`)}</dd></>}
+        <dt>{endLabel}</dt>
+        <dd>
+          {end.toLocaleDateString()}
+          <small className="muted ws-note">{days > 0 ? t("admin.daysLeft", { count: days }) : t("admin.ended")}</small>
+        </dd>
+        {sub.extra_seats > 0 && <><dt>{t("admin.extraSeats")}</dt><dd>{sub.extra_seats}</dd></>}
+        <dt>{t("admin.sending")}</dt>
+        <dd>{sub.usable ? <span className="pill ok">{t("admin.sendingOk")}</span> : <span className="pill er">{t("admin.sendingStopped")}</span>}</dd>
+        {sub.payment_pending && <><dt>{t("admin.payment")}</dt><dd><span className="pill wa">{t("admin.paymentPending")}</span></dd></>}
+      </dl>
+    </div>
+  );
+}
+
+function ExtendTrial({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetail["subscription"]> }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [days, setDays] = useState("7");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const n = Number(days);
+  // Mirrors the server: the extension starts from the trial end, or today if it has passed.
+  const from = Math.max(new Date(sub.current_period_end).getTime(), Date.now());
+  const until = n >= 1 && n <= 90 ? new Date(from + n * 86_400_000).toLocaleDateString() : null;
+  const extend = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    try {
+      await api("POST", `/internal/admin/tenants/${id}/extend-trial`, { days: Number(days), reason });
+      setReason("");
+      await qc.invalidateQueries({ queryKey: ["admin", "tenant", id] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  return (
+    <form className="card form ws-action" onSubmit={extend}>
+      <h3><Icon name="calendar" size="s" />{t("admin.extendTrial")}</h3>
+      <p className="muted small">{t("admin.extendHelp")}</p>
+      <label className="field">
+        {t("admin.extendDays")}
+        <input type="number" min={1} max={90} value={days} onChange={(e) => setDays(e.target.value)} required />
+        {until && <span className="hint">{t("admin.newTrialEnd", { date: until })}</span>}
+      </label>
+      <ReasonField value={reason} onChange={setReason} />
+      {error && <div className="field-error">{error}</div>}
+      <div className="actions"><button className="primary">{t("admin.extendTrial")}</button></div>
+    </form>
+  );
+}
+
+function ChangePlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetail["subscription"]> }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [error, setError] = useState("");
+  const [grant, setGrant] = useState({ plan: "", until: "", reason: "" });
+  const [granted, setGranted] = useState(false);
+  const plans = usePlans();
+  // Staff can set the plan only of a workspace that does not pay Razorpay for it.
+  const paying = !!sub.plan_code && !sub.admin_granted && sub.status === "active" && !sub.payment_pending &&
+    !(plans.data?.find((p) => p.code === sub.plan_code)?.free ?? false);
+  const changePlan = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setGranted(false);
+    try {
+      await api("POST", `/internal/admin/tenants/${id}/plan`, grant);
+      setGrant({ plan: "", until: "", reason: "" });
+      setGranted(true);
+      await qc.invalidateQueries({ queryKey: ["admin", "tenant", id] });
+    } catch (err) {
+      setError(message(err, t("common.error")));
+    }
+  };
+  if (paying) {
+    return (
+      <div className="card form ws-action">
+        <h3><Icon name="lock" size="s" />{t("admin.changePlan")}</h3>
+        <p className="muted small">{t("admin.planPaidRazorpay")}</p>
+      </div>
+    );
+  }
+  return (
+    <form className="card form ws-action" onSubmit={changePlan}>
+      <h3><Icon name="sparkles" size="s" />{t("admin.changePlan")}</h3>
+      <p className="muted small">{t("admin.changePlanHelp")}</p>
+      <div className="row">
+        <label className="field">
+          {t("admin.changePlanTo")}
+          <select value={grant.plan} onChange={(e) => setGrant({ ...grant, plan: e.target.value })} required>
+            <option value="">{t("admin.pickPlan")}</option>
+            {plans.data?.map((p) => <option key={p.code} value={p.code}>{p.name}{p.is_active ? "" : ` (${t("admin.hiddenPlan")})`}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          {t("admin.planUntil")}
+          <input type="date" value={grant.until} onChange={(e) => setGrant({ ...grant, until: e.target.value })} />
+        </label>
+      </div>
+      <ReasonField value={grant.reason} onChange={(reason) => setGrant({ ...grant, reason })} />
+      {granted && <div className="banner ok"><Icon name="check" size="s" /><div><span>{t("admin.planChanged")}</span></div></div>}
+      {error && <div className="field-error">{error}</div>}
+      <div className="actions"><button className="primary">{t("admin.changePlan")}</button></div>
+    </form>
+  );
+}
+
+function AccountStatus({ id, status }: { id: string; status: AdminTenant["status"] }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  if (status === "closed") return <div className="card muted">{t("admin.closedNote")}</div>;
+  const active = status === "active";
   const act = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
     try {
-      await api("POST", `/internal/admin/tenants/${id}/${d.status === "active" ? "suspend" : "reactivate"}`, { reason });
+      await api("POST", `/internal/admin/tenants/${id}/${active ? "suspend" : "reactivate"}`, { reason });
       setReason("");
       await qc.invalidateQueries({ queryKey: ["admin"] });
     } catch (err) {
       setError(message(err, t("common.error")));
     }
   };
-  const deliveries = Object.entries(d.webhook_deliveries_24h);
-
   return (
-    <>
-      <p><button className="link" onClick={onBack}>← {t("admin.allWorkspaces")}</button></p>
-      <div className="page-head">
-        <h2>{d.name} <span className={`pill ${d.status}`}>{t(`admin.status_${d.status}`)}</span></h2>
+    <form className={`card form ws-action narrow${active ? " ws-danger" : ""}`} onSubmit={act}>
+      <h3><Icon name={active ? "stop" : "check"} size="s" />{active ? t("admin.suspendTitle") : t("admin.reactivateTitle")}</h3>
+      <p className="muted small">{active ? t("admin.suspendHelp") : t("admin.reactivateHelp")}</p>
+      <ReasonField value={reason} onChange={setReason} label={active ? t("admin.suspendReason") : t("admin.reactivateReason")} />
+      {error && <div className="field-error">{error}</div>}
+      <div className="actions">
+        <button className={active ? "danger" : "primary"}>{active ? t("admin.suspend") : t("admin.reactivate")}</button>
       </div>
-      {d.suspended_reason && <div className="card notice">{t("admin.suspendedFor", { reason: d.suspended_reason })}</div>}
-      <dl className="stats">
-        <div><dt>{t("admin.members")}</dt><dd>{d.members}</dd></div>
-        <div><dt>{t("admin.sent30")}</dt><dd>{d.sent_30d}</dd></div>
-        <div><dt>{t("admin.received30")}</dt><dd>{d.received_30d}</dd></div>
-        <div><dt>{t("admin.lastMessage")}</dt><dd className="stat-text">{when(d.last_message_at)}</dd></div>
-      </dl>
-
-      <h3>{t("admin.numbers")}</h3>
-      <div className="card table-wrap">
-        <table>
-          <tbody>
-            {d.numbers.map((n) => (
-              <tr key={n.id}>
-                <td>{n.display_phone_number}<div className="muted small">{n.verified_name}</div></td>
-                <td>{n.status}</td>
-                <td>{t("admin.quality")}: {n.quality_rating}</td>
-                <td>{t("admin.tier")}: {n.messaging_limit_tier ?? "—"}</td>
-                <td className="small muted">WABA {n.waba_id}{n.coexistence ? ` · ${t("admin.coexistence")}` : ""}</td>
-              </tr>
-            ))}
-            {d.numbers.length === 0 && <tr><td className="muted">{t("admin.noNumbers")}</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      <p className="muted small">
-        {t("admin.deliveries24")}:{" "}
-        {deliveries.length ? deliveries.map(([k, v]) => `${k} ${v}`).join(", ") : t("admin.none")}
-      </p>
-
-      {d.subscription && <TenantPlan id={id} sub={d.subscription} />}
-
-      <PaymentMode key={d.meta_payment_mode} id={id} mode={d.meta_payment_mode} />
-
-      {d.status !== "closed" && (
-        <form className="card inline-form" onSubmit={act}>
-          <label className="field grow">
-            {d.status === "active" ? t("admin.suspendReason") : t("admin.reactivateReason")}
-            <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={500} />
-          </label>
-          <button className={d.status === "active" ? "danger" : "primary"}>
-            {d.status === "active" ? t("admin.suspend") : t("admin.reactivate")}
-          </button>
-        </form>
-      )}
-      {error && <div className="error">{error}</div>}
-
-      <Conversations tenantId={id} />
-    </>
+    </form>
   );
 }
 
@@ -871,97 +1143,6 @@ function Audit() {
         </table>
       </div>
       <More q={list} />
-    </>
-  );
-}
-
-function TenantPlan({ id, sub }: { id: string; sub: NonNullable<AdminTenantDetail["subscription"]> }) {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const [days, setDays] = useState("7");
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState("");
-  const [grant, setGrant] = useState({ plan: "", until: "", reason: "" });
-  const [granted, setGranted] = useState(false);
-  const plans = useQuery({
-    queryKey: ["admin", "plans"],
-    queryFn: async () => (await api<{ data: Plan[] }>("GET", "/internal/admin/plans")).data,
-  });
-  // Staff can set the plan only of a workspace that does not pay Razorpay for it.
-  const paying = !!sub.plan_code && !sub.admin_granted && sub.status === "active" && !sub.payment_pending &&
-    !(plans.data?.find((p) => p.code === sub.plan_code)?.free ?? false);
-  const changePlan = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setGranted(false);
-    try {
-      await api("POST", `/internal/admin/tenants/${id}/plan`, grant);
-      setGrant({ plan: "", until: "", reason: "" });
-      setGranted(true);
-      await qc.invalidateQueries({ queryKey: ["admin", "tenant", id] });
-    } catch (err) {
-      setError(message(err, t("common.error")));
-    }
-  };
-  const extend = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    try {
-      await api("POST", `/internal/admin/tenants/${id}/extend-trial`, { days: Number(days), reason });
-      setReason("");
-      await qc.invalidateQueries({ queryKey: ["admin", "tenant", id] });
-    } catch (err) {
-      setError(message(err, t("common.error")));
-    }
-  };
-  return (
-    <>
-      <p className="small">
-        {t("admin.subscription", {
-          status: t(`admin.sub_${sub.status}`), plan: sub.plan_code ?? t("admin.noPlan"),
-          date: new Date(sub.current_period_end).toLocaleDateString(),
-        })}
-        {!sub.usable && <> · <strong className="danger-text">{t("admin.sendingStopped")}</strong></>}
-        {sub.admin_granted && <> · {t("admin.grantedPlan")}</>}
-      </p>
-      {sub.status === "trialing" && (
-        <form className="card inline-form" onSubmit={extend}>
-          <label className="field">
-            {t("admin.extendDays")}
-            <input type="number" min={1} max={90} value={days} onChange={(e) => setDays(e.target.value)} required />
-          </label>
-          <label className="field grow">
-            {t("admin.extendReason")}
-            <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={500} />
-          </label>
-          <button>{t("admin.extendTrial")}</button>
-        </form>
-      )}
-      {paying ? (
-        <p className="muted small">{t("admin.planPaidRazorpay")}</p>
-      ) : (
-        <form className="card inline-form" onSubmit={changePlan}>
-          <label className="field">
-            {t("admin.changePlanTo")}
-            <select value={grant.plan} onChange={(e) => setGrant({ ...grant, plan: e.target.value })} required>
-              <option value="" />
-              {plans.data?.map((p) => <option key={p.code} value={p.code}>{p.name}{p.is_active ? "" : ` (${t("admin.hiddenPlan")})`}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            {t("admin.planUntil")}
-            <input type="date" value={grant.until} onChange={(e) => setGrant({ ...grant, until: e.target.value })} />
-          </label>
-          <label className="field grow">
-            {t("admin.extendReason")}
-            <input value={grant.reason} onChange={(e) => setGrant({ ...grant, reason: e.target.value })} required minLength={5} maxLength={500} />
-          </label>
-          <button>{t("admin.changePlan")}</button>
-          <p className="muted small" style={{ flexBasis: "100%", margin: 0 }}>{t("admin.changePlanHelp")}</p>
-        </form>
-      )}
-      {granted && <div className="muted">{t("admin.planChanged")}</div>}
-      {error && <div className="error">{error}</div>}
     </>
   );
 }
