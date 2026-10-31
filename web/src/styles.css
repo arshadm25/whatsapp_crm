@@ -1023,3 +1023,14 @@ button.ql.on { background: var(--accent-soft); }
 .profile-pick { max-width: 360px; margin-bottom: 16px; }
 .plain-list { margin: 0 0 12px; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-2); }
 .meters .hint { margin: 6px 0 0; }
+
+/* Admin > Invoices and Admin > Seller details */
+.invoicing-status { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 16px; font-size: 14px; }
+.seller-form { max-width: 760px; }
+.seller-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.seller-head h2 { margin: 0; }
+.seller-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 8px 0 4px; }
+.seller-grid .wide { grid-column: 1 / -1; }
+.seller-form .actions { justify-content: space-between; }
+.seller-form .end-group { display: inline-flex; align-items: center; gap: 12px; margin-inline-start: auto; }
+@media (max-width: 640px) { .seller-grid { grid-template-columns: 1fr; } }

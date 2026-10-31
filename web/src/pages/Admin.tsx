@@ -13,6 +13,7 @@ import { tierLabel } from "../lib/numbers";
 import MetaFeesAdmin, { PaymentMode } from "./AdminMetaFees";
 import Icon, { type IconName } from "../components/Icon";
 import ReasonField from "../components/ReasonField";
+import { Pager, type PageSize } from "../components/Pager";
 import AdminShell, { ADMIN_TABS, adminPath, type AdminTab } from "../components/AdminShell";
 import { ago, initials } from "../lib/time";
 
@@ -85,6 +86,7 @@ export default function Admin() {
       {tab === "tenants" && <Tenants key={search.toString()} initial={search.get("open")} initialQuery={search.get("q") ?? ""} />}
       {tab === "plans" && <Plans />}
       {tab === "invoices" && <Invoices />}
+      {tab === "seller" && <SellerForm />}
       {tab === "metaFees" && <MetaFeesAdmin />}
       {tab === "webhooks" && <Webhooks />}
       {tab === "metaErrors" && <MetaErrors />}
@@ -827,10 +829,13 @@ function Webhooks() {
 }
 
 // Invoices lists every GST invoice across workspaces for a date range; the CSV is for the accountant.
+// The API returns up to 500 rows for the range, so the table pages through them here.
 function Invoices() {
   const { t } = useTranslation();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [size, setSize] = useState<PageSize>(25);
+  const [page, setPage] = useState(1);
   const params = new URLSearchParams();
   if (from) params.set("from", from);
   if (to) params.set("to", to);
@@ -839,15 +844,20 @@ function Invoices() {
     queryKey: ["admin", "invoices", from, to],
     queryFn: () => api<{ data: AdminInvoice[]; total_minor: number; truncated: boolean }>("GET", `/internal/admin/invoices${qs}`),
   });
+  const rows = list.data?.data ?? [];
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, pages);
+  const shown = rows.slice((current - 1) * size, current * size);
+  const setRange = (set: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => { set(e.target.value); setPage(1); };
   return (
     <>
-      <SellerForm />
+      <InvoicingStatus />
       <div className="filters">
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t("admin.from")} />
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label={t("admin.to")} />
+        <input type="date" value={from} onChange={setRange(setFrom)} aria-label={t("admin.from")} />
+        <input type="date" value={to} onChange={setRange(setTo)} aria-label={t("admin.to")} />
         <a className="button end" href={`/internal/admin/invoices.csv${qs}`}>{t("admin.downloadCsv")}</a>
       </div>
-      {list.data && <p className="muted small">{t("admin.invoiceTotal", { count: list.data.data.length, total: formatPaise(list.data.total_minor) })}{list.data.truncated ? ` ${t("admin.invoiceTruncated")}` : ""}</p>}
+      {list.data && <p className="muted small">{t("admin.invoiceTotal", { count: rows.length, total: formatPaise(list.data.total_minor) })}{list.data.truncated ? ` ${t("admin.invoiceTruncated")}` : ""}</p>}
       <div className="card table-wrap">
         <table>
           <thead>
@@ -861,7 +871,7 @@ function Invoices() {
             </tr>
           </thead>
           <tbody>
-            {list.data?.data.map((i) => (
+            {shown.map((i) => (
               <tr key={i.id}>
                 <td>{i.number}<div className="small muted">{when(i.issued_at)}</div></td>
                 <td>{i.tenant_name}</td>
@@ -873,10 +883,15 @@ function Invoices() {
                 <td><a href={`/internal/admin/invoices/${i.id}/view`} target="_blank" rel="noreferrer">{t("admin.viewInvoice")}</a></td>
               </tr>
             ))}
-            {list.isSuccess && list.data.data.length === 0 && <tr><td colSpan={6} className="muted">{t("admin.noInvoices")}</td></tr>}
+            {list.isSuccess && rows.length === 0 && <tr><td colSpan={6} className="muted">{t("admin.noInvoices")}</td></tr>}
           </tbody>
         </table>
       </div>
+      {rows.length > 0 && (
+        <Pager page={current} size={size} shown={shown.length} total={rows.length} hasNext={current < pages}
+          onPrev={() => setPage(current - 1)} onNext={() => setPage(current + 1)} onFirst={() => setPage(1)}
+          onSize={(n) => { setSize(n); setPage(1); }} />
+      )}
     </>
   );
 }
@@ -886,11 +901,27 @@ type Seller = {
   source: "console" | "settings"; updated_at: string | null; invoicing: boolean;
 };
 
+const useSeller = () => useQuery({ queryKey: ["admin", "seller"], queryFn: () => api<Seller>("GET", "/internal/admin/seller") });
+
+// InvoicingStatus sits above the invoice list: whether invoices are being issued, and a way to
+// the seller details that switch it on or off.
+function InvoicingStatus() {
+  const { t } = useTranslation();
+  const seller = useSeller();
+  if (!seller.data) return null;
+  return (
+    <div className="invoicing-status">
+      <span className={`pill ${seller.data.invoicing ? "ok" : "er"}`}>{seller.data.invoicing ? t("admin.sellerOn") : t("admin.sellerOff")}</span>
+      <Link to={adminPath("seller")}>{t("admin.sellerEdit")}</Link>
+    </div>
+  );
+}
+
 // SellerForm edits the seller printed on GST invoices. Invoicing is on while a GSTIN is saved.
 function SellerForm() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const seller = useQuery({ queryKey: ["admin", "seller"], queryFn: () => api<Seller>("GET", "/internal/admin/seller") });
+  const seller = useSeller();
   const [form, setForm] = useState<{ name: string; gstin: string; address: string; sac: string } | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -913,24 +944,35 @@ function SellerForm() {
     }
   };
   return (
-    <form className="card form" onSubmit={save}>
-      <h2>{t("admin.sellerTitle")}</h2>
-      <p className="muted small">{t("admin.sellerHelp")}</p>
-      <p className="small">
-        <span className={seller.data.invoicing ? "pill" : "pill danger-text"}>{seller.data.invoicing ? t("admin.sellerOn") : t("admin.sellerOff")}</span>{" "}
-        {seller.data.source === "settings" && <span className="muted">{t("admin.sellerFromSettings")}</span>}
-      </p>
-      <div className="plan-form">
-        <label className="field">{t("admin.sellerName")}<input value={f.name} onChange={set("name")} required maxLength={200} /></label>
-        <label className="field">{t("admin.sellerGstin")}<input value={f.gstin} onChange={set("gstin")} maxLength={15} placeholder="32ABCDE1234F1Z5" autoCapitalize="characters" /></label>
-        <label className="field">{t("admin.sellerSac")}<input value={f.sac} onChange={set("sac")} inputMode="numeric" pattern="[0-9]{6}" maxLength={6} /></label>
+    <form className="card form seller-form" onSubmit={save}>
+      <div className="seller-head">
+        <h2>{t("admin.sellerTitle")}</h2>
+        <span className={`pill ${seller.data.invoicing ? "ok" : "er"}`}>{seller.data.invoicing ? t("admin.sellerOn") : t("admin.sellerOff")}</span>
       </div>
-      <label className="field">{t("admin.sellerAddress")}<textarea rows={2} value={f.address} onChange={set("address")} maxLength={500} required={f.gstin.trim() !== ""} /></label>
+      <p className="muted small">{t("admin.sellerHelp")}</p>
+      {seller.data.source === "settings" && <p className="muted small">{t("admin.sellerFromSettings")}</p>}
+      <div className="seller-grid">
+        <label className="field wide">{t("admin.sellerName")}<input value={f.name} onChange={set("name")} required maxLength={200} /></label>
+        <label className="field">
+          {t("admin.sellerGstin")}
+          <input value={f.gstin} onChange={set("gstin")} maxLength={15} placeholder="32ABCDE1234F1Z5" autoCapitalize="characters" />
+          <span className="muted small">{t("admin.sellerGstinHint")}</span>
+        </label>
+        <label className="field">
+          {t("admin.sellerSacLabel")}
+          <input value={f.sac} onChange={set("sac")} inputMode="numeric" pattern="[0-9]{6}" maxLength={6} />
+          <span className="muted small">{t("admin.sellerSacHint")}</span>
+        </label>
+        <label className="field wide">{t("admin.sellerAddress")}<textarea rows={3} value={f.address} onChange={set("address")} maxLength={500} required={f.gstin.trim() !== ""} /></label>
+      </div>
       <p className="muted small">{t("admin.sellerGstRate", { rate: seller.data.gst_rate_bp / 100 })}</p>
       {error && <div className="error">{error}</div>}
-      {saved && <div className="muted small">{t("admin.sellerSaved")}</div>}
       <div className="actions">
-        <button className="primary" disabled={form === null}>{t("admin.sellerSave")}</button>
+        <Link to={adminPath("invoices")}>{t("admin.sellerViewInvoices")}</Link>
+        <span className="end-group">
+          {saved && <span className="muted small">{t("admin.sellerSaved")}</span>}
+          <button className="primary" disabled={form === null}>{t("admin.sellerSave")}</button>
+        </span>
       </div>
     </form>
   );
