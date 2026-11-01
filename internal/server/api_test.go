@@ -63,6 +63,7 @@ type fakeMeta struct {
 	mu          sync.Mutex
 	calls       []string
 	registerErr string            // JSON error body for /register, if set
+	smbErr      string            // JSON error body for /smb_app_data, if set
 	numbers     map[string]string // phone number ID -> display number, per WABA listing
 	sharedWABAs string            // JSON list body of debug_token's WABA target_ids
 	listQuality string            // quality_rating the WABA listing reports, if set
@@ -191,6 +192,11 @@ func (f *fakeMeta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.pictures = append(f.pictures, b)
 		fmt.Fprint(w, `{"h":"4:handle"}`)
 	case len(parts) == 2 && parts[1] == "smb_app_data":
+		if f.smbErr != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, f.smbErr)
+			return
+		}
 		fmt.Fprint(w, `{"success":true}`)
 	case len(parts) == 2 && parts[1] == "messages":
 		var body map[string]any
@@ -655,6 +661,32 @@ func TestCoexistenceOnboarding(t *testing.T) {
 	c.do("GET", "/v1/phone-numbers", nil, http.StatusOK, &list)
 	if len(list.Data) != 1 || !list.Data[0].IsCoexistence {
 		t.Fatalf("numbers = %+v", list.Data)
+	}
+}
+
+// Reconnecting a coexistence number: Meta refuses the one-time contacts and history imports,
+// and the connection still finishes.
+func TestCoexistenceReconnectSkipsRefusedImports(t *testing.T) {
+	h := newHarness(t)
+	h.meta.numbers["555004"] = "+91 90000 00004"
+	h.meta.smbErr = `{"error":{"message":"(#135000) Generic user error","type":"OAuthException","code":135000}}`
+	c := h.newClient()
+	me := c.signup("recoex@example.com", "Reconnect Traders")
+
+	var sess onboarding.SessionView
+	c.do("POST", "/internal/onboarding/sessions", map[string]string{"flow": "coexistence"}, http.StatusCreated, &sess)
+	c.do("POST", "/internal/onboarding/sessions/"+sess.ID.String()+"/complete", map[string]string{
+		"code": "code5", "waba_id": "1100444",
+	}, http.StatusOK, &sess)
+	if err := h.runJob(me.Tenant.ID, sess.ID, 1); err != nil {
+		t.Fatalf("worker: %v", err)
+	}
+	c.do("GET", "/internal/onboarding/sessions/"+sess.ID.String(), nil, http.StatusOK, &sess)
+	if sess.State != "completed" {
+		t.Fatalf("session = %+v", sess)
+	}
+	if h.meta.called("POST /555004/smb_app_data") != 2 {
+		t.Errorf("smb_app_data calls = %d, want 2", h.meta.called("POST /555004/smb_app_data"))
 	}
 }
 

@@ -56,6 +56,22 @@ func coexistenceError(err error) error {
 	return err
 }
 
+// skippableSync returns nil when Meta refused a contacts or chat history import in a way that
+// should not stop the connection. Meta allows each import only once per onboarding and only
+// within 24 hours of it, so reconnecting a number that was connected before (or retrying a day
+// later) is refused, often with a bare "(#135000) Generic user error". The number still works
+// for messaging, so the connection carries on without the import. Retryable errors and 133010
+// (number not on the Business app) are returned unchanged.
+func (w *Worker) skippableSync(err error, sess dbq.OnboardingSession, what string) error {
+	var me *metaclient.Error
+	if !errors.As(err, &me) || me.Retryable() || me.Code == 133010 {
+		return err
+	}
+	w.log.Warn("onboarding: Meta refused the "+what+" import; continuing without it",
+		"session_id", sess.ID, "code", me.Code, "err", err)
+	return nil
+}
+
 // stepError is a failure the client has to act on; it stops the job instead of retrying.
 type stepError struct {
 	code, msg string
@@ -167,7 +183,9 @@ func (w *Worker) step(ctx context.Context, tenantID uuid.UUID, sess dbq.Onboardi
 		if sess.Flow == dbq.OnboardingFlowCoexistence {
 			// The number stays registered to the Business app; ask Meta to send its contacts.
 			if err := w.meta.RequestSMBAppData(ctx, token, pn.ID, metaclient.SyncContacts); err != nil {
-				return "", coexistenceError(err)
+				if err := w.skippableSync(err, sess, "contacts"); err != nil {
+					return "", coexistenceError(err)
+				}
 			}
 			return dbq.OnboardingStepContactsSyncRequested, w.commit(ctx, tenantID, sess.ID, dbq.OnboardingStepContactsSyncRequested, nil)
 		}
@@ -206,7 +224,9 @@ func (w *Worker) step(ctx context.Context, tenantID uuid.UUID, sess dbq.Onboardi
 
 	case dbq.OnboardingStepContactsSyncRequested:
 		if err := w.meta.RequestSMBAppData(ctx, token, deref(sess.PhoneNumberID), metaclient.SyncHistory); err != nil {
-			return "", err
+			if err := w.skippableSync(err, sess, "history"); err != nil {
+				return "", err
+			}
 		}
 		return dbq.OnboardingStepHistorySyncRequested, w.commit(ctx, tenantID, sess.ID, dbq.OnboardingStepHistorySyncRequested, nil)
 

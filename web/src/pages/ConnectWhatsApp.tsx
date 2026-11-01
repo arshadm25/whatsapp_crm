@@ -232,7 +232,7 @@ function Progress({ id, onRestart }: { id: string; onRestart: () => void }) {
       {s.state === "failed" && s.error && (
         <div className="banner danger" style={{ margin: 0 }}>
           <Icon name="alert" size="s" />
-          <div><b>{t("connect.stepFailed", { step: t(`connect.steps.${signupStep ? "code_received" : s.step}`) })}</b><span>{s.error.message}</span></div>
+          <div><b>{t("connect.stepFailed", { step: t(`connect.steps.${signupStep ? "code_received" : (steps[reached] ?? s.step)}`) })}</b><span>{s.error.message}</span></div>
           {!signupStep && <button className="sm" onClick={retry}><Icon name="refresh" size="xs" />{t("connect.retry")}</button>}
         </div>
       )}
