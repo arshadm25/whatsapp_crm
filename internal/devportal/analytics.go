@@ -222,7 +222,12 @@ type LogEntry struct {
 	Status     int16     `json:"status"`
 	DurationMs int32     `json:"duration_ms"`
 	RequestID  string    `json:"request_id"`
-	CreatedAt  time.Time `json:"created_at"`
+	// Why the call failed, for a status of 400 or above: the error code and message the caller
+	// got, and Meta's error code when Meta refused it. Empty for calls logged before 2 Nov 2026.
+	ErrorCode     string    `json:"error_code,omitempty"`
+	ErrorMessage  string    `json:"error_message,omitempty"`
+	MetaErrorCode int32     `json:"meta_error_code,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // listLogs serves the request log, newest first. Filters: api_key_id, status (2xx, 3xx, 4xx,
@@ -287,7 +292,8 @@ func (s *Service) listLogs(w http.ResponseWriter, r *http.Request) error {
 		for _, l := range rows {
 			out = append(out, LogEntry{ID: l.ID, APIKeyID: l.ApiKeyID, KeyName: l.KeyName, KeyPrefix: l.KeyPrefix,
 				Method: l.Method, Path: l.Path, Route: l.Route, Status: l.Status, DurationMs: l.DurationMs,
-				RequestID: l.RequestID, CreatedAt: l.CreatedAt})
+				RequestID: l.RequestID, ErrorCode: l.ErrorCode, ErrorMessage: l.ErrorMessage,
+				MetaErrorCode: l.MetaErrorCode, CreatedAt: l.CreatedAt})
 		}
 		total, err = q.CountAPIRequestLog(r.Context(), dbq.CountAPIRequestLogParams{ApiKeyID: arg.ApiKeyID,
 			StatusClass: arg.StatusClass, ErrorsOnly: arg.ErrorsOnly, Method: arg.Method, Path: arg.Path})

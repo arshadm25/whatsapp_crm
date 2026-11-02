@@ -42,7 +42,24 @@ var (
 
 type ctxKey int
 
-const requestIDKey ctxKey = iota
+const (
+	requestIDKey ctxKey = iota
+	errorNoteKey
+)
+
+// ErrorNote holds the error a request answered with, so a middleware that wraps the handler
+// (the public API's request log) can record why a call failed, not only its status.
+type ErrorNote struct {
+	Code          string
+	Message       string
+	MetaErrorCode int
+}
+
+// WithErrorNote returns a context in which WriteError fills the returned note.
+func WithErrorNote(ctx context.Context) (context.Context, *ErrorNote) {
+	n := &ErrorNote{}
+	return context.WithValue(ctx, errorNoteKey, n), n
+}
 
 // RequestID tags each request with an ID, echoed in X-Request-Id and in error bodies.
 func RequestID(next http.Handler) http.Handler {
@@ -106,6 +123,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err er
 	if !errors.As(err, &apiErr) {
 		log.Error("internal error", "err", err, "path", r.URL.Path, "request_id", GetRequestID(r.Context()))
 		apiErr = NewError(http.StatusInternalServerError, "internal_error", "Something went wrong on our side. Please try again.")
+	}
+	if n, ok := r.Context().Value(errorNoteKey).(*ErrorNote); ok {
+		n.Code, n.Message, n.MetaErrorCode = apiErr.Code, apiErr.Message, apiErr.MetaErrorCode
 	}
 	body := *apiErr
 	body.RequestID = GetRequestID(r.Context())

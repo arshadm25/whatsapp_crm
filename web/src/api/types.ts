@@ -829,6 +829,10 @@ export interface APILogEntry {
   status: number;
   duration_ms: number;
   request_id: string;
+  // Why the call failed (status 400 or above); absent on successes and on calls before 2 Nov 2026.
+  error_code?: string;
+  error_message?: string;
+  meta_error_code?: number;
   created_at: string;
 }
 

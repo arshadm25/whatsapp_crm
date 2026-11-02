@@ -27,8 +27,10 @@ WHERE hour >= date_trunc('hour', @since::timestamptz)
 GROUP BY api_key_id;
 
 -- name: InsertAPIRequestLog :exec
-INSERT INTO api_request_log (tenant_id, api_key_id, method, path, route, status, duration_ms, request_id)
-VALUES (@tenant_id, @api_key_id, @method, @path, @route, @status, @duration_ms, @request_id);
+INSERT INTO api_request_log (tenant_id, api_key_id, method, path, route, status, duration_ms, request_id,
+                             error_code, error_message, meta_error_code)
+VALUES (@tenant_id, @api_key_id, @method, @path, @route, @status, @duration_ms, @request_id,
+        @error_code, @error_message, @meta_error_code);
 
 -- name: APIUsageSeries :many
 -- Calls and errors per key and bucket (an hour, or a day in the workspace's time zone) since a time.
@@ -44,7 +46,7 @@ ORDER BY 2;
 -- name: ListAPIRequestLog :many
 -- Newest first, before an id for paging. status_class: 2, 3, 4 or 5 for that hundred, 0 for any.
 SELECT l.id, l.api_key_id, k.name AS key_name, k.prefix AS key_prefix, l.method, l.path, l.route,
-       l.status, l.duration_ms, l.request_id, l.created_at
+       l.status, l.duration_ms, l.request_id, l.error_code, l.error_message, l.meta_error_code, l.created_at
 FROM api_request_log l JOIN api_keys k ON k.id = l.api_key_id
 WHERE (sqlc.narg(before)::bigint IS NULL OR l.id < sqlc.narg(before)::bigint)
   AND (sqlc.narg(api_key_id)::uuid IS NULL OR l.api_key_id = sqlc.narg(api_key_id)::uuid)

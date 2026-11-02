@@ -181,7 +181,10 @@ function RequestLog({ keys }: { keys: APIKey[] }) {
                     <td title={new Date(l.created_at).toLocaleString()}>
                       {new Date(l.created_at).getTime() >= dayAgo ? shortTime(l.created_at) : new Date(l.created_at).toLocaleString()}
                     </td>
-                    <td className="k"><span className="method">{l.method}</span>{l.path}</td>
+                    <td className="k">
+                      <span className="method">{l.method}</span>{l.path}
+                      {l.error_code && <div className="muted" style={{ fontSize: 12 }}>{l.error_code}{l.meta_error_code ? ` · Meta #${l.meta_error_code}` : ""}</div>}
+                    </td>
                     <td><span className={`pill ${statusTone(l.status)}`}>{l.status}</span></td>
                     <td className="r num-t">{l.duration_ms < 1 ? "<1 ms" : ms(l.duration_ms)}</td>
                     <td>{l.key_name}</td>
@@ -195,6 +198,13 @@ function RequestLog({ keys }: { keys: APIKey[] }) {
                     <tr>
                       <td colSpan={6} className="log-detail">
                         <dl>
+                          {l.status >= 400 && (
+                            <>
+                              <dt>{t("devpages.errorReason")}</dt>
+                              <dd>{l.error_code ? <><span className="k">{l.error_code}</span> · {l.error_message}</> : <span className="muted">{t("devpages.errorReasonMissing")}</span>}</dd>
+                              {!!l.meta_error_code && <><dt>{t("devpages.metaErrorCode")}</dt><dd className="k">{l.meta_error_code}</dd></>}
+                            </>
+                          )}
                           <dt>{t("devpages.route")}</dt><dd className="k">{l.route || "—"}</dd>
                           <dt>{t("devpages.requestId")}</dt><dd className="k">{l.request_id || "—"}</dd>
                           <dt>{t("developers.key")}</dt><dd className="k">{l.key_name} · {l.key_prefix}••••</dd>

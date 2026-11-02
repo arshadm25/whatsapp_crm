@@ -1768,7 +1768,10 @@
     "details": "ವಿವರಗಳು",
     "hideDetails": "ಮರೆಮಾಡಿ",
     "route": "ರೂಟ್",
-    "requestId": "ವಿನಂತಿ ID"
+    "requestId": "ವಿನಂತಿ ID",
+    "errorReason": "ದೋಷ",
+    "metaErrorCode": "Meta ದೋಷ ಕೋಡ್",
+    "errorReasonMissing": "2 ನವೆಂಬರ್ 2026 ರಿಂದ ಬಂದ ದೋಷಗಳಿಗೆ ದಾಖಲಿಸಲಾಗುತ್ತದೆ"
   },
   "pager": {
     "rangeOf": "{{total}} ರಲ್ಲಿ {{from}}–{{to}}",

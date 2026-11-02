@@ -1768,7 +1768,10 @@
     "details": "వివరాలు",
     "hideDetails": "దాచు",
     "route": "రూట్",
-    "requestId": "అభ్యర్థన ID"
+    "requestId": "అభ్యర్థన ID",
+    "errorReason": "లోపం",
+    "metaErrorCode": "Meta లోపం కోడ్",
+    "errorReasonMissing": "2 నవంబర్ 2026 నుండి వచ్చిన లోపాలకు నమోదు చేయబడుతుంది"
   },
   "pager": {
     "rangeOf": "{{total}}లో {{from}}–{{to}}",
