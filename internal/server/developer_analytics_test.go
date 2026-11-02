@@ -44,8 +44,19 @@ func TestDeveloperAnalyticsAndRequestLog(t *testing.T) {
 		t.Fatalf("logs = %+v", logs)
 	}
 	c.do("GET", "/internal/developers/logs?status=errors", nil, http.StatusOK, &logs)
-	if len(logs.Data) != 1 || logs.Data[0].Status != 404 || logs.Data[0].RequestID == "" || logs.Data[0].Path != "/v1/conversations/not-an-id" || logs.Data[0].Route != "/v1/conversations/{id}" {
+	if len(logs.Data) != 1 || logs.Data[0].Status != 404 || logs.Data[0].RequestID == "" || logs.Data[0].Path != "/v1/conversations/not-an-id" || logs.Data[0].Route != "/v1/conversations/{id}" ||
+		logs.Data[0].ErrorCode != "not_found" || logs.Data[0].ErrorMessage == "" {
 		t.Fatalf("error logs = %+v", logs)
+	}
+	// A fresh value: decoding into logs would keep the error fields that omitempty leaves out.
+	var ok struct {
+		Data []devportal.LogEntry `json:"data"`
+	}
+	c.do("GET", "/internal/developers/logs?status=2xx", nil, http.StatusOK, &ok)
+	for _, l := range ok.Data {
+		if l.ErrorCode != "" || l.ErrorMessage != "" {
+			t.Fatalf("successful call has an error recorded: %+v", l)
+		}
 	}
 	c.do("GET", "/internal/developers/logs?api_key_id="+shop.ID.String()+"&status=2xx&path=templ", nil, http.StatusOK, &logs)
 	if len(logs.Data) != 1 || logs.Data[0].Path != "/v1/templates" || logs.Total != 1 {

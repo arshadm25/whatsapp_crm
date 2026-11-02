@@ -1768,7 +1768,10 @@
     "details": "বিস্তারিত",
     "hideDetails": "লুকান",
     "route": "রুট",
-    "requestId": "অনুরোধ ID"
+    "requestId": "অনুরোধ ID",
+    "errorReason": "ত্রুটি",
+    "metaErrorCode": "Meta ত্রুটি কোড",
+    "errorReasonMissing": "২ নভেম্বর ২০২৬ থেকে হওয়া ত্রুটির জন্য রেকর্ড করা হয়"
   },
   "pager": {
     "rangeOf": "{{total}}-এর মধ্যে {{from}}–{{to}}",

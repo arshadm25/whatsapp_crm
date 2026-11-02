@@ -1306,16 +1306,19 @@ type ApiKey struct {
 }
 
 type ApiRequestLog struct {
-	ID         int64
-	TenantID   uuid.UUID
-	ApiKeyID   uuid.UUID
-	Method     string
-	Path       string
-	Route      string
-	Status     int16
-	DurationMs int32
-	RequestID  string
-	CreatedAt  time.Time
+	ID            int64
+	TenantID      uuid.UUID
+	ApiKeyID      uuid.UUID
+	Method        string
+	Path          string
+	Route         string
+	Status        int16
+	DurationMs    int32
+	RequestID     string
+	CreatedAt     time.Time
+	ErrorCode     string
+	ErrorMessage  string
+	MetaErrorCode int32
 }
 
 type ApiUsageHourly struct {

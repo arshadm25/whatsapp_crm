@@ -353,19 +353,24 @@ func (q *Queries) InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (Api
 }
 
 const insertAPIRequestLog = `-- name: InsertAPIRequestLog :exec
-INSERT INTO api_request_log (tenant_id, api_key_id, method, path, route, status, duration_ms, request_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO api_request_log (tenant_id, api_key_id, method, path, route, status, duration_ms, request_id,
+                             error_code, error_message, meta_error_code)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11)
 `
 
 type InsertAPIRequestLogParams struct {
-	TenantID   uuid.UUID
-	ApiKeyID   uuid.UUID
-	Method     string
-	Path       string
-	Route      string
-	Status     int16
-	DurationMs int32
-	RequestID  string
+	TenantID      uuid.UUID
+	ApiKeyID      uuid.UUID
+	Method        string
+	Path          string
+	Route         string
+	Status        int16
+	DurationMs    int32
+	RequestID     string
+	ErrorCode     string
+	ErrorMessage  string
+	MetaErrorCode int32
 }
 
 func (q *Queries) InsertAPIRequestLog(ctx context.Context, arg InsertAPIRequestLogParams) error {
@@ -378,6 +383,9 @@ func (q *Queries) InsertAPIRequestLog(ctx context.Context, arg InsertAPIRequestL
 		arg.Status,
 		arg.DurationMs,
 		arg.RequestID,
+		arg.ErrorCode,
+		arg.ErrorMessage,
+		arg.MetaErrorCode,
 	)
 	return err
 }
@@ -420,7 +428,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context) ([]ApiKey, error) {
 
 const listAPIRequestLog = `-- name: ListAPIRequestLog :many
 SELECT l.id, l.api_key_id, k.name AS key_name, k.prefix AS key_prefix, l.method, l.path, l.route,
-       l.status, l.duration_ms, l.request_id, l.created_at
+       l.status, l.duration_ms, l.request_id, l.error_code, l.error_message, l.meta_error_code, l.created_at
 FROM api_request_log l JOIN api_keys k ON k.id = l.api_key_id
 WHERE ($1::bigint IS NULL OR l.id < $1::bigint)
   AND ($2::uuid IS NULL OR l.api_key_id = $2::uuid)
@@ -443,17 +451,20 @@ type ListAPIRequestLogParams struct {
 }
 
 type ListAPIRequestLogRow struct {
-	ID         int64
-	ApiKeyID   uuid.UUID
-	KeyName    string
-	KeyPrefix  string
-	Method     string
-	Path       string
-	Route      string
-	Status     int16
-	DurationMs int32
-	RequestID  string
-	CreatedAt  time.Time
+	ID            int64
+	ApiKeyID      uuid.UUID
+	KeyName       string
+	KeyPrefix     string
+	Method        string
+	Path          string
+	Route         string
+	Status        int16
+	DurationMs    int32
+	RequestID     string
+	ErrorCode     string
+	ErrorMessage  string
+	MetaErrorCode int32
+	CreatedAt     time.Time
 }
 
 // Newest first, before an id for paging. status_class: 2, 3, 4 or 5 for that hundred, 0 for any.
@@ -485,6 +496,9 @@ func (q *Queries) ListAPIRequestLog(ctx context.Context, arg ListAPIRequestLogPa
 			&i.Status,
 			&i.DurationMs,
 			&i.RequestID,
+			&i.ErrorCode,
+			&i.ErrorMessage,
+			&i.MetaErrorCode,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

@@ -1768,7 +1768,10 @@
     "details": "விவரங்கள்",
     "hideDetails": "மறை",
     "route": "வழி",
-    "requestId": "கோரிக்கை ID"
+    "requestId": "கோரிக்கை ID",
+    "errorReason": "பிழை",
+    "metaErrorCode": "Meta பிழைக் குறியீடு",
+    "errorReasonMissing": "2 நவம்பர் 2026 முதல் வந்த பிழைகளுக்குப் பதிவு செய்யப்படுகிறது"
   },
   "pager": {
     "rangeOf": "{{total}}-இல் {{from}}–{{to}}",

@@ -1768,7 +1768,10 @@
     "details": "विवरण",
     "hideDetails": "छिपाएँ",
     "route": "रूट",
-    "requestId": "अनुरोध ID"
+    "requestId": "अनुरोध ID",
+    "errorReason": "त्रुटि",
+    "metaErrorCode": "Meta त्रुटि कोड",
+    "errorReasonMissing": "2 नवंबर 2026 से हुई त्रुटियों के लिए दर्ज"
   },
   "pager": {
     "rangeOf": "{{total}} में से {{from}}–{{to}}",

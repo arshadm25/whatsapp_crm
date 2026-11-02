@@ -1768,7 +1768,10 @@
     "details": "വിശദാംശങ്ങൾ",
     "hideDetails": "മറയ്ക്കുക",
     "route": "റൂട്ട്",
-    "requestId": "അഭ്യർത്ഥന ID"
+    "requestId": "അഭ്യർത്ഥന ID",
+    "errorReason": "പിശക്",
+    "metaErrorCode": "Meta പിശക് കോഡ്",
+    "errorReasonMissing": "2026 നവംബർ 2 മുതലുള്ള പിശകുകൾക്ക് രേഖപ്പെടുത്തുന്നു"
   },
   "pager": {
     "rangeOf": "{{total}}-ൽ {{from}}–{{to}}",
